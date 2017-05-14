@@ -91,21 +91,44 @@ struct userfaultfd_wake_range {
 	unsigned long len;
 };
 
-static int userfaultfd_wake_function(wait_queue_entry_t *wq, unsigned mode,
-				     int wake_flags, void *key)
+struct userfaultfd_wake_key {
+	u8 event;
+	union {
+		struct userfaultfd_wake_range range;
+	} arg;
+};
+
+static bool userfaultfd_should_wake(struct userfaultfd_wait_queue *uwq,
+				    struct userfaultfd_wake_key *key)
 {
-	struct userfaultfd_wake_range *range = key;
+	/* key->event == 0 means wake all */
+	if (key->event && key->event != uwq->msg.event)
+		return false;
+
+	if (key->event == UFFD_EVENT_PAGEFAULT) {
+		unsigned long start, len, address;
+
+		/* len == 0 means wake all threads waiting on page fault */
+		address = uwq->msg.arg.pagefault.address;
+		start = key->arg.range.start;
+		len = key->arg.range.len;
+		if (len && (start > address || start + len <= address))
+			return false;
+	}
+
+	return true;
+}
+
+static int userfaultfd_wake_function(wait_queue_entry_t *wq, unsigned mode,
+				     int wake_flags, void *_key)
+{
+	struct userfaultfd_wake_key *key = _key;
 	int ret;
 	struct userfaultfd_wait_queue *uwq;
-	unsigned long start, len;
 
 	uwq = container_of(wq, struct userfaultfd_wait_queue, wq);
 	ret = 0;
-	/* len == 0 means wake all */
-	start = range->start;
-	len = range->len;
-	if (len && (start > uwq->msg.arg.pagefault.address ||
-		    start + len <= uwq->msg.arg.pagefault.address))
+	if (!userfaultfd_should_wake(uwq, key))
 		goto out;
 	WRITE_ONCE(uwq->waken, true);
 	/*
@@ -585,7 +608,7 @@ static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
 		goto out;
 
 	ewq->ctx = ctx;
-	init_waitqueue_entry(&ewq->wq, current);
+	userfaultfd_init_waitqueue(ctx, ewq);
 	release_new_ctx = NULL;
 
 	spin_lock(&ctx->event_wqh.lock);
@@ -596,7 +619,7 @@ static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
 	__add_wait_queue(&ctx->event_wqh, &ewq->wq);
 	for (;;) {
 		set_current_state(TASK_KILLABLE);
-		if (ewq->msg.event == 0)
+		if (READ_ONCE(ewq->waken))
 			break;
 		if (READ_ONCE(ctx->released) ||
 		    fatal_signal_pending(current)) {
@@ -653,9 +676,10 @@ out:
 static void userfaultfd_event_complete(struct userfaultfd_ctx *ctx,
 				       struct userfaultfd_wait_queue *ewq)
 {
-	ewq->msg.event = 0;
-	wake_up_locked(&ctx->event_wqh);
-	__remove_wait_queue(&ctx->event_wqh, &ewq->wq);
+	struct userfaultfd_wake_key key = { 0 };
+
+	key.event = ewq->msg.event;
+	 __wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
 }
 
 int dup_userfaultfd(struct vm_area_struct *vma, struct list_head *fcs)
@@ -854,8 +878,10 @@ static int userfaultfd_release(struct inode *inode, struct file *file)
 	struct userfaultfd_ctx *ctx = file->private_data;
 	struct mm_struct *mm = ctx->mm;
 	struct vm_area_struct *vma, *prev;
-	/* len == 0 means wake all */
-	struct userfaultfd_wake_range range = { .len = 0, };
+	/* event == 0 means wake all */
+	struct userfaultfd_wake_key key = {
+		.event = 0,
+	};
 	unsigned long new_flags;
 
 	WRITE_ONCE(ctx->released, true);
@@ -903,12 +929,12 @@ wakeup:
 	 * the fault_*wqh.
 	 */
 	spin_lock(&ctx->fault_pending_wqh.lock);
-	__wake_up_locked_key(&ctx->fault_pending_wqh, TASK_NORMAL, &range);
-	__wake_up_locked_key(&ctx->fault_wqh, TASK_NORMAL, &range);
+	__wake_up_locked_key(&ctx->fault_pending_wqh, TASK_NORMAL, &key);
+	__wake_up_locked_key(&ctx->fault_wqh, TASK_NORMAL, &key);
 	spin_unlock(&ctx->fault_pending_wqh.lock);
 
 	/* Flush pending events that may still wait on event_wqh */
-	wake_up_all(&ctx->event_wqh);
+	__wake_up(&ctx->event_wqh, TASK_NORMAL, 0, &key);
 
 	wake_up_poll(&ctx->fd_wqh, EPOLLHUP);
 	userfaultfd_ctx_put(ctx);
@@ -1201,20 +1227,20 @@ static ssize_t userfaultfd_read(struct file *file, char __user *buf,
 }
 
 static void __wake_userfault(struct userfaultfd_ctx *ctx,
-			     struct userfaultfd_wake_range *range)
+			     struct userfaultfd_wake_key *key)
 {
 	spin_lock(&ctx->fault_pending_wqh.lock);
 	/* wake all in the range and autoremove */
 	if (waitqueue_active(&ctx->fault_pending_wqh))
 		__wake_up_locked_key(&ctx->fault_pending_wqh, TASK_NORMAL,
-				     range);
+				     key);
 	if (waitqueue_active(&ctx->fault_wqh))
-		__wake_up_locked_key(&ctx->fault_wqh, TASK_NORMAL, range);
+		__wake_up_locked_key(&ctx->fault_wqh, TASK_NORMAL, key);
 	spin_unlock(&ctx->fault_pending_wqh.lock);
 }
 
 static __always_inline void wake_userfault(struct userfaultfd_ctx *ctx,
-					   struct userfaultfd_wake_range *range)
+					   struct userfaultfd_wake_key *key)
 {
 	unsigned seq;
 	bool need_wakeup;
@@ -1241,7 +1267,7 @@ static __always_inline void wake_userfault(struct userfaultfd_ctx *ctx,
 		cond_resched();
 	} while (read_seqcount_retry(&ctx->refile_seq, seq));
 	if (need_wakeup)
-		__wake_userfault(ctx, range);
+		__wake_userfault(ctx, key);
 }
 
 static __always_inline int validate_range(struct mm_struct *mm,
@@ -1567,10 +1593,11 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 			 * permanently and it avoids userland to call
 			 * UFFDIO_WAKE explicitly.
 			 */
-			struct userfaultfd_wake_range range;
-			range.start = start;
-			range.len = vma_end - start;
-			wake_userfault(vma->vm_userfaultfd_ctx.ctx, &range);
+			struct userfaultfd_wake_key key;
+			key.event = UFFD_EVENT_PAGEFAULT;
+			key.arg.range.start = start;
+			key.arg.range.len = vma_end - start;
+			wake_userfault(vma->vm_userfaultfd_ctx.ctx, &key);
 		}
 
 		new_flags = vma->vm_flags & ~(VM_UFFD_MISSING | VM_UFFD_WP);
@@ -1622,7 +1649,7 @@ static int userfaultfd_wake(struct userfaultfd_ctx *ctx,
 {
 	int ret;
 	struct uffdio_range uffdio_wake;
-	struct userfaultfd_wake_range range;
+	struct userfaultfd_wake_key key;
 	const void __user *buf = (void __user *)arg;
 
 	ret = -EFAULT;
@@ -1633,16 +1660,17 @@ static int userfaultfd_wake(struct userfaultfd_ctx *ctx,
 	if (ret)
 		goto out;
 
-	range.start = uffdio_wake.start;
-	range.len = uffdio_wake.len;
+	key.event = UFFD_EVENT_PAGEFAULT;
+	key.arg.range.start = uffdio_wake.start;
+	key.arg.range.len = uffdio_wake.len;
 
 	/*
 	 * len == 0 means wake all and we don't want to wake all here,
 	 * so check it again to be sure.
 	 */
-	VM_BUG_ON(!range.len);
+	VM_BUG_ON(!key.arg.range.len);
 
-	wake_userfault(ctx, &range);
+	wake_userfault(ctx, &key);
 	ret = 0;
 
 out:
@@ -1655,7 +1683,7 @@ static int userfaultfd_copy(struct userfaultfd_ctx *ctx,
 	__s64 ret;
 	struct uffdio_copy uffdio_copy;
 	struct uffdio_copy __user *user_uffdio_copy;
-	struct userfaultfd_wake_range range;
+	struct userfaultfd_wake_key key;
 
 	user_uffdio_copy = (struct uffdio_copy __user *) arg;
 
@@ -1691,12 +1719,13 @@ static int userfaultfd_copy(struct userfaultfd_ctx *ctx,
 		goto out;
 	BUG_ON(!ret);
 	/* len == 0 would wake all */
-	range.len = ret;
+	key.event = UFFD_EVENT_PAGEFAULT;
+	key.arg.range.len = ret;
 	if (!(uffdio_copy.mode & UFFDIO_COPY_MODE_DONTWAKE)) {
-		range.start = uffdio_copy.dst;
-		wake_userfault(ctx, &range);
+		key.arg.range.start = uffdio_copy.dst;
+		wake_userfault(ctx, &key);
 	}
-	ret = range.len == uffdio_copy.len ? 0 : -EAGAIN;
+	ret = key.arg.range.len == uffdio_copy.len ? 0 : -EAGAIN;
 out:
 	return ret;
 }
@@ -1707,7 +1736,7 @@ static int userfaultfd_zeropage(struct userfaultfd_ctx *ctx,
 	__s64 ret;
 	struct uffdio_zeropage uffdio_zeropage;
 	struct uffdio_zeropage __user *user_uffdio_zeropage;
-	struct userfaultfd_wake_range range;
+	struct userfaultfd_wake_key key;
 
 	user_uffdio_zeropage = (struct uffdio_zeropage __user *) arg;
 
@@ -1738,12 +1767,13 @@ static int userfaultfd_zeropage(struct userfaultfd_ctx *ctx,
 		goto out;
 	/* len == 0 would wake all */
 	BUG_ON(!ret);
-	range.len = ret;
+	key.event = UFFD_EVENT_PAGEFAULT;
+	key.arg.range.len = ret;
 	if (!(uffdio_zeropage.mode & UFFDIO_ZEROPAGE_MODE_DONTWAKE)) {
-		range.start = uffdio_zeropage.range.start;
-		wake_userfault(ctx, &range);
+		key.arg.range.start = uffdio_zeropage.range.start;
+		wake_userfault(ctx, &key);
 	}
-	ret = range.len == uffdio_zeropage.range.len ? 0 : -EAGAIN;
+	ret = key.arg.range.len == uffdio_zeropage.range.len ? 0 : -EAGAIN;
 out:
 	return ret;
 }
