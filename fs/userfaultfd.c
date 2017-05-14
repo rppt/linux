@@ -91,21 +91,31 @@ struct userfaultfd_wake_range {
 	unsigned long len;
 };
 
+static bool userfaultfd_should_wake(struct userfaultfd_wait_queue *uwq,
+				    struct userfaultfd_wake_range *range)
+{
+	unsigned long start, len, address;
+
+	/* len == 0 means wake all */
+	address = uwq->msg.arg.pagefault.address;
+	start = range->start;
+	len = range->len;
+	if (len && (start > address || start + len <= address))
+		return false;
+
+	return true;
+}
+
 static int userfaultfd_wake_function(wait_queue_t *wq, unsigned mode,
 				     int wake_flags, void *key)
 {
 	struct userfaultfd_wake_range *range = key;
 	int ret;
 	struct userfaultfd_wait_queue *uwq;
-	unsigned long start, len;
 
 	uwq = container_of(wq, struct userfaultfd_wait_queue, wq);
 	ret = 0;
-	/* len == 0 means wake all */
-	start = range->start;
-	len = range->len;
-	if (len && (start > uwq->msg.arg.pagefault.address ||
-		    start + len <= uwq->msg.arg.pagefault.address))
+	if (!userfaultfd_should_wake(uwq, range))
 		goto out;
 	WRITE_ONCE(uwq->waken, true);
 	/*
