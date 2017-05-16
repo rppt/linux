@@ -50,6 +50,8 @@ struct userfaultfd_ctx {
 	wait_queue_head_t fd_wqh;
 	/* waitqueue head for events */
 	wait_queue_head_t event_wqh;
+	/* waitqueue head for sync events */
+	wait_queue_head_t event_sync_wqh;
 	/* a refile sequence protected by fault_pending_wqh lock */
 	struct seqcount refile_seq;
 	/* pseudo fd refcounting */
@@ -113,6 +115,17 @@ static bool userfaultfd_should_wake(struct userfaultfd_wait_queue *uwq,
 		start = key->arg.range.start;
 		len = key->arg.range.len;
 		if (len && (start > address || start + len <= address))
+			return false;
+	}
+
+	if (key->event == UFFD_EVENT_REMOVE_SYNC) {
+		unsigned long start, end;
+
+		start = key->arg.range.start;
+		end = start + key->arg.range.len;
+
+		if (start != uwq->msg.arg.remove.start ||
+		    end != uwq->msg.arg.remove.end)
 			return false;
 	}
 
@@ -191,6 +204,8 @@ static void userfaultfd_ctx_put(struct userfaultfd_ctx *ctx)
 		VM_BUG_ON(waitqueue_active(&ctx->fault_wqh));
 		VM_BUG_ON(spin_is_locked(&ctx->event_wqh.lock));
 		VM_BUG_ON(waitqueue_active(&ctx->event_wqh));
+		VM_BUG_ON(spin_is_locked(&ctx->event_sync_wqh.lock));
+		VM_BUG_ON(waitqueue_active(&ctx->event_sync_wqh));
 		VM_BUG_ON(spin_is_locked(&ctx->fd_wqh.lock));
 		VM_BUG_ON(waitqueue_active(&ctx->fd_wqh));
 		mmdrop(ctx->mm);
@@ -676,7 +691,19 @@ out:
 static void userfaultfd_event_complete(struct userfaultfd_ctx *ctx,
 				       struct userfaultfd_wait_queue *ewq)
 {
-	struct userfaultfd_wake_key key = { 0 };
+	struct userfaultfd_wake_key key;
+
+	/*
+	 * For synchronous events we don't wake up the thread that
+	 * caused the event, but rather refile it onto
+	 * event_sync_wqh. The userfault monitor has to explicitly
+	 * wake it with ioctl(UFFDIO_WAKE_SYNC_EVENT)
+	 */
+	if (ewq->msg.event & UFFD_EVENT_FLAG_SYNC) {
+		list_del(&ewq->wq.entry);
+		__add_wait_queue(&ctx->event_sync_wqh, &ewq->wq);
+		return;
+	}
 
 	key.event = ewq->msg.event;
 	 __wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
@@ -798,7 +825,8 @@ bool userfaultfd_remove(struct vm_area_struct *vma,
 	struct userfaultfd_wait_queue ewq;
 
 	ctx = vma->vm_userfaultfd_ctx.ctx;
-	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_REMOVE))
+	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_REMOVE ||
+		      ctx->features & UFFD_FEATURE_EVENT_REMOVE_SYNC))
 		return true;
 
 	userfaultfd_ctx_get(ctx);
@@ -807,6 +835,9 @@ bool userfaultfd_remove(struct vm_area_struct *vma,
 	msg_init(&ewq.msg);
 
 	ewq.msg.event = UFFD_EVENT_REMOVE;
+	if (ctx->features & UFFD_FEATURE_EVENT_REMOVE_SYNC)
+		ewq.msg.event |= UFFD_EVENT_FLAG_SYNC;
+
 	ewq.msg.arg.remove.start = start;
 	ewq.msg.arg.remove.end = end;
 
@@ -935,6 +966,7 @@ wakeup:
 
 	/* Flush pending events that may still wait on event_wqh */
 	__wake_up(&ctx->event_wqh, TASK_NORMAL, 0, &key);
+	__wake_up(&ctx->event_sync_wqh, TASK_NORMAL, 0, &key);
 
 	wake_up_poll(&ctx->fd_wqh, EPOLLHUP);
 	userfaultfd_ctx_put(ctx);
@@ -1677,6 +1709,31 @@ out:
 	return ret;
 }
 
+static int userfaultfd_wake_sync_event(struct userfaultfd_ctx *ctx,
+				       unsigned long arg)
+{
+	struct uffd_msg uffd_msg;
+	struct userfaultfd_wake_key key;
+	const void __user *buf = (void __user *)arg;
+
+	if (copy_from_user(&uffd_msg, buf, sizeof(uffd_msg)))
+		return -EFAULT;
+
+	if (uffd_msg.event != UFFD_EVENT_REMOVE_SYNC)
+		return -EINVAL;
+
+	key.event = uffd_msg.event;
+	key.arg.range.start = uffd_msg.arg.remove.start;
+	key.arg.range.len = uffd_msg.arg.remove.end - uffd_msg.arg.remove.start;
+
+	spin_lock(&ctx->event_wqh.lock);
+	if (waitqueue_active(&ctx->event_sync_wqh))
+		__wake_up_locked_key(&ctx->event_sync_wqh, TASK_NORMAL, &key);
+	spin_unlock(&ctx->event_wqh.lock);
+
+	return 0;
+}
+
 static int userfaultfd_copy(struct userfaultfd_ctx *ctx,
 			    unsigned long arg)
 {
@@ -1849,6 +1906,9 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 	case UFFDIO_WAKE:
 		ret = userfaultfd_wake(ctx, arg);
 		break;
+	case UFFDIO_WAKE_SYNC_EVENT:
+		ret = userfaultfd_wake_sync_event(ctx, arg);
+		break;
 	case UFFDIO_COPY:
 		ret = userfaultfd_copy(ctx, arg);
 		break;
@@ -1909,6 +1969,7 @@ static void init_once_userfaultfd_ctx(void *mem)
 	init_waitqueue_head(&ctx->fault_pending_wqh);
 	init_waitqueue_head(&ctx->fault_wqh);
 	init_waitqueue_head(&ctx->event_wqh);
+	init_waitqueue_head(&ctx->event_sync_wqh);
 	init_waitqueue_head(&ctx->fd_wqh);
 	seqcount_init(&ctx->refile_seq);
 }
