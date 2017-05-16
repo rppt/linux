@@ -681,6 +681,14 @@ static void userfaultfd_event_complete(struct userfaultfd_ctx *ctx,
 {
 	struct userfaultfd_wake_key key = { 0 };
 
+	/*
+	 * For synchronous events we don't wake up the thread that
+	 * caused the event. The userfault monitor has to explicitly
+	 * wake it with ioctl(UFFDIO_WAKE_SYNC_EVENT)
+	 */
+	if (ewq->msg.event & UFFD_EVENT_FLAG_SYNC)
+		return;
+
 	key.event = ewq->msg.event;
 	 __wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
 }
@@ -801,7 +809,8 @@ bool userfaultfd_remove(struct vm_area_struct *vma,
 	struct userfaultfd_wait_queue ewq;
 
 	ctx = vma->vm_userfaultfd_ctx.ctx;
-	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_REMOVE))
+	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_REMOVE ||
+		      ctx->features & UFFD_FEATURE_EVENT_REMOVE_SYNC))
 		return true;
 
 	userfaultfd_ctx_get(ctx);
@@ -810,6 +819,9 @@ bool userfaultfd_remove(struct vm_area_struct *vma,
 	msg_init(&ewq.msg);
 
 	ewq.msg.event = UFFD_EVENT_REMOVE;
+	if (ctx->features & UFFD_FEATURE_EVENT_REMOVE_SYNC)
+		ewq.msg.event |= UFFD_EVENT_FLAG_SYNC;
+
 	ewq.msg.arg.remove.start = start;
 	ewq.msg.arg.remove.end = end;
 
@@ -1683,6 +1695,21 @@ out:
 	return ret;
 }
 
+static int userfaultfd_wake_sync_event(struct userfaultfd_ctx *ctx,
+				       unsigned long arg)
+{
+	struct userfaultfd_wake_key key = {
+		.event = arg,
+	};
+
+	spin_lock(&ctx->event_wqh.lock);
+	if (waitqueue_active(&ctx->event_wqh))
+		__wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
+	spin_unlock(&ctx->event_wqh.lock);
+
+	return 0;
+}
+
 static int userfaultfd_copy(struct userfaultfd_ctx *ctx,
 			    unsigned long arg)
 {
@@ -1854,6 +1881,9 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 		break;
 	case UFFDIO_WAKE:
 		ret = userfaultfd_wake(ctx, arg);
+		break;
+	case UFFDIO_WAKE_SYNC_EVENT:
+		ret = userfaultfd_wake_sync_event(ctx, arg);
 		break;
 	case UFFDIO_COPY:
 		ret = userfaultfd_copy(ctx, arg);
