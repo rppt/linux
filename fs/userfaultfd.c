@@ -50,6 +50,8 @@ struct userfaultfd_ctx {
 	wait_queue_head_t fd_wqh;
 	/* waitqueue head for events */
 	wait_queue_head_t event_wqh;
+	/* waitqueue head for sync events */
+	wait_queue_head_t event_sync_wqh;
 	/* a refile sequence protected by fault_pending_wqh lock */
 	struct seqcount refile_seq;
 	/* pseudo fd refcounting */
@@ -686,8 +688,10 @@ static void userfaultfd_event_complete(struct userfaultfd_ctx *ctx,
 	 * caused the event. The userfault monitor has to explicitly
 	 * wake it with ioctl(UFFDIO_WAKE_SYNC_EVENT)
 	 */
-	if (ewq->msg.event & UFFD_EVENT_FLAG_SYNC)
+	if (ewq->msg.event & UFFD_EVENT_FLAG_SYNC) {
+		WARN_ON_ONCE(1);
 		return;
+	}
 
 	key.event = ewq->msg.event;
 	 __wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
@@ -1137,7 +1141,12 @@ static ssize_t userfaultfd_ctx_read(struct userfaultfd_ctx *ctx, int no_wait,
 				break;
 			}
 
-			userfaultfd_event_complete(ctx, uwq);
+			if (uwq->msg.event & UFFD_EVENT_FLAG_SYNC) {
+				list_del(&uwq->wq.entry);
+				__add_wait_queue(&ctx->event_sync_wqh, &uwq->wq);
+			} else {
+				userfaultfd_event_complete(ctx, uwq);
+			}
 			spin_unlock(&ctx->event_wqh.lock);
 			ret = 0;
 			break;
@@ -1703,8 +1712,8 @@ static int userfaultfd_wake_sync_event(struct userfaultfd_ctx *ctx,
 	};
 
 	spin_lock(&ctx->event_wqh.lock);
-	if (waitqueue_active(&ctx->event_wqh))
-		__wake_up_locked_key(&ctx->event_wqh, TASK_NORMAL, &key);
+	if (waitqueue_active(&ctx->event_sync_wqh))
+		__wake_up_locked_key(&ctx->event_sync_wqh, TASK_NORMAL, &key);
 	spin_unlock(&ctx->event_wqh.lock);
 
 	return 0;
@@ -1945,6 +1954,7 @@ static void init_once_userfaultfd_ctx(void *mem)
 	init_waitqueue_head(&ctx->fault_pending_wqh);
 	init_waitqueue_head(&ctx->fault_wqh);
 	init_waitqueue_head(&ctx->event_wqh);
+	init_waitqueue_head(&ctx->event_sync_wqh);
 	init_waitqueue_head(&ctx->fd_wqh);
 	seqcount_init(&ctx->refile_seq);
 }
