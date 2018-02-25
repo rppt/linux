@@ -71,7 +71,7 @@
 #define UFFDIO_ZEROPAGE		_IOWR(UFFDIO, _UFFDIO_ZEROPAGE,	\
 				      struct uffdio_zeropage)
 #define UFFDIO_WAKE_SYNC_EVENT	_IOR(UFFDIO, _UFFDIO_WAKE_SYNC_EVENT, \
-				     struct uffdio_range)
+				     struct uffd_msg)
 
 /* read() structure */
 struct uffd_msg {

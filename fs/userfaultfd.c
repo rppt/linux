@@ -122,10 +122,13 @@ static bool userfaultfd_should_wake(struct userfaultfd_wait_queue *uwq,
 	}
 
 	if (key->event == UFFD_EVENT_REMOVE) {
-		if (key->arg.range.start == uwq->msg.arg.remove.start &&
-		    key->arg.range.len == uwq->msg.arg.remove.end)
-			return true;
-		else
+		unsigned long start, end;
+
+		start = key->arg.range.start;
+		end = start + key->arg.range.len;
+
+		if (start != uwq->msg.arg.remove.start ||
+		    end == uwq->msg.arg.remove.end)
 			return false;
 	}
 
@@ -1719,16 +1722,19 @@ out:
 static int userfaultfd_wake_sync_event(struct userfaultfd_ctx *ctx,
 				       unsigned long arg)
 {
-	struct uffdio_range uffdio_wake;
+	struct uffd_msg uffd_msg;
 	struct userfaultfd_wake_key key;
 	const void __user *buf = (void __user *)arg;
 
-	if (copy_from_user(&uffdio_wake, buf, sizeof(uffdio_wake)))
+	if (copy_from_user(&uffd_msg, buf, sizeof(uffd_msg)))
 		return -EFAULT;
 
-	key.event = UFFD_EVENT_REMOVE_SYNC;
-	key.arg.range.start = uffdio_wake.start;
-	key.arg.range.len = uffdio_wake.len;
+	if (uffd_msg.event != UFFD_EVENT_REMOVE_SYNC)
+		return -EINVAL;
+
+	key.event = uffd_msg.event;
+	key.arg.range.start = uffd_msg.arg.remove.start;
+	key.arg.range.len = uffd_msg.arg.remove.end - uffd_msg.arg.remove.start;
 
 	spin_lock(&ctx->event_wqh.lock);
 	if (waitqueue_active(&ctx->event_sync_wqh))
