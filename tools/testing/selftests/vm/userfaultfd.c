@@ -494,11 +494,20 @@ static void *uffd_poll_thread(void *arg)
 			pollfd[0].fd = uffd;
 			break;
 		case UFFD_EVENT_REMOVE:
+		case UFFD_EVENT_REMOVE_SYNC:
 			uffd_reg.range.start = msg.arg.remove.start;
 			uffd_reg.range.len = msg.arg.remove.end -
 				msg.arg.remove.start;
 			if (ioctl(uffd, UFFDIO_UNREGISTER, &uffd_reg.range))
 				fprintf(stderr, "remove failure\n"), exit(1);
+			if (msg.event == UFFD_EVENT_REMOVE_SYNC) {
+				struct uffdio_range rng;
+				rng.start = msg.arg.remove.start;
+				rng.len = msg.arg.remove.end;
+				if (ioctl(uffd, UFFDIO_WAKE_SYNC_EVENT,
+					  &rng))
+				    fprintf(stderr, "wake failure\n"), exit(1);
+			}
 			break;
 		case UFFD_EVENT_REMAP:
 			area_dst = (char *)(unsigned long)msg.arg.remap.to;
@@ -899,7 +908,7 @@ static int userfaultfd_events_test(void)
 		return 1;
 
 	features = UFFD_FEATURE_EVENT_FORK | UFFD_FEATURE_EVENT_REMAP |
-		UFFD_FEATURE_EVENT_REMOVE;
+		UFFD_FEATURE_EVENT_REMOVE | UFFD_FEATURE_EVENT_REMOVE_SYNC ;
 	if (userfaultfd_open(features) < 0)
 		return 1;
 	fcntl(uffd, F_SETFL, uffd_flags | O_NONBLOCK);
