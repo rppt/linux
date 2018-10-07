@@ -1031,7 +1031,7 @@ static void pcpu_free_area(struct pcpu_chunk *chunk, int off)
 	int bit_off, bits, end, oslot;
 
 	lockdep_assert_held(&pcpu_lock);
-	pcpu_stats_area_dealloc(chunk);
+	pcpu_stats_area_dealloc(chunk, off);
 
 	oslot = pcpu_chunk_slot(chunk);
 
@@ -1120,6 +1120,9 @@ static struct pcpu_chunk * __init pcpu_alloc_first_chunk(unsigned long tmp_addr,
 					  SMP_CACHE_BYTES);
 	chunk->md_blocks = memblock_alloc(pcpu_chunk_nr_blocks(chunk) * sizeof(chunk->md_blocks[0]),
 					  SMP_CACHE_BYTES);
+	chunk->allocs = memblock_alloc(region_bits * sizeof(*chunk->allocs),
+				       SMP_CACHE_BYTES);
+
 	pcpu_init_md_blocks(chunk);
 
 	/* manage populated page bitmap */
@@ -1190,6 +1193,15 @@ static struct pcpu_chunk *pcpu_alloc_chunk(gfp_t gfp)
 	if (!chunk->md_blocks)
 		goto md_blocks_fail;
 
+#ifdef CONFIG_PERCPU_STATS
+	chunk->allocs = pcpu_mem_zalloc(region_bits * sizeof(chunk->allocs[0]),
+					gfp);
+	if (!chunk->allocs) {
+		pcpu_mem_free(chunk->md_blocks);
+		goto md_blocks_fail;
+	}
+#endif
+
 	pcpu_init_md_blocks(chunk);
 
 	/* init metadata */
@@ -1212,6 +1224,9 @@ static void pcpu_free_chunk(struct pcpu_chunk *chunk)
 {
 	if (!chunk)
 		return;
+#ifdef CONFIG_PERCPU_STATS
+	pcpu_mem_free(chunk->allocs);
+#endif
 	pcpu_mem_free(chunk->md_blocks);
 	pcpu_mem_free(chunk->bound_map);
 	pcpu_mem_free(chunk->alloc_map);
@@ -1350,7 +1365,7 @@ static struct pcpu_chunk *pcpu_chunk_addr_search(void *addr)
  * Percpu pointer to the allocated area on success, NULL on failure.
  */
 static void __percpu *pcpu_alloc(size_t size, size_t align, bool reserved,
-				 gfp_t gfp)
+				 gfp_t gfp, const void *caller)
 {
 	/* whitelisted flags that can be passed to the backing allocators */
 	gfp_t pcpu_gfp = gfp & (GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN);
@@ -1460,7 +1475,7 @@ restart:
 	goto restart;
 
 area_found:
-	pcpu_stats_area_alloc(chunk, size);
+	pcpu_stats_area_alloc(chunk, size, off, caller);
 	spin_unlock_irqrestore(&pcpu_lock, flags);
 
 	/* populate if not all pages are already there */
@@ -1543,7 +1558,7 @@ fail:
  */
 void __percpu *__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp)
 {
-	return pcpu_alloc(size, align, false, gfp);
+	return pcpu_alloc(size, align, false, gfp, __builtin_return_address(0));
 }
 EXPORT_SYMBOL_GPL(__alloc_percpu_gfp);
 
@@ -1556,7 +1571,8 @@ EXPORT_SYMBOL_GPL(__alloc_percpu_gfp);
  */
 void __percpu *__alloc_percpu(size_t size, size_t align)
 {
-	return pcpu_alloc(size, align, false, GFP_KERNEL);
+	return pcpu_alloc(size, align, false, GFP_KERNEL,
+			  __builtin_return_address(0));
 }
 EXPORT_SYMBOL_GPL(__alloc_percpu);
 
@@ -1578,7 +1594,8 @@ EXPORT_SYMBOL_GPL(__alloc_percpu);
  */
 void __percpu *__alloc_reserved_percpu(size_t size, size_t align)
 {
-	return pcpu_alloc(size, align, true, GFP_KERNEL);
+	return pcpu_alloc(size, align, true, GFP_KERNEL,
+			  __builtin_return_address(0));
 }
 
 /**

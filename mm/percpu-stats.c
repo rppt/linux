@@ -44,6 +44,34 @@ static int find_max_nr_alloc(void)
 	return max_nr_alloc;
 }
 
+static void get_chunk_alloc_info(struct pcpu_chunk *chunk,
+				 struct pcpu_allocs_info *allocs)
+{
+	int region_bits = pcpu_chunk_map_bits(chunk);
+	int i, j;
+
+	for (i = 0; i < region_bits; i++) {
+		struct pcpu_allocs_info *ai = &chunk->allocs[i];
+
+		if (!ai->size)
+			continue;
+
+		for (j = 0; allocs[j].size; j++) {
+			if (allocs[j].size == ai->size &&
+			    allocs[j].caller == ai->caller) {
+				allocs[j].count++;
+				break;
+			}
+		}
+
+		if (!allocs[j].size) {
+			allocs[j].size = ai->size;
+			allocs[j].caller = ai->caller;
+			allocs[j].count = 1;
+		}
+	}
+}
+
 /*
  * Prints out chunk state. Fragmentation is considered between
  * the beginning of the chunk to the last allocation.
@@ -225,10 +253,64 @@ alloc_buffer:
 }
 DEFINE_SHOW_ATTRIBUTE(percpu_stats);
 
+static int percpu_users_show(struct seq_file *m, void *v)
+{
+	struct pcpu_allocs_info *allocs, *sum, *cur;
+	struct pcpu_chunk *chunk;
+	int unit_pages, slot_users, max_users;
+	int slot, i;
+
+	unit_pages = pcpu_stats_ai.unit_size >> PAGE_SHIFT;
+	slot_users = pcpu_nr_pages_to_map_bits(unit_pages);
+	max_users = slot_users * (pcpu_nr_slots + 1);
+
+	allocs = vzalloc(array_size(sizeof(*allocs), max_users));
+	if (!allocs)
+		return -ENOMEM;
+
+	spin_lock_irq(&pcpu_lock);
+
+	for (slot = 0; slot < pcpu_nr_slots; slot++)
+		list_for_each_entry(chunk, &pcpu_slot[slot], list)
+			get_chunk_alloc_info(chunk, allocs + slot);
+
+	if (pcpu_reserved_chunk)
+		get_chunk_alloc_info(pcpu_reserved_chunk, allocs + slot);
+
+	spin_unlock_irq(&pcpu_lock);
+
+	for (slot = 1; slot < pcpu_nr_slots + 1; slot++) {
+		for (i = 0; i < slot_users; i++) {
+			sum = &allocs[i];
+			cur = &allocs[i + slot * slot_users];
+
+			if (sum->size == cur->size &&
+			    sum->caller == cur->caller) {
+				sum->count += cur->count;
+				cur->size = cur->count = 0;
+				cur->caller = NULL;
+			}
+		}
+	}
+
+	for (i = 0; i < max_users; i++)
+		if (allocs[i].size)
+			seq_printf(m, "%-10ld\t%-10d\t%-30pS\n", allocs[i].size,
+				   allocs[i].count, allocs[i].caller);
+
+	vfree(allocs);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(percpu_users);
+
 static int __init init_percpu_stats_debugfs(void)
 {
 	debugfs_create_file("percpu_stats", 0444, NULL, NULL,
 			&percpu_stats_fops);
+
+	debugfs_create_file("percpu_users", 0444, NULL, NULL,
+			&percpu_users_fops);
 
 	return 0;
 }

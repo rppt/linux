@@ -21,10 +21,17 @@ struct pcpu_block_md {
 	int                     first_free;     /* block position of first free */
 };
 
+struct pcpu_allocs_info {
+	size_t size;
+	int count;
+	const void *caller;
+};
+
 struct pcpu_chunk {
 #ifdef CONFIG_PERCPU_STATS
 	int			nr_alloc;	/* # of allocations */
 	size_t			max_alloc_size; /* largest allocation size */
+	struct pcpu_allocs_info *allocs;
 #endif
 
 	struct list_head	list;		/* linked to pcpu_slot lists */
@@ -136,8 +143,11 @@ static inline void pcpu_stats_save_ai(const struct pcpu_alloc_info *ai)
  * CONTEXT:
  * pcpu_lock.
  */
-static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size)
+static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size,
+					 int off, const void *caller)
 {
+	int idx = off / PCPU_MIN_ALLOC_SIZE;
+
 	lockdep_assert_held(&pcpu_lock);
 
 	pcpu_stats.nr_alloc++;
@@ -151,6 +161,10 @@ static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size)
 
 	chunk->nr_alloc++;
 	chunk->max_alloc_size = max(chunk->max_alloc_size, size);
+
+	chunk->allocs[idx].size = size;
+	chunk->allocs[idx].caller = caller;
+	chunk->allocs[idx].count = 1;
 }
 
 /*
@@ -160,14 +174,19 @@ static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size)
  * CONTEXT:
  * pcpu_lock.
  */
-static inline void pcpu_stats_area_dealloc(struct pcpu_chunk *chunk)
+static inline void pcpu_stats_area_dealloc(struct pcpu_chunk *chunk, int off)
 {
+	int idx = off / PCPU_MIN_ALLOC_SIZE;
+
 	lockdep_assert_held(&pcpu_lock);
 
 	pcpu_stats.nr_dealloc++;
 	pcpu_stats.nr_cur_alloc--;
 
 	chunk->nr_alloc--;
+
+	chunk->allocs[idx].size = 0;
+	chunk->allocs[idx].caller = NULL;
 }
 
 /*
@@ -204,11 +223,12 @@ static inline void pcpu_stats_save_ai(const struct pcpu_alloc_info *ai)
 {
 }
 
-static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size)
+static inline void pcpu_stats_area_alloc(struct pcpu_chunk *chunk, size_t size,
+					 int off, const void *caller)
 {
 }
 
-static inline void pcpu_stats_area_dealloc(struct pcpu_chunk *chunk)
+static inline void pcpu_stats_area_dealloc(struct pcpu_chunk *chunk, int off)
 {
 }
 
