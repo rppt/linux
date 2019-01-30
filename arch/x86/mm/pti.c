@@ -672,6 +672,8 @@ void __init pti_init(void)
  */
 void pti_finalize(void)
 {
+	pr_info("final\n");
+
 	/*
 	 * We need to clone everything (again) that maps parts of the
 	 * kernel image.

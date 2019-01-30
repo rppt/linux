@@ -347,7 +347,12 @@ GLOBAL(early_recursion_flag)
 	.balign	PAGE_SIZE; \
 GLOBAL(name)
 
-#ifdef CONFIG_PAGE_TABLE_ISOLATION
+#ifdef CONFIG_INTERNAL_PTI
+#define PTI_USER_PGD_FILL	(1024 + 512)
+#define NEXT_PGD_PAGE(name) \
+	.balign 4 * PAGE_SIZE; \
+GLOBAL(name)
+#elif defined(CONFIG_PAGE_TABLE_ISOLATION)
 /*
  * Each PGD needs to be 8k long and 8k aligned.  We do not
  * ever go out to userspace with these, so we do not
@@ -363,7 +368,7 @@ GLOBAL(name)
 #define NEXT_PGD_PAGE(name) \
 	.balign 2 * PAGE_SIZE; \
 GLOBAL(name)
-#else
+#else /* CONFIG_PAGE_TABLE_ISOLATION */
 #define NEXT_PGD_PAGE(name) NEXT_PAGE(name)
 #define PTI_USER_PGD_FILL	0
 #endif
@@ -482,4 +487,3 @@ EXPORT_SYMBOL(phys_base)
 NEXT_PAGE(empty_zero_page)
 	.skip PAGE_SIZE
 EXPORT_SYMBOL(empty_zero_page)
-

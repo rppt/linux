@@ -1224,6 +1224,10 @@ static inline int pgd_large(pgd_t pgd) { return 0; }
  */
 #define PTI_PGTABLE_SWITCH_BIT	PAGE_SHIFT
 
+#ifdef CONFIG_INTERNAL_PTI
+#define PTI_PGTABLE_SWITCH_BIT2	(PAGE_SHIFT + 1)
+#endif
+
 /*
  * This generates better code than the inline assembly in
  * __set_bit().
@@ -1245,21 +1249,33 @@ static inline void *ptr_clear_bit(void *ptr, int bit)
 
 static inline pgd_t *kernel_to_user_pgdp(pgd_t *pgdp)
 {
+#ifdef CONFIG_INTERNAL_PTI
+	pgdp = ptr_set_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
 	return ptr_set_bit(pgdp, PTI_PGTABLE_SWITCH_BIT);
 }
 
 static inline pgd_t *user_to_kernel_pgdp(pgd_t *pgdp)
 {
+#ifdef CONFIG_INTERNAL_PTI
+	pgdp = ptr_clear_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
 	return ptr_clear_bit(pgdp, PTI_PGTABLE_SWITCH_BIT);
 }
 
 static inline p4d_t *kernel_to_user_p4dp(p4d_t *p4dp)
 {
+#ifdef CONFIG_INTERNAL_PTI
+	p4dp = ptr_set_bit(p4dp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
 	return ptr_set_bit(p4dp, PTI_PGTABLE_SWITCH_BIT);
 }
 
 static inline p4d_t *user_to_kernel_p4dp(p4d_t *p4dp)
 {
+#ifdef CONFIG_INTERNAL_PTI
+	p4dp = ptr_clear_bit(p4dp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
 	return ptr_clear_bit(p4dp, PTI_PGTABLE_SWITCH_BIT);
 }
 #endif /* CONFIG_PAGE_TABLE_ISOLATION */

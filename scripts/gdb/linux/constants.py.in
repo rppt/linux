@@ -15,6 +15,7 @@
 #include <linux/fs.h>
 #include <linux/mount.h>
 #include <linux/of_fdt.h>
+#include <uapi/linux/mount.h>
 
 /* We need to stringify expanded macros so that they can be parsed */
 

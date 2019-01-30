@@ -36,7 +36,16 @@ extern gfp_t __userpte_alloc_gfp;
  * both 8k in size and 8k-aligned.  That lets us just flip bit 12
  * in a pointer to swap between the two 4k halves.
  */
+#ifndef CONFIG_INTERNAL_PTI
 #define PGD_ALLOCATION_ORDER 1
+#else
+/*
+ * An additional PGD to allow a minimal kernel part for user PTI and
+ * the other patrs in iPTI
+ */
+#define PGD_ALLOCATION_ORDER 2
+#endif
+
 #else
 #define PGD_ALLOCATION_ORDER 0
 #endif

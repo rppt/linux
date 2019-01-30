@@ -65,6 +65,16 @@ config PAGE_TABLE_ISOLATION
 
 	  See Documentation/x86/pti.txt for more details.
 
+config INTERNAL_PTI
+	bool "Internal addess space isolation"
+	default y
+	depends on X86_64 && !UML
+	help
+	  This is an experimental feature to turn Linux kernel into
+	  micro-kernel.
+
+	  See Documentation/x86/pti.txt for more details.
+
 config SECURITY_INFINIBAND
 	bool "Infiniband Security Hooks"
 	depends on SECURITY && INFINIBAND
