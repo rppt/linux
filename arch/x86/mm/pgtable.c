@@ -299,6 +299,14 @@ static void pgd_mop_up_pmds(struct mm_struct *mm, pgd_t *pgdp)
 
 	for (i = 0; i < PREALLOCATED_USER_PMDS; i++)
 		mop_up_one_pmd(mm, &pgdp[i + KERNEL_PGD_BOUNDARY]);
+
+#ifdef CONFIG_INTERNAL_PTI
+	pgdp = kernel_to_entry_pgdp(pgdp);
+
+	for (i = 0; i < PREALLOCATED_USER_PMDS; i++)
+		mop_up_one_pmd(mm, &pgdp[i + KERNEL_PGD_BOUNDARY]);
+#endif
+
 #endif
 }
 
@@ -327,13 +335,21 @@ static void pgd_prepopulate_pmd(struct mm_struct *mm, pgd_t *pgd, pmd_t *pmds[])
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 static void pgd_prepopulate_user_pmd(struct mm_struct *mm,
-				     pgd_t *k_pgd, pmd_t *pmds[])
+				     pgd_t *k_pgd, pmd_t *pmds[], bool entry)
 {
-	pgd_t *s_pgd = kernel_to_user_pgdp(swapper_pg_dir);
-	pgd_t *u_pgd = kernel_to_user_pgdp(k_pgd);
+	pgd_t *s_pgd;
+	pgd_t *u_pgd;
 	p4d_t *u_p4d;
 	pud_t *u_pud;
 	int i;
+
+	if (!entry) {
+		s_pgd = kernel_to_user_pgdp(swapper_pg_dir);
+		u_pgd = kernel_to_user_pgdp(k_pgd);
+	} else {
+		s_pgd = kernel_to_entry_pgdp(swapper_pg_dir);
+		u_pgd = kernel_to_entry_pgdp(k_pgd);
+	}
 
 	u_p4d = p4d_offset(u_pgd, 0);
 	u_pud = pud_offset(u_p4d, 0);
@@ -462,7 +478,8 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 	pgd_ctor(mm, pgd);
 	pgd_prepopulate_pmd(mm, pgd, pmds);
-	pgd_prepopulate_user_pmd(mm, pgd, u_pmds);
+	pgd_prepopulate_user_pmd(mm, pgd, u_pmds, true);
+	pgd_prepopulate_user_pmd(mm, pgd, u_pmds, false);
 
 	spin_unlock(&pgd_lock);
 

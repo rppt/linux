@@ -153,11 +153,23 @@ static void map_ldt_struct_to_user(struct mm_struct *mm)
 	pgd_t *u_pgd = kernel_to_user_pgdp(k_pgd);
 	pmd_t *k_pmd, *u_pmd;
 
+#ifdef CONFIG_INTERNAL_PTI
+	pdt_t *e_pgd = kernel_to_entry_pgdp(k_pgd);
+	pmd_t *e_pmd;
+#endif
+
 	k_pmd = pgd_to_pmd_walk(k_pgd, LDT_BASE_ADDR);
 	u_pmd = pgd_to_pmd_walk(u_pgd, LDT_BASE_ADDR);
+#ifdef CONFIG_INTERNAL_PTI
+	e_pmd = pgd_to_pmd_walk(e_pgd, LDT_BASE_ADDR);
+#endif
 
-	if (static_cpu_has(X86_FEATURE_PTI) && !mm->context.ldt)
+	if (static_cpu_has(X86_FEATURE_PTI) && !mm->context.ldt) {
 		set_pmd(u_pmd, *k_pmd);
+#ifdef CONFIG_INTERNAL_PTI
+		set_pmd(e_pmd, *k_pmd);
+#endif
+	}
 }
 
 static void sanity_check_ldt_mapping(struct mm_struct *mm)
@@ -173,6 +185,8 @@ static void sanity_check_ldt_mapping(struct mm_struct *mm)
 	had_user   = (u_pmd->pmd != 0);
 
 	do_sanity_check(mm, had_kernel, had_user);
+
+	/* FIXME: add check for entry PT mapping */
 }
 
 #else /* !CONFIG_X86_PAE */
@@ -181,8 +195,12 @@ static void map_ldt_struct_to_user(struct mm_struct *mm)
 {
 	pgd_t *pgd = pgd_offset(mm, LDT_BASE_ADDR);
 
-	if (static_cpu_has(X86_FEATURE_PTI) && !mm->context.ldt)
+	if (static_cpu_has(X86_FEATURE_PTI) && !mm->context.ldt) {
 		set_pgd(kernel_to_user_pgdp(pgd), *pgd);
+#ifdef CONFIG_INTERNAL_PTI
+		set_pgd(kernel_to_entry_pgdp(pgd), *pgd);
+#endif
+	}
 }
 
 static void sanity_check_ldt_mapping(struct mm_struct *mm)
@@ -192,6 +210,8 @@ static void sanity_check_ldt_mapping(struct mm_struct *mm)
 	bool had_user   = (kernel_to_user_pgdp(pgd)->pgd != 0);
 
 	do_sanity_check(mm, had_kernel, had_user);
+
+	/* FIXME: add check for entry PT mapping */
 }
 
 #endif /* CONFIG_X86_PAE */

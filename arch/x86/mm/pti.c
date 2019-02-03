@@ -148,6 +148,10 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	 */
 	kernel_to_user_pgdp(pgdp)->pgd = pgd.pgd;
 
+#ifdef CONFIG_INTERNAL_PTI
+	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
+#endif
+
 	/*
 	 * If this is normal user memory, make it NX in the kernel
 	 * pagetables so that, if we somehow screw up and return to
@@ -175,10 +179,15 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
  *
  * Returns a pointer to a P4D on success, or NULL on failure.
  */
-static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address)
+static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address, bool entry)
 {
-	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
+	pgd_t *pgd;
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
+
+	if (!entry)
+		pgd = kernel_to_user_pgdp(pgd_offset_k(address));
+	else
+		pgd = kernel_to_entry_pgdp(pgd_offset_k(address));
 
 	if (address < PAGE_OFFSET) {
 		WARN_ONCE(1, "attempt to walk user address\n");
@@ -203,13 +212,13 @@ static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address)
  *
  * Returns a pointer to a PMD on success, or NULL on failure.
  */
-static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address)
+static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address, bool entry)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
 	p4d_t *p4d;
 	pud_t *pud;
 
-	p4d = pti_user_pagetable_walk_p4d(address);
+	p4d = pti_user_pagetable_walk_p4d(address, entry);
 	if (!p4d)
 		return NULL;
 
@@ -248,13 +257,13 @@ static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address)
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pte_t *pti_user_pagetable_walk_pte(unsigned long address)
+static pte_t *pti_user_pagetable_walk_pte(unsigned long address, bool entry)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
 	pmd_t *pmd;
 	pte_t *pte;
 
-	pmd = pti_user_pagetable_walk_pmd(address);
+	pmd = pti_user_pagetable_walk_pmd(address, entry);
 	if (!pmd)
 		return NULL;
 
@@ -290,11 +299,13 @@ static void __init pti_setup_vsyscall(void)
 	if (!pte || WARN_ON(level != PG_LEVEL_4K) || pte_none(*pte))
 		return;
 
+	/* FIXME: entry pt walk*/
 	target_pte = pti_user_pagetable_walk_pte(VSYSCALL_ADDR);
 	if (WARN_ON(!target_pte))
 		return;
 
 	*target_pte = *pte;
+	/* FIXME: entry pt walk*/
 	set_vsyscall_pgtable_user_bits(kernel_to_user_pgdp(swapper_pg_dir));
 }
 #else
@@ -308,7 +319,7 @@ enum pti_clone_level {
 
 static void
 pti_clone_pgtable(unsigned long start, unsigned long end,
-		  enum pti_clone_level level)
+		  enum pti_clone_level level, bool entry)
 {
 	unsigned long addr;
 
@@ -347,7 +358,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 		}
 
 		if (pmd_large(*pmd) || level == PTI_CLONE_PMD) {
-			target_pmd = pti_user_pagetable_walk_pmd(addr);
+			target_pmd = pti_user_pagetable_walk_pmd(addr, entry);
 			if (WARN_ON(!target_pmd))
 				return;
 
@@ -395,7 +406,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 				return;
 
 			/* Allocate PTE in the user page-table */
-			target_pte = pti_user_pagetable_walk_pte(addr);
+			target_pte = pti_user_pagetable_walk_pte(addr, entry);
 			if (WARN_ON(!target_pte))
 				return;
 
@@ -424,13 +435,26 @@ static void __init pti_clone_p4d(unsigned long addr)
 	p4d_t *kernel_p4d, *user_p4d;
 	pgd_t *kernel_pgd;
 
-	user_p4d = pti_user_pagetable_walk_p4d(addr);
+#ifdef CONFIG_INTERNAL_PTI
+	p4d_t *entry_p4d;
+#endif
+
+	user_p4d = pti_user_pagetable_walk_p4d(addr, false);
 	if (!user_p4d)
 		return;
+
+#ifdef CONFIG_INTERNAL_PTI
+	entry_p4d = pti_user_pagetable_walk_p4d(addr, true);
+	if (!entry_p4d)
+		return;
+#endif
 
 	kernel_pgd = pgd_offset_k(addr);
 	kernel_p4d = p4d_offset(kernel_pgd, addr);
 	*user_p4d = *kernel_p4d;
+#ifdef CONFIG_INTERNAL_PTI
+	*entry_p4d = *kernel_p4d;
+#endif
 }
 
 /*
@@ -464,11 +488,19 @@ static void __init pti_clone_user_shared(void)
 		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
 		pte_t *target_pte;
 
-		target_pte = pti_user_pagetable_walk_pte(va);
+		target_pte = pti_user_pagetable_walk_pte(va, false);
 		if (WARN_ON(!target_pte))
 			return;
 
 		*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
+
+#ifdef CONFIG_INTERNAL_PTI
+		target_pte = pti_user_pagetable_walk_pte(va, true);
+		if (WARN_ON(!target_pte))
+			return;
+
+		*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
+#endif
 	}
 }
 
@@ -487,7 +519,10 @@ static void __init pti_clone_user_shared(void)
 	start = CPU_ENTRY_AREA_BASE;
 	end   = start + (PAGE_SIZE * CPU_ENTRY_AREA_PAGES);
 
-	pti_clone_pgtable(start, end, PTI_CLONE_PMD);
+	pti_clone_pgtable(start, end, PTI_CLONE_PMD, false);
+#ifdef CONFIG_INTERNAL_PTI
+	pti_clone_pgtable(start, end, PTI_CLONE_PMD, true);
+#endif
 }
 #endif /* CONFIG_X86_64 */
 
@@ -508,7 +543,12 @@ static void pti_clone_entry_text(void)
 {
 	pti_clone_pgtable((unsigned long) __entry_text_start,
 			  (unsigned long) __irqentry_text_end,
-			  PTI_CLONE_PMD);
+			  PTI_CLONE_PMD, false);
+#ifdef CONFIG_INTERNAL_PTI
+	pti_clone_pgtable((unsigned long) __entry_text_start,
+			  (unsigned long) __irqentry_text_end,
+			  PTI_CLONE_PMD, true);
+#endif
 }
 
 /*
@@ -590,7 +630,10 @@ static void pti_clone_kernel_text(void)
 	 * pti_set_kernel_image_nonglobal() did to clear the
 	 * global bit.
 	 */
-	pti_clone_pgtable(start, end_clone, PTI_LEVEL_KERNEL_IMAGE);
+	pti_clone_pgtable(start, end_clone, PTI_LEVEL_KERNEL_IMAGE, false);
+#ifdef CONFIG_INTERNAL_PTI
+	pti_clone_pgtable(start, end_clone, PTI_LEVEL_KERNEL_IMAGE, true);
+#endif
 
 	/*
 	 * pti_clone_pgtable() will set the global bit in any PMDs

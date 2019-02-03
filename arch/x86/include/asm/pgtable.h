@@ -28,7 +28,8 @@ extern pgd_t early_top_pgt[PTRS_PER_PGD];
 int __init __early_make_pgtable(unsigned long address, pmdval_t pmd);
 
 void ptdump_walk_pgd_level(struct seq_file *m, pgd_t *pgd);
-void ptdump_walk_pgd_level_debugfs(struct seq_file *m, pgd_t *pgd, bool user);
+void ptdump_walk_pgd_level_debugfs(struct seq_file *m, pgd_t *pgd, bool user,
+				   bool entry);
 void ptdump_walk_pgd_level_checkwx(void);
 void ptdump_walk_user_pgd_level_checkwx(void);
 
@@ -1278,6 +1279,35 @@ static inline p4d_t *user_to_kernel_p4dp(p4d_t *p4dp)
 #endif
 	return ptr_clear_bit(p4dp, PTI_PGTABLE_SWITCH_BIT);
 }
+
+static inline pgd_t *kernel_to_entry_pgdp(pgd_t *pgdp)
+{
+#ifdef CONFIG_INTERNAL_PTI
+	return ptr_set_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
+}
+
+static inline pgd_t *entry_to_kernel_pgdp(pgd_t *pgdp)
+{
+#ifdef CONFIG_INTERNAL_PTI
+	return ptr_clear_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
+}
+
+static inline p4d_t *kernel_to_entry_p4dp(p4d_t *p4dp)
+{
+#ifdef CONFIG_INTERNAL_PTI
+	return ptr_set_bit(p4dp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
+}
+
+static inline p4d_t *entry_to_kernel_p4dp(p4d_t *p4dp)
+{
+#ifdef CONFIG_INTERNAL_PTI
+	return ptr_clear_bit(p4dp, PTI_PGTABLE_SWITCH_BIT2);
+#endif
+}
+
 #endif /* CONFIG_PAGE_TABLE_ISOLATION */
 
 /*
@@ -1299,6 +1329,11 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 	/* Clone the user space pgd as well */
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
+
+#ifdef CONFIG_INTERNAL_PTI
+	memcpy(kernel_to_entry_pgdp(dst), kernel_to_entry_pgdp(src),
+	       count * sizeof(pgd_t));
+#endif
 #endif
 }
 

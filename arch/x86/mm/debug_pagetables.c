@@ -6,7 +6,7 @@
 
 static int ptdump_show(struct seq_file *m, void *v)
 {
-	ptdump_walk_pgd_level_debugfs(m, NULL, false);
+	ptdump_walk_pgd_level_debugfs(m, NULL, false, false);
 	return 0;
 }
 
@@ -16,7 +16,7 @@ static int ptdump_curknl_show(struct seq_file *m, void *v)
 {
 	if (current->mm->pgd) {
 		down_read(&current->mm->mmap_sem);
-		ptdump_walk_pgd_level_debugfs(m, current->mm->pgd, false);
+		ptdump_walk_pgd_level_debugfs(m, current->mm->pgd, false, false);
 		up_read(&current->mm->mmap_sem);
 	}
 	return 0;
@@ -31,7 +31,7 @@ static int ptdump_curusr_show(struct seq_file *m, void *v)
 {
 	if (current->mm->pgd) {
 		down_read(&current->mm->mmap_sem);
-		ptdump_walk_pgd_level_debugfs(m, current->mm->pgd, true);
+		ptdump_walk_pgd_level_debugfs(m, current->mm->pgd, true, false);
 		up_read(&current->mm->mmap_sem);
 	}
 	return 0;
@@ -40,13 +40,40 @@ static int ptdump_curusr_show(struct seq_file *m, void *v)
 DEFINE_SHOW_ATTRIBUTE(ptdump_curusr);
 #endif
 
+#ifdef CONFIG_INTERNAL_PTI
+static struct dentry *pe_entry;
+
+static int ptdump_entry_show(struct seq_file *m, void *v)
+{
+	ptdump_walk_pgd_level_debugfs(m, ((pgd_t *) &init_top_pgt),
+				      false, true);
+	return 0;
+}
+
+DEFINE_SHOW_ATTRIBUTE(ptdump_entry);
+
+static struct dentry *pe_curentry;
+
+static int ptdump_curentry_show(struct seq_file *m, void *v)
+{
+	if (current->mm->pgd) {
+		down_read(&current->mm->mmap_sem);
+		ptdump_walk_pgd_level_debugfs(m, current->mm->pgd, false, true);
+		up_read(&current->mm->mmap_sem);
+	}
+	return 0;
+}
+
+DEFINE_SHOW_ATTRIBUTE(ptdump_curentry);
+#endif
+
 #if defined(CONFIG_EFI) && defined(CONFIG_X86_64)
 static struct dentry *pe_efi;
 
 static int ptdump_efi_show(struct seq_file *m, void *v)
 {
 	if (efi_mm.pgd)
-		ptdump_walk_pgd_level_debugfs(m, efi_mm.pgd, false);
+		ptdump_walk_pgd_level_debugfs(m, efi_mm.pgd, false, false);
 	return 0;
 }
 
@@ -75,6 +102,18 @@ static int __init pt_dump_debug_init(void)
 	pe_curusr = debugfs_create_file("current_user", 0400,
 					dir, NULL, &ptdump_curusr_fops);
 	if (!pe_curusr)
+		goto err;
+#endif
+
+#ifdef CONFIG_INTERNAL_PTI
+	pe_entry = debugfs_create_file("entry", 0400, dir, NULL,
+				       &ptdump_entry_fops);
+	if (!pe_entry)
+		goto err;
+
+	pe_curentry = debugfs_create_file("current_entry", 0400,
+					  dir, NULL, &ptdump_curentry_fops);
+	if (!pe_curentry)
 		goto err;
 #endif
 
