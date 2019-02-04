@@ -272,6 +272,16 @@ For 32-bit we have the following conventions - kernel is built with
 	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_PTI
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
+
+#ifdef CONFIG_INTERNAL_PTI
+	/*
+	 * Test the entry pagetable bit. If set, then the entry page tables
+	 * are active. If clear CR3 already has the kernel page table
+	 * active.
+	 */
+	bt	$PTI_ENTRY_PGTABLE_BIT, \scratch_reg
+	jnc	.Ldone_\@
+#endif
 	/*
 	 * Test the user pagetable bit. If set, then the user page tables
 	 * are active. If clear CR3 already has the kernel page table
