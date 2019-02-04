@@ -9,6 +9,8 @@ extern char __brk_base[], __brk_limit[];
 extern struct exception_table_entry __stop___ex_table[];
 extern char __end_rodata_aligned[];
 
+extern char __entry_data_start[], __entry_data_end[];
+
 #if defined(CONFIG_X86_64)
 extern char __end_rodata_hpage_align[];
 #endif

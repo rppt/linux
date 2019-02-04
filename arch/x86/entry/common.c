@@ -46,7 +46,7 @@ __visible inline void enter_from_user_mode(void)
 static inline void enter_from_user_mode(void) {}
 #endif
 
-static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
+static void __entry_text do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
 {
 #ifdef CONFIG_X86_64
 	if (arch == AUDIT_ARCH_X86_64) {
@@ -64,7 +64,7 @@ static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
  * Returns the syscall nr to run (which should match regs->orig_ax) or -1
  * to skip the syscall.
  */
-static long syscall_trace_enter(struct pt_regs *regs)
+static long __entry_text syscall_trace_enter(struct pt_regs *regs)
 {
 	u32 arch = in_ia32_syscall() ? AUDIT_ARCH_I386 : AUDIT_ARCH_X86_64;
 
@@ -135,7 +135,7 @@ static long syscall_trace_enter(struct pt_regs *regs)
 	(_TIF_SIGPENDING | _TIF_NOTIFY_RESUME | _TIF_UPROBE |	\
 	 _TIF_NEED_RESCHED | _TIF_USER_RETURN_NOTIFY | _TIF_PATCH_PENDING)
 
-static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
+static void __entry_text exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 {
 	/*
 	 * In order to return to user mode, we need to have IRQs off with
@@ -181,7 +181,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 }
 
 /* Called with IRQs disabled. */
-__visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
+__visible __entry_text inline void prepare_exit_to_usermode(struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
 	u32 cached_flags;
@@ -218,7 +218,7 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 	(_TIF_SYSCALL_TRACE | _TIF_SYSCALL_AUDIT |	\
 	 _TIF_SINGLESTEP | _TIF_SYSCALL_TRACEPOINT)
 
-static void syscall_slow_exit_work(struct pt_regs *regs, u32 cached_flags)
+static void __entry_text syscall_slow_exit_work(struct pt_regs *regs, u32 cached_flags)
 {
 	bool step;
 
@@ -244,7 +244,7 @@ static void syscall_slow_exit_work(struct pt_regs *regs, u32 cached_flags)
  * Called with IRQs on and fully valid regs.  Returns with IRQs off in a
  * state such that we can immediately switch to user mode.
  */
-__visible inline void syscall_return_slowpath(struct pt_regs *regs)
+__visible __entry_text inline void syscall_return_slowpath(struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
 	u32 cached_flags = READ_ONCE(ti->flags);
@@ -269,9 +269,11 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 }
 
 #ifdef CONFIG_X86_64
-__visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
+
+__visible __entry_text void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
+	unsigned long orig_cr3;
 
 	enter_from_user_mode();
 	local_irq_enable();

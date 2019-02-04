@@ -15,7 +15,7 @@ extern asmlinkage long sys_ni_syscall(const struct pt_regs *);
 
 #define __SYSCALL_64(nr, sym, qual) [nr] = sym,
 
-asmlinkage const sys_call_ptr_t sys_call_table[__NR_syscall_max+1] = {
+asmlinkage const sys_call_ptr_t __entry_data sys_call_table[__NR_syscall_max+1] = {
 	/*
 	 * Smells like a compiler bug -- it doesn't work
 	 * when the & below is removed.

@@ -65,6 +65,15 @@ jiffies_64 = jiffies;
 #define ALIGN_ENTRY_TEXT_BEGIN	. = ALIGN(PMD_SIZE);
 #define ALIGN_ENTRY_TEXT_END	. = ALIGN(PMD_SIZE);
 
+#define ALIGN_ENTRY_DATA_BEGIN	. = ALIGN(PMD_SIZE);
+#define ALIGN_ENTRY_DATA_END	. = ALIGN(PMD_SIZE);
+
+#define ENTRY_DATA							\
+		ALIGN_FUNCTION();					\
+		__entry_data_start = .;					\
+		*(.entry.data)						\
+		__entry_data_end = .;
+
 /*
  * This section contains data which will be mapped as decrypted. Memory
  * encryption operates on a page basis. Make this section PMD-aligned
@@ -178,6 +187,10 @@ SECTIONS
 
 		/* rarely changed data like cpu maps */
 		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
+
+		ALIGN_ENTRY_DATA_BEGIN
+		ENTRY_DATA
+		ALIGN_ENTRY_DATA_END
 
 		/* End of data section */
 		_edata = .;

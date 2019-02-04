@@ -20,6 +20,14 @@
 #include <asm/thread_info.h>	/* for TS_COMPAT */
 #include <asm/unistd.h>
 
+#ifdef CONFIG_INTERNAL_PTI
+#define __entry_text	__section(.entry.text)
+#define __entry_data	__section(.entry.data)
+#else
+#define __entry_text
+#define __entry_data
+#endif
+
 #ifdef CONFIG_X86_64
 typedef asmlinkage long (*sys_call_ptr_t)(const struct pt_regs *);
 #else

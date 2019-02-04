@@ -674,6 +674,15 @@ void pti_set_kernel_image_nonglobal(void)
 	set_memory_nonglobal(start, (end - start) >> PAGE_SHIFT);
 }
 
+static void pti_clone_entry_areas(void)
+{
+#ifdef CONFIG_INTERNAL_PTI
+	pti_clone_pgtable((unsigned long) __entry_data_start,
+			  (unsigned long) __entry_data_end,
+			  PTI_CLONE_PMD, true);
+#endif
+}
+
 /*
  * Initialize kernel page table isolation
  */
@@ -712,6 +721,7 @@ void __init pti_init(void)
 	pti_set_kernel_image_nonglobal();
 	/* Replace some of the global bits just for shared entry text: */
 	pti_clone_entry_text();
+	pti_clone_entry_areas();
 	pti_setup_espfix64();
 	pti_setup_vsyscall();
 }
@@ -733,6 +743,7 @@ void pti_finalize(void)
 	 */
 	pti_clone_entry_text();
 	pti_clone_kernel_text();
+	pti_clone_entry_areas();
 
 	debug_checkwx_user();
 }
