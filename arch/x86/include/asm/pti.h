@@ -11,5 +11,10 @@ extern void pti_finalize(void);
 static inline void pti_check_boottime_disable(void) { }
 #endif
 
+void pti_clone_pgtable_pmd(unsigned long start, unsigned long end,
+			   bool entry);
+void pti_clone_pgtable_pte(unsigned long start, unsigned long end,
+			   bool entry);
+
 #endif /* __ASSEMBLY__ */
 #endif /* _ASM_X86_PTI_H */

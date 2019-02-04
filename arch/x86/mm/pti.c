@@ -425,6 +425,16 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 	}
 }
 
+void pti_clone_pgtable_pmd(unsigned long start, unsigned long end, bool entry)
+{
+	pti_clone_pgtable(start, end, PTI_CLONE_PMD, entry);
+}
+
+void pti_clone_pgtable_pte(unsigned long start, unsigned long end, bool entry)
+{
+	pti_clone_pgtable(start, end, PTI_CLONE_PTE, entry);
+}
+
 #ifdef CONFIG_X86_64
 /*
  * Clone a single p4d (i.e. a top-level entry on 4-level systems and a
