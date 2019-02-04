@@ -31,6 +31,7 @@
 #include <asm/vdso.h>
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
+#include <asm/tlbflush.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
@@ -270,10 +271,45 @@ __visible __entry_text inline void syscall_return_slowpath(struct pt_regs *regs)
 
 #ifdef CONFIG_X86_64
 
+#ifdef CONFIG_INTERNAL_PTI
+static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
+{
+	unsigned long stack;
+	unsigned long cr3, orig_cr3;
+
+	/* FIXME: add proper selection of isolated syscalls */
+	if (nr != 335)
+		return 0;
+
+	/* FIXME: do it once per entry context with proper stack sizing */
+	stack = this_cpu_read(cpu_current_top_of_stack);
+	stack -= 8 * PAGE_SIZE;
+	stack = ALIGN(stack, PAGE_SIZE);
+	pti_clone_pgtable_pte(stack, stack + 8 * PAGE_SIZE, true);
+
+	/* FIXME: add support for PV ops */
+	orig_cr3 = __native_read_cr3();
+        cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2);
+	__native_flush_tlb();
+	native_write_cr3(cr3);
+
+	return orig_cr3;
+}
+
+static inline void __entry_text ipti_syscall_exit(unsigned long cr3)
+{
+	if (cr3)
+		native_write_cr3(cr3);
+}
+#else
+static inline unsigned long ipti_syscall_enter(void) { return 0; }
+static inline void ipti_syscall_exit(unsigned long cr3) {}
+#endif
+
 __visible __entry_text void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
-	unsigned long orig_cr3;
+	unsigned long ipti_cr3 = 0;
 
 	enter_from_user_mode();
 	local_irq_enable();
@@ -289,7 +325,12 @@ __visible __entry_text void do_syscall_64(unsigned long nr, struct pt_regs *regs
 	nr &= __SYSCALL_MASK;
 	if (likely(nr < NR_syscalls)) {
 		nr = array_index_nospec(nr, NR_syscalls);
+
+		ipti_cr3 = ipti_syscall_enter(nr);
+
 		regs->ax = sys_call_table[nr](regs);
+
+		ipti_syscall_exit(ipti_cr3);
 	}
 
 	syscall_return_slowpath(regs);
