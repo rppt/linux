@@ -55,6 +55,17 @@
 	SYSCALL_ALIAS(__ia32_sys_##sname, __x64_sys_##sname);	\
 	asmlinkage long __x64_sys_##sname(void)
 
+#ifndef CONFIG_INTERNAL_PTI
+#define IPTI_SYSCALL_DEFINE0 SYSCALL_DEFINE0
+#else
+#define IPTI_SYSCALL_DEFINE0(sname)				\
+	SYSCALL_METADATA(_##sname, 0);				\
+	asmlinkage long __x64_sys_##sname(void);		\
+	ALLOW_ERROR_INJECTION(__x64_sys_##sname, ERRNO);	\
+	SYSCALL_ALIAS(__ia32_sys_##sname, __x64_sys_##sname);	\
+	asmlinkage long __entry_text __x64_sys_##sname(void)
+#endif
+
 #define COND_SYSCALL(name)						\
 	cond_syscall(__x64_sys_##name);					\
 	cond_syscall(__ia32_sys_##name)
@@ -186,6 +197,18 @@
 	asmlinkage long __x64_sys_##sname(void);		\
 	ALLOW_ERROR_INJECTION(__x64_sys_##sname, ERRNO);	\
 	asmlinkage long __x64_sys_##sname(void)
+#endif
+
+#ifndef IPTI_SYSCALL_DEFINE0
+#ifndef CONFIG_INTERNAL_PTI
+#define IPTI_SYSCALL_DEFINE0 SYSCALL_DEFINE0
+#else
+#define IPTI_SYSCALL_DEFINE0(sname)				\
+	SYSCALL_METADATA(_##sname, 0);				\
+	asmlinkage long __entry_text __x64_sys_##sname(void);		\
+	ALLOW_ERROR_INJECTION(__x64_sys_##sname, ERRNO);	\
+	asmlinkage long __entry_text __x64_sys_##sname(void)
+#endif
 #endif
 
 #ifndef COND_SYSCALL
