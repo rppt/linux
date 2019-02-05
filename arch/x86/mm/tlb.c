@@ -185,6 +185,17 @@ static void sync_current_stack_to_mm(struct mm_struct *mm)
 
 			set_p4d(p4d, *p4d_ref);
 		}
+
+#ifdef CONFIG_INTERNAL_PTI
+		p4d = p4d_offset(kernel_to_entry_pgdp(pgd), sp);
+
+		if (unlikely(p4d_none(*p4d))) {
+			pgd_t *pgd_ref = pgd_offset_k(sp);
+			p4d_t *p4d_ref = p4d_offset(pgd_ref, sp);
+
+			set_p4d(p4d, *p4d_ref);
+		}
+#endif
 	}
 }
 
