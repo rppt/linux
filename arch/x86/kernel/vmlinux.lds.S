@@ -68,6 +68,9 @@ jiffies_64 = jiffies;
 #define ALIGN_ENTRY_DATA_BEGIN	. = ALIGN(PMD_SIZE);
 #define ALIGN_ENTRY_DATA_END	. = ALIGN(PMD_SIZE);
 
+#define ALIGN_RETPOLINE_TEXT_BEGIN	. = ALIGN(PMD_SIZE);
+#define ALIGN_RETPOLINE_TEXT_END	. = ALIGN(PMD_SIZE);
+
 #define ENTRY_DATA							\
 		ALIGN_FUNCTION();					\
 		__entry_data_start = .;					\
@@ -146,9 +149,11 @@ SECTIONS
 		*(.gnu.warning)
 
 #ifdef CONFIG_RETPOLINE
+		ALIGN_RETPOLINE_TEXT_BEGIN
 		__indirect_thunk_start = .;
 		*(.text.__x86.indirect_thunk)
 		__indirect_thunk_end = .;
+		ALIGN_RETPOLINE_TEXT_END
 #endif
 
 		/* End of text section */
