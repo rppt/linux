@@ -507,14 +507,25 @@ ENTRY(interrupt_entry)
 	testb	$3, CS-ORIG_RAX+8(%rsp)
 	jz	1f
 	SWAPGS
+	jmp	3f
 
+#ifdef CONFIG_INTERNAL_PTI
+1:	pushq	%rdi
+	movq	%cr3, %rdi
+	bt	$PTI_ENTRY_PGTABLE_BIT, %rdi
+	jnc	2f
+	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rdi
+	movq	%rdi, %cr3
+2:	popq	%rdi
+	jmp	1f
+#endif
 	/*
 	 * Switch to the thread stack. The IRET frame and orig_ax are
 	 * on the stack, as well as the return address. RDI..R12 are
 	 * not (yet) on the stack and space has not (yet) been
 	 * allocated for them.
 	 */
-	pushq	%rdi
+3:	pushq	%rdi
 
 	/* Need to switch before accessing the thread stack. */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi
