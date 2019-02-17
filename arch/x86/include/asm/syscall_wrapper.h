@@ -184,6 +184,29 @@
 	}								\
 	static inline long __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))
 
+#ifndef CONFIG_INTERNAL_PTI
+#define __IPTI_SYSCALL_DEFINEx __SYSCALL_DEFINEx
+#else
+#define __IPTI_SYSCALL_DEFINEx(x, name, ...)					\
+	asmlinkage long __entry_text __x64_sys##name(const struct pt_regs *regs);	\
+	ALLOW_ERROR_INJECTION(__x64_sys##name, ERRNO);			\
+	static long  __entry_text __se_sys##name(__MAP(x,__SC_LONG,__VA_ARGS__));	\
+	static inline long  __entry_text __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__));\
+	asmlinkage long  __entry_text __x64_sys##name(const struct pt_regs *regs)	\
+	{								\
+		return __se_sys##name(SC_X86_64_REGS_TO_ARGS(x,__VA_ARGS__));\
+	}								\
+	__IA32_SYS_STUBx(x, name, __VA_ARGS__)				\
+	static long  __entry_text __se_sys##name(__MAP(x,__SC_LONG,__VA_ARGS__))	\
+	{								\
+		long ret = __do_sys##name(__MAP(x,__SC_CAST,__VA_ARGS__));\
+		__MAP(x,__SC_TEST,__VA_ARGS__);				\
+		__PROTECT(x, ret,__MAP(x,__SC_ARGS,__VA_ARGS__));	\
+		return ret;						\
+	}								\
+	static inline long  __entry_text __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+#endif
+
 /*
  * As the generic SYSCALL_DEFINE0() macro does not decode any parameters for
  * obvious reasons, and passing struct pt_regs *regs to it in %rdi does not
