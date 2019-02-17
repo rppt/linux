@@ -1280,6 +1280,15 @@ ENTRY(error_entry)
 	movl	%ecx, %eax			/* zero extend */
 	cmpq	%rax, RIP+8(%rsp)
 	je	.Lbstep_iret
+#ifdef CONFIG_INTERNAL_PTI
+	pushq	%rax
+	movq	%cr3, %rax
+	bt	$PTI_ENTRY_PGTABLE_BIT, %rax
+	jnc	1f
+	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rax
+	movq	%rax, %cr3
+1:	popq	%rax
+#endif
 	cmpq	$.Lgs_change, RIP+8(%rsp)
 	jne	.Lerror_entry_done
 
