@@ -278,7 +278,7 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 	unsigned long cr3, orig_cr3;
 
 	/* FIXME: add proper selection of isolated syscalls */
-	if (nr != 335)
+	if (nr < 335)
 		return 0;
 
 	/* FIXME: do it once per entry context with proper stack sizing */
