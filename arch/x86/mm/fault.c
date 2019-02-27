@@ -419,7 +419,7 @@ NOKPROBE_SYMBOL(vmalloc_fault);
 
 #ifdef CONFIG_CPU_SUP_AMD
 static const char errata93_warning[] =
-KERN_ERR 
+KERN_ERR
 "******* Your BIOS seems to not contain a fix for K8 errata #93\n"
 "******* Working around it, but it may cause SEGVs or burn power.\n"
 "******* Please consider a BIOS update.\n"
@@ -1269,6 +1269,15 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	 * space, so do not expect them here.
 	 */
 	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+
+	pr_info("===> KF: address: %lx hw: %lx, ipti: %s\n", address, hw_error_code, current->in_ipti_syscall ? "true" : "false");
+
+	if (current->in_ipti_syscall) {
+		unsigned long start = address & PAGE_MASK;
+		unsigned long end = start + PAGE_SIZE;
+		pti_clone_pgtable_pte(start, end, true);
+		return;
+	}
 
 	/*
 	 * We can fault-in kernel-space virtual memory on-demand. The

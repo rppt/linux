@@ -75,6 +75,11 @@ __visible DEFINE_PER_CPU_PAGE_ALIGNED(struct tss_struct, cpu_tss_rw) = {
 		.io_bitmap_base	= INVALID_IO_BITMAP_OFFSET,
 #endif
 	 },
+
+	.scratch = {
+		.cr3 = 0,
+	},
+
 #ifdef CONFIG_X86_32
 	 /*
 	  * Note that the .io_bitmap member must be extra-big. This is because

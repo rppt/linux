@@ -512,6 +512,7 @@ ENTRY(interrupt_entry)
 #ifdef CONFIG_INTERNAL_PTI
 1:	pushq	%rdi
 	movq	%cr3, %rdi
+	movq	%rdi, PER_CPU_VAR(cpu_tss_rw + ENTRY_cr3)
 	bt	$PTI_ENTRY_PGTABLE_BIT, %rdi
 	jnc	2f
 	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rdi
@@ -660,6 +661,17 @@ retint_kernel:
 	jnz	1f
 	call	preempt_schedule_irq
 	jmp	0b
+1:
+#endif
+
+#ifdef CONFIG_INTERNAL_PTI
+	movq	PER_CPU_VAR(cpu_tss_rw + ENTRY_cr3), %rdi
+	movq	%cr3, %rax
+	cmpq	%rax, %rdi
+	je	1f
+	bt	$PTI_ENTRY_PGTABLE_BIT, %rdi
+	jnc	1f
+	movq	%rdi, %cr3
 1:
 #endif
 	/*
@@ -1283,6 +1295,7 @@ ENTRY(error_entry)
 #ifdef CONFIG_INTERNAL_PTI
 	pushq	%rax
 	movq	%cr3, %rax
+	movq	%rax, PER_CPU_VAR(cpu_tss_rw + ENTRY_cr3)
 	bt	$PTI_ENTRY_PGTABLE_BIT, %rax
 	jnc	1f
 	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rax

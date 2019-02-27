@@ -281,6 +281,9 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 	if (nr < 335)
 		return 0;
 
+	/* local_irq_disable(); */
+	current->in_ipti_syscall = true;
+
 	/* FIXME: do it once per entry context with proper stack sizing */
 	stack = this_cpu_read(cpu_current_top_of_stack);
 	stack -= 8 * PAGE_SIZE;
@@ -298,8 +301,11 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 
 static inline void __entry_text ipti_syscall_exit(unsigned long cr3)
 {
-	if (cr3)
+	if (cr3) {
+		current->in_ipti_syscall = false;
 		native_write_cr3(cr3);
+	}
+
 }
 #else
 static inline unsigned long ipti_syscall_enter(void) { return 0; }

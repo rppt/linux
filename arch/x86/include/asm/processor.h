@@ -338,6 +338,10 @@ struct entry_stack_page {
 	struct entry_stack stack;
 } __aligned(PAGE_SIZE);
 
+struct entry_scratch {
+	unsigned long cr3;
+};
+
 struct tss_struct {
 	/*
 	 * The fixed hardware portion.  This must not cross a page boundary
@@ -346,6 +350,7 @@ struct tss_struct {
 	 */
 	struct x86_hw_tss	x86_tss;
 
+	struct entry_scratch	scratch;
 	/*
 	 * The extra 1 is there because the CPU will access an
 	 * additional byte beyond the end of the IO permission

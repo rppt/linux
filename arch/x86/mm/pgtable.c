@@ -459,6 +459,9 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 		goto out;
 
 	mm->pgd = pgd;
+#ifdef CONFIG_INTERNAL_PTI
+	mm->ipti_pgd = kernel_to_entry_pgdp(pgd);
+#endif
 
 	if (preallocate_pmds(mm, pmds, PREALLOCATED_PMDS) != 0)
 		goto out_free_pgd;
