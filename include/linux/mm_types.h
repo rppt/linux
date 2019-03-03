@@ -362,6 +362,10 @@ struct mm_struct {
 		unsigned long task_size;	/* size of task vm space */
 		unsigned long highest_vm_end;	/* highest vma end address */
 		pgd_t * pgd;
+#ifdef CONFIG_INTERNAL_PTI
+		pgd_t * ipti_pgd;
+		void *ipti_mapping;
+#endif
 
 		/**
 		 * @mm_users: The number of users including userspace.

@@ -272,6 +272,53 @@ __visible __entry_text inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 
 #ifdef CONFIG_INTERNAL_PTI
+#define INIT_PGD	((pgd_t *) &init_top_pgt)
+
+#if 0
+struct ipti_mapping {
+	pmd_t *pmd;
+	pte_t *pte;
+};
+
+struct ipti_mm_data {
+	unsigned long index;
+	unsigned long size;
+	struct ipti_mapping *mappings;
+};
+
+static void __entry_text ipti_dump_pgd(pgd_t *pgd, const char *msg)
+{
+	int i;
+
+	pr_info("====================================================\n");
+	pr_info("--------- %s ---------\n", msg);
+
+	for (i = 0; i < PTRS_PER_PGD; i++) {
+		if (pgd_val(pgd[i]))
+			pr_info("%d: %lx\n", i, pgd_val(pgd[i]));
+	}
+
+	pr_info("----------------------------------------------------\n");
+}
+
+static void __entry_text ipti_dump_pgds(unsigned long cr3)
+{
+	pgd_t *pgd = current->active_mm->pgd;
+	struct ipti_mm_data *ipti = current->active_mm->ipti_mapping;
+
+	pr_info("current: mm: %px, pgd: %px, cr3: %lx\n", current->active_mm, pgd, cr3);
+	pr_info("cr3->va: %px, upgd: %px, epgd: %px\n", __va(cr3 & PAGE_MASK), kernel_to_user_pgdp(pgd), kernel_to_entry_pgdp(pgd));
+	pr_info("init: mm: %px, pgd: %px, INIT_PGD: %px\n", &init_mm, init_mm.pgd, INIT_PGD);
+	pr_info("ipti: %px, size: %ld, index: %ld\n", ipti, ipti->size, ipti->index);
+
+	ipti_dump_pgd(INIT_PGD, "init");
+	ipti_dump_pgd(kernel_to_entry_pgdp(INIT_PGD), "init entry");
+	ipti_dump_pgd(pgd, "process kernel");
+	ipti_dump_pgd(kernel_to_entry_pgdp(pgd), "process entry");
+	ipti_dump_pgd(kernel_to_user_pgdp(pgd), "process user");
+}
+#endif
+
 static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 {
 	unsigned long stack;
@@ -292,6 +339,9 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 
 	/* FIXME: add support for PV ops */
 	orig_cr3 = __native_read_cr3();
+
+	/* ipti_dump_pgds(orig_cr3); */
+
         cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2);
 	__native_flush_tlb();
 	native_write_cr3(cr3);
@@ -302,8 +352,10 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 static inline void __entry_text ipti_syscall_exit(unsigned long cr3)
 {
 	if (cr3) {
-		current->in_ipti_syscall = false;
 		native_write_cr3(cr3);
+		/* ipti_dump_pgds(cr3); */
+		current->in_ipti_syscall = false;
+		ipti_clear_mappins();
 	}
 
 }

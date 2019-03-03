@@ -442,9 +442,8 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-static void dump_pagetable(unsigned long address)
+static void __dump_pagetable(pgd_t *base, unsigned long address)
 {
-	pgd_t *base = __va(read_cr3_pa());
 	pgd_t *pgd = base + pgd_index(address);
 	p4d_t *p4d;
 	pud_t *pud;
@@ -454,7 +453,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pgd))
 		goto bad;
 
-	pr_info("PGD %lx ", pgd_val(*pgd));
+	pr_info("PGD %px: %lx ", pgd, pgd_val(*pgd));
 
 	if (!pgd_present(*pgd))
 		goto out;
@@ -463,15 +462,15 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(p4d))
 		goto bad;
 
-	pr_cont("P4D %lx ", p4d_val(*p4d));
+	pr_cont("P4D %px: %lx\n", pgd, p4d_val(*p4d));
 	if (!p4d_present(*p4d) || p4d_large(*p4d))
-		goto out;
+		goto out1;
 
 	pud = pud_offset(p4d, address);
 	if (bad_address(pud))
 		goto bad;
 
-	pr_cont("PUD %lx ", pud_val(*pud));
+	pr_info("PUD %px %lx ", pud, pud_val(*pud));
 	if (!pud_present(*pud) || pud_large(*pud))
 		goto out;
 
@@ -479,20 +478,28 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pmd))
 		goto bad;
 
-	pr_cont("PMD %lx ", pmd_val(*pmd));
+	pr_cont("PMD %px %lx\n", pmd, pmd_val(*pmd));
 	if (!pmd_present(*pmd) || pmd_large(*pmd))
-		goto out;
+		goto out1;
 
 	pte = pte_offset_kernel(pmd, address);
 	if (bad_address(pte))
 		goto bad;
 
-	pr_cont("PTE %lx", pte_val(*pte));
+	pr_info("PTE %px %lx", pte, pte_val(*pte));
 out:
 	pr_cont("\n");
+out1:
 	return;
 bad:
 	pr_info("BAD\n");
+}
+
+static void dump_pagetable(unsigned long address)
+{
+	pgd_t *base = __va(read_cr3_pa());
+
+	__dump_pagetable(base, address);
 }
 
 #endif /* CONFIG_X86_64 */
@@ -1272,10 +1279,13 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 
 	pr_info("===> KF: address: %lx hw: %lx, ipti: %s\n", address, hw_error_code, current->in_ipti_syscall ? "true" : "false");
 
+	dump_pagetable(address);
+	__dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address);
+
 	if (current->in_ipti_syscall) {
-		unsigned long start = address & PAGE_MASK;
-		unsigned long end = start + PAGE_SIZE;
-		pti_clone_pgtable_pte(start, end, true);
+		ipti_clone_pgtable(address & PAGE_MASK);
+		__dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address);
+		ipti_add_mapping(address);
 		return;
 	}
 

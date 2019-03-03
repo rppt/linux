@@ -48,7 +48,8 @@
 #include <asm/sections.h>
 
 #undef pr_fmt
-#define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
+/* #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt */
+#define pr_fmt(fmt)     "kPTI: " fmt
 
 /* Backporting helper */
 #ifndef __GFP_NOTRACK
@@ -752,3 +753,229 @@ void pti_finalize(void)
 
 	debug_checkwx_user();
 }
+
+#ifdef CONFIG_INTERNAL_PTI
+struct ipti_mapping {
+	unsigned long addr;
+	pmd_t *pmd;
+	pte_t *pte;
+};
+
+struct ipti_mm_data {
+	unsigned long index;
+	unsigned long size;
+	struct ipti_mapping mappings[0];
+};
+
+int ipti_pgd_alloc(struct mm_struct *mm)
+{
+	struct ipti_mm_data *ipti_mm_data;
+
+	ipti_mm_data = (struct ipti_mm_data *)__get_free_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!ipti_mm_data)
+		return -ENOMEM;
+
+	ipti_mm_data->size = PAGE_SIZE - 2 * sizeof(unsigned long);
+
+	mm->ipti_mapping = ipti_mm_data;
+	mm->ipti_pgd = kernel_to_entry_pgdp(mm->pgd);
+
+	return 0;
+}
+
+void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
+{
+	struct ipti_mm_data *ipti;
+
+	if (WARN_ON(!mm))
+		return;
+
+	ipti = mm->ipti_mapping;
+	free_page((unsigned long)ipti);
+}
+
+static int ipti_mapping_realloc(struct mm_struct *mm)
+{
+	return -ENOMEM;
+}
+
+static pmd_t *ipti_get_pmd(pgd_t *pgdp, unsigned long addr)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+
+	pgd = pgd_offset_pgd(pgdp, addr);
+	if (WARN_ON(pgd_none(*pgd)))
+		return NULL;
+
+	p4d = p4d_offset(pgd, addr);
+	if (WARN_ON(p4d_none(*p4d)))
+		return NULL;
+
+	pud = pud_offset(p4d, addr);
+	if (WARN_ON(pud_none(*pud)))
+		return NULL;
+
+	return pmd_offset(pud, addr);
+}
+
+static void __ipti_add_mapping(struct ipti_mm_data *ipti, struct mm_struct *mm,
+			      unsigned long addr)
+{
+	pgd_t *pgdp = kernel_to_entry_pgdp(mm->pgd);
+	pte_t *pte, *pte_k;
+	pmd_t *pmd, *pmd_k;
+
+	pmd_k = ipti_get_pmd(mm->pgd, addr);
+	if (WARN_ON(pmd_none(*pmd_k)))
+		return;
+
+	pmd = ipti_get_pmd(pgdp, addr);
+	if (WARN_ON(pmd_none(*pmd)))
+		return;
+
+	if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
+		return;
+
+	if (pmd_large(*pmd)) {
+		pr_info("ADD PMD: entry: %px (%lx), kernel: %px (%lx)\n", pmd, pmd_val(*pmd), pmd_k, pmd_val(*pmd_k));
+		ipti->mappings[ipti->index].pmd = pmd;
+	} else {
+		pte = pte_offset_kernel(pmd, addr);
+		if (WARN_ON(pte_none(*pte)))
+			return;
+		if (WARN_ON(!(pte_flags(*pte) & _PAGE_PRESENT)))
+			return;
+		pte_k = pte_offset_kernel(pmd_k, addr);
+		pr_info("ADD PTE: entry: %px (%lx), kernel: %px (%lx)\n", pte, pte_val(*pte), pte_k, pte_val(*pte_k));
+		ipti->mappings[ipti->index].pte = pte;
+		/* ipti->mappings[ipti->index].pmd = pmd; */
+	}
+
+	ipti->mappings[ipti->index].addr = addr;
+
+	ipti->index++;
+}
+
+int ipti_add_mapping(unsigned long address)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct ipti_mm_data *ipti;
+	int err = 0;
+
+	if (!mm) {
+		pr_err("System call from kernel thread?!\n");
+		return -ENOMEM;
+	}
+
+	ipti = mm->ipti_mapping;
+
+	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
+		err = ipti_mapping_realloc(mm);
+		if (err)
+			return err;
+	}
+
+	__ipti_add_mapping(ipti, mm, address);
+	return 0;
+}
+
+static void __ipti_clear_mapping(struct ipti_mapping *m)
+{
+	if (m->pmd)
+		pmd_clear(m->pmd);
+	else if (m->pte)
+		pte_clear(NULL, 0, m->pte);
+	else
+		BUG();
+}
+
+void ipti_clear_mappins(void)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct ipti_mm_data *ipti;
+	int i;
+
+	if (WARN_ON(!mm))
+		return;
+
+	ipti = mm->ipti_mapping;
+
+	for (i = 0; i < ipti->index; i++) {
+		struct ipti_mapping *m = &ipti->mappings[i];
+		pmd_t *pmd = ipti_get_pmd(kernel_to_entry_pgdp(mm->pgd), m->addr);
+
+		pr_info("DEL: addr: %lx, pmd: %px, m->pmd: %px, pte: %px\n", m->addr, pmd, m->pmd, m->pte);
+		__ipti_clear_mapping(m);
+	}
+	local_flush_tlb();
+	memset(ipti->mappings, 0, ipti->size);
+
+	ipti->index = 0;
+}
+
+/* FIXME: split common code from ?pti_clone_pgtable */
+void ipti_clone_pgtable(unsigned long addr)
+{
+	pte_t *pte, *target_pte, ptev;
+	pmd_t *pmd, *target_pmd;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+
+	pgd = pgd_offset_k(addr);
+	if (WARN_ON(pgd_none(*pgd)))
+		return;
+	p4d = p4d_offset(pgd, addr);
+	if (WARN_ON(p4d_none(*p4d)))
+		return;
+
+	pud = pud_offset(p4d, addr);
+	if (WARN_ON(pud_none(*pud)))
+		return;
+
+	pmd = pmd_offset(pud, addr);
+	if (WARN_ON(pmd_none(*pmd)))
+		return;
+
+	if (pmd_large(*pmd)) {
+		target_pmd = pti_user_pagetable_walk_pmd(addr, true);
+		if (WARN_ON(!target_pmd))
+			return;
+
+		if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
+			return;
+
+		if (pmd_none(*target_pmd) ||
+		    !(pmd_flags(*target_pmd) & _PAGE_PRESENT)) {
+			*target_pmd = *pmd;
+			return;
+		} else {
+			pgprot_t flags = pmd_pgprot(*pmd);
+			unsigned long pa = __pa(addr);
+
+			ptev = pfn_pte(pa >> PAGE_SHIFT, flags);
+		}
+	} else {
+		/* Walk the page-table down to the pte level */
+		pte = pte_offset_kernel(pmd, addr);
+		if (WARN_ON(pte_none(*pte)))
+			return;
+
+		/* Only clone present PTEs */
+		if (WARN_ON(!(pte_flags(*pte) & _PAGE_PRESENT)))
+			return;
+
+		ptev = *pte;
+	}
+
+	/* Allocate PTE in the user page-table */
+	target_pte = pti_user_pagetable_walk_pte(addr, true);
+	if (WARN_ON(!target_pte))
+		return;
+
+	/* Clone the PTE */
+	*target_pte = ptev;
+}
+#endif
