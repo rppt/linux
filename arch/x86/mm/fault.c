@@ -1283,6 +1283,10 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	__dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address);
 
 	if (current->in_ipti_syscall) {
+		if (!ipti_address_is_safe(regs, address, hw_error_code))
+			/* FIXME: add proper cleanup and normal kill */
+			goto bad_area;
+
 		ipti_clone_pgtable(address & PAGE_MASK);
 		__dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address);
 		ipti_add_mapping(address);
@@ -1320,6 +1324,7 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (kprobes_fault(regs))
 		return;
 
+bad_area:
 	/*
 	 * Note, despite being a "bad area", there are quite a few
 	 * acceptable reasons to get here, such as erratum fixups

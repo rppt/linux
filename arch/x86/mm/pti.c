@@ -35,6 +35,7 @@
 #include <linux/spinlock.h>
 #include <linux/mm.h>
 #include <linux/uaccess.h>
+#include <linux/kallsyms.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
@@ -46,6 +47,8 @@
 #include <asm/tlbflush.h>
 #include <asm/desc.h>
 #include <asm/sections.h>
+#include <asm/traps.h>
+#include <asm/nospec-branch.h>
 
 #undef pr_fmt
 /* #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt */
@@ -940,6 +943,9 @@ void ipti_clone_pgtable(unsigned long addr)
 		return;
 
 	if (pmd_large(*pmd)) {
+		pgprot_t flags;
+		unsigned long pa;
+
 		target_pmd = pti_user_pagetable_walk_pmd(addr, true);
 		if (WARN_ON(!target_pmd))
 			return;
@@ -947,16 +953,13 @@ void ipti_clone_pgtable(unsigned long addr)
 		if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
 			return;
 
-		if (pmd_none(*target_pmd) ||
-		    !(pmd_flags(*target_pmd) & _PAGE_PRESENT)) {
-			*target_pmd = *pmd;
+		if (WARN_ON(pmd_large(*target_pmd)))
 			return;
-		} else {
-			pgprot_t flags = pmd_pgprot(*pmd);
-			unsigned long pa = __pa(addr);
 
-			ptev = pfn_pte(pa >> PAGE_SHIFT, flags);
-		}
+		flags = pmd_pgprot(*pmd);
+		pa = __pa(addr);
+
+		ptev = pfn_pte(pa >> PAGE_SHIFT, flags);
 	} else {
 		/* Walk the page-table down to the pte level */
 		pte = pte_offset_kernel(pmd, addr);
@@ -977,5 +980,69 @@ void ipti_clone_pgtable(unsigned long addr)
 
 	/* Clone the PTE */
 	*target_pte = ptev;
+}
+
+static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
+{
+	char namebuf[KSYM_NAME_LEN];
+	const char *symbol, *rip_symbol;
+	unsigned long offset, size;
+	char *modname;
+
+	pr_info("code: %lx reads %lx\n", regs->ip, addr);
+
+	/* instruction fetch outside kernel or module text */
+	if (!(is_kernel_text(addr)) || is_module_text_address(addr))
+		return false;
+
+	/* no symbol matches the address */
+	symbol = kallsyms_lookup(addr, &size, &offset, &modname, namebuf);
+	if (!symbol) {
+		pr_err("no symbol at %lx\n", addr);
+		return NULL;
+	}
+
+	if (symbol != namebuf) {
+		pr_err("BPF or ftrace: %s vs %s\n", symbol, namebuf);
+		return NULL;
+	}
+
+	/*
+	 * access in the middle of a function
+	 * for now, treat jumps inside a functions as safe.
+	 */
+	if (offset) {
+		rip_symbol = kallsyms_lookup(regs->ip, &size, &offset,
+					     &modname, namebuf);
+		if (!rip_symbol) {
+			pr_err("no symbol for current context: %lx\n", regs->ip);
+			return false;
+		}
+
+		if (rip_symbol != symbol) {
+			pr_err("accessing %s at offset %lx\n", symbol, offset);
+			return false;
+		}
+
+		/* FIXME: should we check the module names match? */
+	}
+
+	return true;
+}
+
+static bool ipti_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
+{
+	pr_info("data: %lx reads %lx\n", regs->ip, addr);
+	return true;
+}
+
+bool ipti_address_is_safe(struct pt_regs *regs, unsigned long addr,
+			  unsigned long hw_error_code)
+{
+	/* return false; */
+	if (hw_error_code & X86_PF_INSTR)
+		return ipti_is_code_access_safe(regs, addr);
+
+	return ipti_is_data_access_safe(regs, addr);
 }
 #endif

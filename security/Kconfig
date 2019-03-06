@@ -68,7 +68,7 @@ config PAGE_TABLE_ISOLATION
 config INTERNAL_PTI
 	bool "Internal addess space isolation"
 	default y
-	depends on X86_64 && !UML
+	depends on (X86_64 && !UML) && (KALLSYMS || UNWINDER_ORC)
 	help
 	  This is an experimental feature to turn Linux kernel into
 	  micro-kernel.
@@ -287,4 +287,3 @@ config DEFAULT_SECURITY
 	default "" if DEFAULT_SECURITY_DAC
 
 endmenu
-
