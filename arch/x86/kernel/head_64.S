@@ -347,7 +347,16 @@ GLOBAL(early_recursion_flag)
 	.balign	PAGE_SIZE; \
 GLOBAL(name)
 
-#ifdef CONFIG_PAGE_TABLE_ISOLATION
+#ifdef CONFIG_INTERNAL_PTI
+/*
+ * Each PGD needs to be 16k long and 16k aligned.
+ * This ensures PGDs are 16k long:
+ */
+#define PTI_USER_PGD_FILL	(1024 + 512)
+#define NEXT_PGD_PAGE(name) \
+	.balign 4 * PAGE_SIZE; \
+GLOBAL(name)
+#elif defined(CONFIG_PAGE_TABLE_ISOLATION)
 /*
  * Each PGD needs to be 8k long and 8k aligned.  We do not
  * ever go out to userspace with these, so we do not

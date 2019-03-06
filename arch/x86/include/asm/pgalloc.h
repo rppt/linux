@@ -30,7 +30,14 @@ static inline void paravirt_release_p4d(unsigned long pfn) {}
  */
 extern gfp_t __userpte_alloc_gfp;
 
-#ifdef CONFIG_PAGE_TABLE_ISOLATION
+#ifdef CONFIG_INTERNAL_PTI
+/*
+ * Instead of one PGD, we need three PGDs: kernel, user and "isolated
+ * kernel". To make conversion between PGDs and cr3 simpler, we get 4
+ * pages (order-2)
+ */
+#define PGD_ALLOCATION_ORDER 2
+#elif defined(CONFIG_PAGE_TABLE_ISOLATION)
 /*
  * Instead of one PGD, we acquire two PGDs.  Being order-1, it is
  * both 8k in size and 8k-aligned.  That lets us just flip bit 12
