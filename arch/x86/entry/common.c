@@ -321,7 +321,7 @@ static void __entry_text ipti_dump_pgds(unsigned long cr3)
 
 static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 {
-	unsigned long stack;
+	/* unsigned long stack; */
 	unsigned long cr3, orig_cr3;
 
 	/* FIXME: add proper selection of isolated syscalls */
@@ -331,11 +331,11 @@ static inline unsigned long __entry_text ipti_syscall_enter(unsigned long nr)
 	/* local_irq_disable(); */
 	current->in_ipti_syscall = true;
 
-	/* FIXME: do it once per entry context with proper stack sizing */
-	stack = this_cpu_read(cpu_current_top_of_stack);
-	stack -= 8 * PAGE_SIZE;
-	stack = ALIGN(stack, PAGE_SIZE);
-	pti_clone_pgtable_pte(stack, stack + 8 * PAGE_SIZE, true);
+	/* /\* FIXME: do it once per entry context with proper stack sizing *\/ */
+	/* stack = this_cpu_read(cpu_current_top_of_stack); */
+	/* stack -= 8 * PAGE_SIZE; */
+	/* stack = ALIGN(stack, PAGE_SIZE); */
+	/* pti_clone_pgtable_pte(stack, stack + 8 * PAGE_SIZE, true); */
 
 	/* FIXME: add support for PV ops */
 	orig_cr3 = __native_read_cr3();
