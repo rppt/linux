@@ -15,22 +15,14 @@ IPTI_SYSCALL_DEFINE3(ipti_write, unsigned int, fd, const char __user *, ubuf,
 {
 	char buf[BUF_SIZE];
 
-	outb('a', 0x3f8);
-
 	if (!ubuf || count >= BUF_SIZE)
 		return -EINVAL;
-
-	outb('b', 0x3f8);
 
 	buf[count] = '\0';
 	if (copy_from_user(buf, ubuf, count))
 		return -EFAULT;
 
-	outb('c', 0x3f8);
-
 	pr_info("%s\n", buf);
-
-	outb('d', 0x3f8);
 
 	return count;
 }
