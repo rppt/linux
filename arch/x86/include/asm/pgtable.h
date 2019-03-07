@@ -27,8 +27,19 @@
 extern pgd_t early_top_pgt[PTRS_PER_PGD];
 int __init __early_make_pgtable(unsigned long address, pmdval_t pmd);
 
+enum ptdump_walk_mode {
+	PTDUMP_WALK_KERNEL = 0,
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+	PTDUMP_WALK_USER = 1,
+#endif
+#ifdef CONFIG_INTERNAL_PTI
+	PTDUMP_WALK_ENTRY = 2,
+#endif
+};
+
 void ptdump_walk_pgd_level(struct seq_file *m, pgd_t *pgd);
-void ptdump_walk_pgd_level_debugfs(struct seq_file *m, pgd_t *pgd, bool user);
+void ptdump_walk_pgd_level_debugfs(struct seq_file *m, pgd_t *pgd,
+				   enum ptdump_walk_mode mode);
 void ptdump_walk_pgd_level_checkwx(void);
 void ptdump_walk_user_pgd_level_checkwx(void);
 
