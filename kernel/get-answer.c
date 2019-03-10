@@ -10,7 +10,7 @@ IPTI_SYSCALL_DEFINE0(get_answer)
 
 #define BUF_SIZE 1024
 
-IPTI_SYSCALL_DEFINE3(ipti_write, unsigned int, fd, const char __user *, ubuf,
+IPTI_SYSCALL_DEFINE2(ipti_write, const char __user *, ubuf,
 		     size_t, count)
 {
 	char buf[BUF_SIZE];
