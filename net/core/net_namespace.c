@@ -19,11 +19,13 @@
 #include <linux/net_namespace.h>
 #include <linux/sched/task.h>
 #include <linux/uidgid.h>
+#include <linux/mmu_context.h>
 
 #include <net/sock.h>
 #include <net/netlink.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
+#include <asm/pgtable.h>
 
 /*
  *	Our network namespace constructor/destructor lists
@@ -293,6 +295,25 @@ struct net *get_net_ns_by_id(struct net *net, int id)
 	return peer;
 }
 
+static void dump_pagedir(pgd_t *base)
+{
+	int i;
+	printk("Page Directory @ %lx\n", __pa(base));
+	for (i=0; i < PTRS_PER_PGD; i++)
+		printk("%lx%c", base[i], (i % 4 == 3) ? '\n' : '\t');
+}
+
+static void cmp_pagedir(unsigned long *pgd1, unsigned long *pgd2)
+{
+	int i;
+	for (i=0; i < PTRS_PER_PGD; i++) {
+		if (pgd1[i] != pgd2[i]) {
+			printk("index=%i %lx != %lx\n", i, pgd1[i], pgd2[i]);
+			//pgd2[i] = pgd1[i];
+		}
+	}
+}
+
 /*
  * setup_net runs the initializers for the network namespace object.
  */
@@ -320,6 +341,7 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	down_write(&net_rwsem);
 	list_add_tail_rcu(&net->list, &net_namespace_list);
 	up_write(&net_rwsem);
+
 out:
 	return error;
 
@@ -398,6 +420,9 @@ out_free:
 
 static void net_free(struct net *net)
 {
+	/* destroy mm before the rest */
+	mmput(net->mm);
+
 	kfree(rcu_access_pointer(net->gen));
 	kmem_cache_free(net_cachep, net);
 }
@@ -409,6 +434,86 @@ void net_drop_ns(void *p)
 		net_free(ns);
 }
 
+/* allow access to all data owned by this ns */
+void net_ns_use(struct net *net)
+{
+	struct mm_struct *active_mm;
+	if (!net) {
+		printk("net_ns_use empty ns\n");
+		return;
+	}
+
+	if (!net->mm) {
+		printk("pid=%i net_ns_use empty ns mm (%px)\n", current->pid, net);
+		return;
+	}
+
+	if (!net || !net->mm)
+		return;
+
+	if (current && current->mm && current->mm->pgd) {
+		current->netns_refcount++; // should be atomic inc
+		//printk("NETNS: pid=%i use ns=%px (%i)\n", current->pid, net, current->netns_refcount);
+
+		if (current->netns_refcount == 1) {
+			// save the currently active mm for restoring later
+			current->netns_mm = net->mm;
+
+			/* prepare the net mm by overwriting the user
+				mappings with the values from the currently
+				running userspace program */
+			clone_pgd_range_k(net->mm->pgd,
+				current->mm->pgd,
+				USER_PGD_PTRS);
+			active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+			//if (((unsigned long )net & 0xFFF) == 0) {
+				//cmp_pagedir((unsigned long*)active_mm->pgd, (unsigned long*)net->mm->pgd);
+			//}
+			switch_mm(active_mm, net->mm, NULL);
+		}
+	}
+
+/*
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	if (active_mm && active_mm != net->mm) {
+		net->active_mm = active_mm;
+		net->active_pid = current->pid;
+		printk("NETNS: pid %i switching from %px to mm %px\n",
+			current?current->pid:-1, net->active_mm, net->mm);
+		switch_mm(net->active_mm, net->mm, NULL);
+	}
+*/
+}
+
+void net_ns_unuse(struct net *net)
+{
+	//struct mm_struct *target_mm;
+
+	if (current && current->mm && current->mm->pgd) {
+		current->netns_refcount--; // should be atomic dec
+		//printk("NETNS: pid=%i unuse ns=%px (%i)\n", current->pid, net, current->netns_refcount);
+
+		if (current->netns_refcount == 0) {
+			// current process is leaving the netns
+			current->netns_mm = NULL;
+			switch_mm(NULL, current->mm, NULL);
+		}
+	}
+/*
+	if (net->active_pid != current->pid) {
+		printk("WARNING: pid=%i is using netns, but pid=%i is trying to unuse it!\n",
+			net->active_pid, current->pid);
+	}
+	if (net->active_mm && net->active_mm != net->mm) {
+		target_mm = net->active_mm;
+		net->active_mm = NULL;
+		printk("NETNS: pid %i switching back from mm %px to mm %px\n",
+			current?current->pid:-1, net->mm, target_mm);
+		switch_mm(net->mm, target_mm, NULL);
+	}
+*/
+}
+
 struct net *copy_net_ns(unsigned long flags,
 			struct user_namespace *user_ns, struct net *old_net)
 {
@@ -416,8 +521,11 @@ struct net *copy_net_ns(unsigned long flags,
 	struct net *net;
 	int rv;
 
-	if (!(flags & CLONE_NEWNET))
+	printk("copy_net_ns from %px\n", old_net);
+	if (!(flags & CLONE_NEWNET)) {
+		printk("reusing existing netns\n");
 		return get_net(old_net);
+	}
 
 	ucounts = inc_net_namespaces(user_ns);
 	if (!ucounts)
@@ -428,15 +536,35 @@ struct net *copy_net_ns(unsigned long flags,
 		rv = -ENOMEM;
 		goto dec_ucounts;
 	}
+	printk("Allocated netns %px\n", net);
 	refcount_set(&net->passive, 1);
 	net->ucounts = ucounts;
 	get_user_ns(user_ns);
+
+	/* create a new address space to protect netns data */
+	/* JKN: this should be percpu eventually, since we need
+		to support multiple processes (i.e. userland mappings)
+		from the same namespace on different CPUs simultaneously.
+
+		The mm must be created before calling the pernet init
+		functions, since they will use the netns and rely on it
+		being available.
+	*/
+	net->mm = mm_alloc_k();
+	if (!net->mm) {
+		printk("Error allocating mm\n");
+		rv = -ENOMEM;
+	}
+
+	printk("Created a new mm %px for netns %px\n", net->mm, net);
 
 	rv = down_read_killable(&pernet_ops_rwsem);
 	if (rv < 0)
 		goto put_userns;
 
 	rv = setup_net(net, user_ns);
+
+	//dump_pagedir(__va(read_cr3_pa()));
 
 	up_read(&pernet_ops_rwsem);
 
@@ -683,6 +811,7 @@ static int rtnl_net_newid(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct net *peer;
 	int nsid, err;
 
+	printk("%s\n", __FUNCTION__);
 	err = nlmsg_parse_deprecated(nlh, sizeof(struct rtgenmsg), tb,
 				     NETNSA_MAX, rtnl_net_policy, extack);
 	if (err < 0)
@@ -832,6 +961,7 @@ static int rtnl_net_getid(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct sk_buff *msg;
 	int err;
 
+	printk("%s\n", __FUNCTION__);
 	err = rtnl_net_valid_getid_req(skb, nlh, tb, extack);
 	if (err < 0)
 		return err;
@@ -1017,6 +1147,7 @@ static void rtnl_net_notifyid(struct net *net, int cmd, int id)
 	};
 	struct sk_buff *msg;
 	int err = -ENOMEM;
+	printk("%s\n", __FUNCTION__);
 
 	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL);
 	if (!msg)
@@ -1059,6 +1190,9 @@ static int __init net_ns_init(void)
 	down_write(&pernet_ops_rwsem);
 	if (setup_net(&init_net, &init_user_ns))
 		panic("Could not setup the initial network namespace");
+
+	printk("NETNS: init_net_mm=%px for init_net=%px\n", &init_netns_mm, &init_net);
+	init_net.mm = &init_netns_mm;
 
 	init_net_initialized = true;
 	up_write(&pernet_ops_rwsem);

@@ -2802,8 +2802,19 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		next->active_mm = oldmm;
 		mmgrab(oldmm);
 		enter_lazy_tlb(oldmm, next);
-	} else
+	} else {
+		if (next->netns_mm) {
+			//printk("CTX switch: pid=%i using netns mm=%px\n", next->pid, next->netns_mm);
+			mm = next->netns_mm;
+			/* prepare the net mm by overwriting the user
+			mappings with the values from the currently
+			running userspace program */
+			clone_pgd_range_k(mm->pgd,
+				next->mm->pgd,
+				USER_PGD_PTRS);
+		}
 		switch_mm_irqs_off(oldmm, mm, next);
+	}
 
 	if (!prev->mm) {
 		prev->active_mm = NULL;

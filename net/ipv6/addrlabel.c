@@ -579,6 +579,7 @@ static int ip6addrlbl_get(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 	struct ip6addrlbl_entry *p;
 	struct sk_buff *skb;
 
+	printk("ip6addrlbl_get\n");
 	err = ip6addrlbl_valid_get_req(in_skb, nlh, tb, extack);
 	if (err < 0)
 		return err;

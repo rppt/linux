@@ -94,6 +94,7 @@
 #include <linux/livepatch.h>
 #include <linux/thread_info.h>
 #include <linux/stackleak.h>
+#include <net/net_namespace.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -637,16 +638,23 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 #define mm_free_pgd(mm)
 #endif /* CONFIG_MMU */
 
+static const char *mm_counter_str[] = {
+	"Resident file mapping pages",
+	"Resident anonymous pages",
+	"Anonymous swap entries",
+	"Resident shared memory pages" 
+	};
+
 static void check_mm(struct mm_struct *mm)
 {
 	int i;
-
+	
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
 		long x = atomic_long_read(&mm->rss_stat.count[i]);
 
 		if (unlikely(x))
 			printk(KERN_ALERT "BUG: Bad rss-counter state "
-					  "mm:%p idx:%d val:%ld\n", mm, i, x);
+					  "mm:%px %s = %ld\n", mm, mm_counter_str[i], x);
 	}
 
 	if (mm_pgtables_bytes(mm))
@@ -668,6 +676,7 @@ static void check_mm(struct mm_struct *mm)
  */
 void __mmdrop(struct mm_struct *mm)
 {
+	//printk("__mmdrop %px\n", mm);
 	BUG_ON(mm == &init_mm);
 	WARN_ON_ONCE(mm == current->mm);
 	WARN_ON_ONCE(mm == current->active_mm);
@@ -1046,6 +1055,67 @@ struct mm_struct *mm_alloc(void)
 
 	memset(mm, 0, sizeof(*mm));
 	return mm_init(mm, current, current_user_ns());
+}
+
+static struct mm_struct *mm_init_k(struct mm_struct *mm,
+	struct user_namespace *user_ns)
+{
+	mm->mmap = NULL;
+	mm->mm_rb = RB_ROOT;
+	mm->vmacache_seqnum = 0;
+	atomic_set(&mm->mm_users, 1);
+	atomic_set(&mm->mm_count, 1);
+	init_rwsem(&mm->mmap_sem);
+	INIT_LIST_HEAD(&mm->mmlist);
+	mm->core_state = NULL;
+	mm_pgtables_bytes_init(mm);
+	mm->map_count = 0;
+	mm->locked_vm = 0;
+	mm->pinned_vm = 0;
+	memset(&mm->rss_stat, 0, sizeof(mm->rss_stat));
+	spin_lock_init(&mm->page_table_lock);
+	spin_lock_init(&mm->arg_lock);
+	mm_init_cpumask(mm);
+	mm_init_aio(mm);
+	RCU_INIT_POINTER(mm->exe_file, NULL);
+	mmu_notifier_mm_init(mm);
+	hmm_mm_init(mm);
+	init_tlb_flush_pending(mm);
+#if defined(CONFIG_TRANSPARENT_HUGEPAGE) && !USE_SPLIT_PMD_PTLOCKS
+	mm->pmd_huge_pte = NULL;
+#endif
+	mm_init_uprobes_state(mm);
+
+	mm->flags = init_mm.flags & MMF_INIT_MASK;
+	mm->def_flags = init_mm.def_flags & VM_INIT_DEF_MASK;
+
+	/* allocate a page directory */
+	pgd_alloc_k(mm);
+	if (mm->pgd == NULL)
+		goto fail_nopgd;
+
+	mm->user_ns = get_user_ns(user_ns);
+	return mm;
+
+fail_nopgd:
+	free_mm(mm);
+	return NULL;
+}
+
+/*
+ * Allocate and initialize an mm_struct for kernel use
+ */
+struct mm_struct *mm_alloc_k(void)
+{
+	struct mm_struct *mm;
+
+	mm = allocate_mm();
+	if (!mm)
+		return NULL;
+
+	printk("mm_alloc_k %px\n", mm);
+	memset(mm, 0, sizeof(*mm));
+	return mm_init_k(mm, current_user_ns());
 }
 
 static inline void __mmput(struct mm_struct *mm)
@@ -1775,6 +1845,7 @@ static __latent_entropy struct task_struct *copy_process(
 	struct task_struct *p;
 	struct multiprocess_signals delayed;
 
+	//printk("Forking pid=%i\n", pid_nr(pid));
 	/*
 	 * Don't allow sharing the root directory with processes in a different
 	 * namespace
@@ -1868,6 +1939,9 @@ static __latent_entropy struct task_struct *copy_process(
 	p = dup_task_struct(current, node);
 	if (!p)
 		goto fork_out;
+
+	p->netns_refcount = 0;
+	p->netns_mm = NULL;
 
 	/*
 	 * This _must_ happen before we call free_task(), i.e. before we jump

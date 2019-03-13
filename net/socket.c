@@ -1380,6 +1380,9 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 	if (err)
 		return err;
 
+	/* switch to address space of the network namespace */
+	net_ns_use(net);
+
 	/*
 	 *	Allocate the socket and allow the family to set things up. if
 	 *	the protocol is 0, the family is instructed to select an appropriate
@@ -1392,6 +1395,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 				   closest posix thing */
 	}
 
+	printk("%s %px using net %px\n", __FUNCTION__, sock, net);
 	sock->type = type;
 
 #ifdef CONFIG_MODULES
@@ -1442,6 +1446,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 		goto out_sock_release;
 	*res = sock;
 
+	net_ns_unuse(net);
 	return 0;
 
 out_module_busy:
@@ -1451,6 +1456,7 @@ out_module_put:
 	module_put(pf->owner);
 out_sock_release:
 	sock_release(sock);
+	net_ns_unuse(net);
 	return err;
 
 out_release:
@@ -1490,6 +1496,7 @@ EXPORT_SYMBOL(sock_create);
 
 int sock_create_kern(struct net *net, int family, int type, int protocol, struct socket **res)
 {
+	printk("sock_create_kern\n");
 	return __sock_create(net, family, type, protocol, res, 1);
 }
 EXPORT_SYMBOL(sock_create_kern);
@@ -1933,6 +1940,8 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 	struct msghdr msg;
 	struct iovec iov;
 	int fput_needed;
+	struct net *task_ns = NULL;
+	struct net *sk_ns = NULL;
 
 	err = import_single_range(WRITE, buff, len, &iov, &msg.msg_iter);
 	if (unlikely(err))
@@ -1941,6 +1950,16 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 	if (!sock)
 		goto out;
 
+
+	task_ns = current->nsproxy->net_ns;
+	sk_ns = sock_net(sock->sk);
+	if (sk_ns != task_ns) {
+		printk("** ERROR %s ** pid=%i netns=%px socket=%px netns=%px\n",
+			__FUNCTION__, current->pid, task_ns, sock, sk_ns);
+	}
+	//printk("NETNS: sendto pid=%i (pidns=%px) socket=%px (sockns=%px)\n", current->pid, pidnet, sock, socknet);
+	//printk("%s using net %px\n", __FUNCTION__, pidnet);
+	net_ns_use(task_ns);
 	msg.msg_name = NULL;
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
@@ -1960,6 +1979,7 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 out_put:
 	fput_light(sock->file, fput_needed);
 out:
+	net_ns_unuse(task_ns);
 	return err;
 }
 

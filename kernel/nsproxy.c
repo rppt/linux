@@ -137,6 +137,7 @@ int copy_namespaces(unsigned long flags, struct task_struct *tsk)
 	struct user_namespace *user_ns = task_cred_xxx(tsk, user_ns);
 	struct nsproxy *new_ns;
 
+	//printk("copy_namespaces\n");
 	if (likely(!(flags & (CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC |
 			      CLONE_NEWPID | CLONE_NEWNET |
 			      CLONE_NEWCGROUP)))) {

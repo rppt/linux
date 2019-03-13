@@ -11,6 +11,7 @@
 #include <linux/list.h>
 #include <linux/sysctl.h>
 #include <linux/uidgid.h>
+#include <linux/sched/mm.h>
 
 #include <net/flow.h>
 #include <net/netns/core.h>
@@ -168,6 +169,7 @@ struct net {
 #endif
 	struct sock		*diag_nlsk;
 	atomic_t		fnhe_genid;
+	struct mm_struct *mm;
 } __randomize_layout;
 
 #include <linux/seq_file_net.h>
@@ -226,6 +228,12 @@ static inline struct net *get_net(struct net *net)
 	return net;
 }
 
+/* switch to ns address space */
+void net_ns_use(struct net *net);
+void net_ns_unuse(struct net *net);
+pgd_t *pgd_alloc_k(struct mm_struct *mm);
+
+
 static inline struct net *maybe_get_net(struct net *net)
 {
 	/* Used when we know struct net exists but we
@@ -259,6 +267,7 @@ void net_drop_ns(void *);
 
 #else
 
+pgd_t *pgd_alloc_k(struct mm_struct *mm);
 static inline struct net *get_net(struct net *net)
 {
 	return net;

@@ -13,6 +13,7 @@
  * Routines for handling mm_structs
  */
 extern struct mm_struct *mm_alloc(void);
+struct mm_struct *mm_alloc_k(void);
 
 /**
  * mmgrab() - Pin a &struct mm_struct.
