@@ -1849,14 +1849,25 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct sk_buff *skb;
 	int err;
 	struct scm_cookie scm;
+	struct net *task_ns = NULL;
+	struct net *sk_ns = NULL;
+
 	u32 netlink_skb_flags = 0;
 
 	if (msg->msg_flags&MSG_OOB)
 		return -EOPNOTSUPP;
 
+	task_ns = current->nsproxy->net_ns;
+	sk_ns = sock_net(sk);
+	if (sk_ns != task_ns) {
+		printk("** ERROR %s ** pid=%i socket netns=%px task netns=%px\n",
+			__FUNCTION__, current->pid, sk_ns, task_ns);
+	}
+	//printk("%s using net %px\n", __FUNCTION__, sock_net(sk));
+	net_ns_use(sk_ns);
 	err = scm_send(sock, msg, &scm, true);
 	if (err < 0)
-		return err;
+		goto error;
 
 	if (msg->msg_namelen) {
 		err = -EINVAL;
@@ -1918,6 +1929,8 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 
 out:
 	scm_destroy(&scm);
+error:
+	net_ns_unuse(sock_net(sk));
 	return err;
 }
 
@@ -1937,6 +1950,8 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 
 	copied = 0;
 
+	//printk("%s using net %px\n", __FUNCTION__, sock_net(sock->sk));
+	net_ns_use(sock_net(sock->sk));
 	skb = skb_recv_datagram(sk, flags, noblock, &err);
 	if (skb == NULL)
 		goto out;
@@ -2006,6 +2021,7 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 
 	scm_recv(sock, msg, &scm, flags);
 out:
+	net_ns_unuse(sock_net(sk));
 	netlink_rcv_wake(sk);
 	return err ? : copied;
 }

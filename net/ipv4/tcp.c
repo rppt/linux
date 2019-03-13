@@ -1438,10 +1438,21 @@ EXPORT_SYMBOL_GPL(tcp_sendmsg_locked);
 int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 {
 	int ret;
+	struct net *task_ns = NULL;
+	struct net *sk_ns = NULL;
 
+	task_ns = current->nsproxy->net_ns;
+	sk_ns = sock_net(sk);
+	if (sk_ns != task_ns) {
+		printk("** NS ERROR ** pid=%i netns=%px socket=%px netns=%px\n",
+			current->pid, task_ns, sk->sk_socket, sk_ns);
+	}
+
+	net_ns_use(task_ns);
 	lock_sock(sk);
 	ret = tcp_sendmsg_locked(sk, msg, size);
 	release_sock(sk);
+	net_ns_unuse(task_ns);
 
 	return ret;
 }

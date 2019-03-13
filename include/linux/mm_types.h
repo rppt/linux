@@ -506,6 +506,7 @@ struct mm_struct {
 };
 
 extern struct mm_struct init_mm;
+extern struct mm_struct init_netns_mm;
 
 /* Pointer magic because the dynamic array size confuses some compilers. */
 static inline void mm_init_cpumask(struct mm_struct *mm)

@@ -1783,7 +1783,11 @@ selinux_determine_inode_label(const struct task_security_struct *tsec,
 				 const struct qstr *name, u16 tclass,
 				 u32 *_new_isid)
 {
-	const struct superblock_security_struct *sbsec = dir->i_sb->s_security;
+	const struct superblock_security_struct *sbsec;
+
+	printk("NETNS: selinux inode dir=%px sb=%px\n", dir, dir->i_sb);
+	printk("NETNS: current->mm=%px\n", current->mm);
+	sbsec = dir->i_sb->s_security;
 
 	if ((sbsec->flags & SE_SBINITIALIZED) &&
 	    (sbsec->behavior == SECURITY_FS_USE_MNTPOINT)) {

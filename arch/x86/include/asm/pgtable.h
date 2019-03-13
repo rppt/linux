@@ -1005,6 +1005,7 @@ static inline int pgd_none(pgd_t pgd)
 
 #define KERNEL_PGD_BOUNDARY	pgd_index(PAGE_OFFSET)
 #define KERNEL_PGD_PTRS		(PTRS_PER_PGD - KERNEL_PGD_BOUNDARY)
+#define USER_PGD_PTRS		(KERNEL_PGD_BOUNDARY)
 
 #ifndef __ASSEMBLY__
 
@@ -1284,6 +1285,12 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
 #endif
+}
+
+/* Don't change the user spage pgd even if we are using PTI */
+static inline void clone_pgd_range_k(pgd_t *dst, pgd_t *src, int count)
+{
+	memcpy(dst, src, count * sizeof(pgd_t));
 }
 
 #define PTE_SHIFT ilog2(PTRS_PER_PTE)

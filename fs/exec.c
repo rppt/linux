@@ -374,6 +374,7 @@ static int bprm_mm_init(struct linux_binprm *bprm)
 	if (err)
 		goto err;
 
+	//printk("NETNS: pid=%i created new mm=%px\n", current->pid, mm);
 	return 0;
 
 err:
@@ -1815,6 +1816,7 @@ static int __do_execve_file(int fd, struct filename *filename,
 
 	would_dump(bprm, bprm->file);
 
+	//printk("%s: exec_binprm\n", __FUNC__);
 	retval = exec_binprm(bprm);
 	if (retval < 0)
 		goto out;

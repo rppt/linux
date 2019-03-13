@@ -686,6 +686,8 @@ struct task_struct {
 
 	struct mm_struct		*mm;
 	struct mm_struct		*active_mm;
+	struct mm_struct		*netns_mm; /* if not NULL, use this mm during a context switch */
+	int netns_refcount;
 
 	/* Per-thread vma caching: */
 	struct vmacache			vmacache;

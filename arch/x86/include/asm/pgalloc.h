@@ -45,6 +45,7 @@ extern gfp_t __userpte_alloc_gfp;
  * Allocate and free page tables.
  */
 extern pgd_t *pgd_alloc(struct mm_struct *);
+extern pgd_t *pgd_alloc_k(struct mm_struct *);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 
 extern pte_t *pte_alloc_one_kernel(struct mm_struct *);

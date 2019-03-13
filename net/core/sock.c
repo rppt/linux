@@ -1522,6 +1522,9 @@ static void sk_prot_free(struct proto *prot, struct sock *sk)
  *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
  *	@prot: struct proto associated with this new sock instance
  *	@kern: is this to be a kernel socket?
+ *
+ * A higher level function such as __sock_create() has already
+ * entered the netns
  */
 struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot, int kern)

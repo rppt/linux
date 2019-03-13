@@ -535,6 +535,7 @@ static int ip6addrlbl_get(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 	struct ip6addrlbl_entry *p;
 	struct sk_buff *skb;
 
+	printk("ip6addrlbl_get\n");
 	err = nlmsg_parse(nlh, sizeof(*ifal), tb, IFAL_MAX, ifal_policy,
 			  extack);
 	if (err < 0)
