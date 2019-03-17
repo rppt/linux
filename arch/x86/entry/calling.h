@@ -194,17 +194,22 @@ For 32-bit we have the following conventions - kernel is built with
  * halves:
  */
 #define PTI_USER_PGTABLE_BIT		PAGE_SHIFT
+#define PTI_USER_PCID_BIT		X86_CR3_PTI_PCID_USER_BIT
 
 #ifndef CONFIG_INTERNAL_PTI
 #define PTI_USER_PGTABLE_MASK		(0x1 << PTI_USER_PGTABLE_BIT)
+#define PTI_USER_PCID_MASK		(1 << PTI_USER_PCID_BIT)
+#define PTI_PCID_CR3_MASK		0x7ff
 #else
 #define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
 #define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
+#define PTI_ENTRY_PCID_BIT		X86_CR3_IPTI_PCID_BIT
+#define PTI_ENTRY_PCID_MASK		(0x1 << PTI_ENTRY_PCID_BIT)
 #define PTI_USER_PGTABLE_MASK		(0x3 << PTI_USER_PGTABLE_BIT)
+#define PTI_USER_PCID_MASK		(0x3 << X86_CR3_PTI_PCID_USER_BIT)
+#define PTI_PCID_CR3_MASK		0x3ff
 #endif
 
-#define PTI_USER_PCID_BIT		X86_CR3_PTI_PCID_USER_BIT
-#define PTI_USER_PCID_MASK		(1 << PTI_USER_PCID_BIT)
 #define PTI_USER_PGTABLE_AND_PCID_MASK  (PTI_USER_PCID_MASK | PTI_USER_PGTABLE_MASK)
 
 .macro SET_NOFLUSH_BIT	reg:req
@@ -238,7 +243,7 @@ For 32-bit we have the following conventions - kernel is built with
 	 * Test if the ASID needs a flush.
 	 */
 	movq	\scratch_reg, \scratch_reg2
-	andq	$(0x7FF), \scratch_reg		/* mask ASID */
+	andq	$(PTI_PCID_CR3_MASK), \scratch_reg		/* mask ASID */
 	bt	\scratch_reg, THIS_CPU_user_pcid_flush_mask
 	jnc	.Lnoflush_\@
 
@@ -272,6 +277,16 @@ For 32-bit we have the following conventions - kernel is built with
 	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_PTI
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
+
+#ifdef CONFIG_INTERNAL_PTI
+	/*
+	 * Test the entry pagetable bit. If set, then the entry page tables
+	 * are active. If clear CR3 already has the kernel page table
+	 * active.
+	 */
+	bt	$PTI_ENTRY_PGTABLE_BIT, \scratch_reg
+	jnc	.Ldone_\@
+#endif
 	/*
 	 * Test the user pagetable bit. If set, then the user page tables
 	 * are active. If clear CR3 already has the kernel page table
@@ -303,7 +318,7 @@ For 32-bit we have the following conventions - kernel is built with
 	 * about to set.
 	 */
 	movq	\save_reg, \scratch_reg
-	andq	$(0x7FF), \scratch_reg
+	andq	$(PTI_PCID_CR3_MASK), \scratch_reg
 	bt	\scratch_reg, THIS_CPU_user_pcid_flush_mask
 	jnc	.Lnoflush_\@
 

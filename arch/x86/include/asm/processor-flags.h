@@ -50,7 +50,12 @@
 #endif
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
+#ifdef CONFIG_INTERNAL_PTI
+# define X86_CR3_IPTI_PCID_BIT		11
+# define X86_CR3_PTI_PCID_USER_BIT	10
+#else
 # define X86_CR3_PTI_PCID_USER_BIT	11
+#endif
 #endif
 
 #endif /* _ASM_X86_PROCESSOR_FLAGS_H */

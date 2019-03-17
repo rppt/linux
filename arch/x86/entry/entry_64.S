@@ -543,8 +543,19 @@ ENTRY(interrupt_entry)
 	ENCODE_FRAME_POINTER 8
 
 	testb	$3, CS+8(%rsp)
-	jz	1f
+	jnz	1f
 
+#ifdef CONFIG_INTERNAL_PTI
+	pushq	%rcx
+	movq	%cr3, %r14
+	movq	%r14, %rcx
+	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rcx
+	movq	%rcx, %cr3
+	popq	%rcx
+	jmp	2f
+#endif
+
+1:
 	/*
 	 * IRQ from user mode.
 	 *
@@ -559,7 +570,7 @@ ENTRY(interrupt_entry)
 
 	CALL_enter_from_user_mode
 
-1:
+2:
 	ENTER_IRQ_STACK old_rsp=%rdi save_ret=1
 	/* We entered an interrupt context - irqs are off: */
 	TRACE_IRQS_OFF
@@ -655,6 +666,10 @@ retint_kernel:
 	 * The iretq could re-enable interrupts:
 	 */
 	TRACE_IRQS_IRETQ
+
+#ifdef CONFIG_INTERNAL_PTI
+	movq	%r14, %cr3
+#endif
 
 GLOBAL(restore_regs_and_return_to_kernel)
 #ifdef CONFIG_DEBUG_ENTRY
@@ -1263,6 +1278,14 @@ ENTRY(error_entry)
 	 * for these here too.
 	 */
 .Lerror_kernelspace:
+
+#ifdef CONFIG_INTERNAL_PTI
+	movq	%cr3, %r14
+	movq	%r14, %rcx
+	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rcx
+	movq	%rcx, %cr3
+#endif
+
 	leaq	native_irq_return_iret(%rip), %rcx
 	cmpq	%rcx, RIP+8(%rsp)
 	je	.Lerror_bad_iret
