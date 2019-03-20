@@ -31,6 +31,8 @@
 #include <asm/vdso.h>
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
+#include <asm/pti.h>
+#include <asm/tlbflush.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
@@ -269,7 +271,63 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 }
 
 #ifdef CONFIG_X86_64
-__visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
+
+#ifdef CONFIG_INTERNAL_PTI
+#ifndef CONFIG_VMAP_STACK
+static inline void ipti_map_stack(void)
+{
+	unsigned long stack;
+	int i;
+
+	stack = this_cpu_read(cpu_current_top_of_stack);
+	stack -= 8 * PAGE_SIZE;
+	stack = ALIGN(stack, PAGE_SIZE);
+
+	for (i = 0; i < 8; i++, stack += PAGE_SIZE)
+		ipti_clone_pgtable(stack);
+}
+#else
+static inline void ipti_map_stack(void) {}
+#endif
+static inline unsigned long ipti_syscall_enter(unsigned long nr)
+{
+	unsigned long cr3, orig_cr3;
+
+	if (nr < 335)
+		return 0;
+
+	current->in_ipti_syscall = true;
+
+	ipti_map_stack();
+
+	/* FIXME: add support for PV ops */
+	orig_cr3 = __native_read_cr3();
+
+	cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2) | (1 << X86_CR3_IPTI_PCID_BIT);
+	pr_info("%s: orig: %lx new: %lx\n", __func__, orig_cr3, cr3);
+
+	native_write_cr3(cr3);
+
+	return orig_cr3;
+}
+
+static inline void ipti_syscall_exit(unsigned long cr3)
+{
+
+	if (cr3) {
+		native_write_cr3(cr3);
+		current->in_ipti_syscall = false;
+		ipti_clear_mappins();
+	}
+}
+#else
+static inline unsigned long ipti_syscall_enter(unsigned long nr) { return 0; }
+static inline void ipti_syscall_exit(unsigned long cr3) {}
+#endif
+
+#define __entry             __attribute__((__section__(".entry.text")))
+
+__visible __entry void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
 
@@ -286,8 +344,13 @@ __visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	 */
 	nr &= __SYSCALL_MASK;
 	if (likely(nr < NR_syscalls)) {
+		unsigned long ipti_cr3 = 0;
+
 		nr = array_index_nospec(nr, NR_syscalls);
+
+		ipti_cr3 = ipti_syscall_enter(nr);
 		regs->ax = sys_call_table[nr](regs);
+		ipti_syscall_exit(ipti_cr3);
 	}
 
 	syscall_return_slowpath(regs);
