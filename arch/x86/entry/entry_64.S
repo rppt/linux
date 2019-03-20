@@ -543,19 +543,8 @@ ENTRY(interrupt_entry)
 	ENCODE_FRAME_POINTER 8
 
 	testb	$3, CS+8(%rsp)
-	jnz	1f
+	jz	.Linterrupt_entry_kernel
 
-#ifdef CONFIG_INTERNAL_PTI
-	pushq	%rcx
-	movq	%cr3, %r14
-	movq	%r14, %rcx
-	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), %rcx
-	movq	%rcx, %cr3
-	popq	%rcx
-	jmp	2f
-#endif
-
-1:
 	/*
 	 * IRQ from user mode.
 	 *
@@ -570,12 +559,17 @@ ENTRY(interrupt_entry)
 
 	CALL_enter_from_user_mode
 
-2:
+.Linterrupt_entry_done:
 	ENTER_IRQ_STACK old_rsp=%rdi save_ret=1
 	/* We entered an interrupt context - irqs are off: */
 	TRACE_IRQS_OFF
 
 	ret
+
+.Linterrupt_entry_kernel:
+	SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
+	jmp	.Linterrupt_entry_done
+
 END(interrupt_entry)
 _ASM_NOKPROBE(interrupt_entry)
 
@@ -667,9 +661,7 @@ retint_kernel:
 	 */
 	TRACE_IRQS_IRETQ
 
-#ifdef CONFIG_INTERNAL_PTI
-	movq	%r14, %cr3
-#endif
+	RESTORE_ENTRY_CR3 scratch_reg=%rax save_reg=%r14
 
 GLOBAL(restore_regs_and_return_to_kernel)
 #ifdef CONFIG_DEBUG_ENTRY
@@ -1278,13 +1270,7 @@ ENTRY(error_entry)
 	 * for these here too.
 	 */
 .Lerror_kernelspace:
-
-#ifdef CONFIG_INTERNAL_PTI
-	movq	%cr3, %r14
-	movq	%r14, %rcx
-	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), %rcx
-	movq	%rcx, %cr3
-#endif
+	SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
 
 	leaq	native_irq_return_iret(%rip), %rcx
 	cmpq	%rcx, RIP+8(%rsp)

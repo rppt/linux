@@ -189,6 +189,41 @@ For 32-bit we have the following conventions - kernel is built with
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 
+#ifdef CONFIG_INTERNAL_PTI
+#define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
+#define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
+#define PTI_ENTRY_PCID_BIT		X86_CR3_IPTI_PCID_BIT
+#define PTI_ENTRY_PCID_MASK		(1 << PTI_ENTRY_PCID_BIT)
+#define PTI_ENTRY_PGTABLE_AND_PCID_MASK  (PTI_ENTRY_PCID_MASK | PTI_ENTRY_PGTABLE_MASK)
+
+.macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+	movq	%cr3, \scratch_reg
+	movq	\scratch_reg, \save_reg
+	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	cmpq	\scratch_reg, \save_reg
+	je	.Ldone_\@
+	movq	\scratch_reg, %cr3
+.Ldone_\@:
+	.endm
+
+.macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
+	movq	%cr3, \scratch_reg
+	cmpq	\scratch_reg, \save_reg
+	je	.Ldone_\@
+	movq	\save_reg, %cr3
+.Ldone_\@:
+.endm
+
+#else
+
+.macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+.endm
+
+.macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
+.endm
+
+#endif
+
 /*
  * PAGE_TABLE_ISOLATION PGDs are 8k.  Flip bit 12 to switch between the two
  * halves:
@@ -198,14 +233,6 @@ For 32-bit we have the following conventions - kernel is built with
 #define PTI_USER_PCID_BIT		X86_CR3_PTI_PCID_USER_BIT
 #define PTI_USER_PCID_MASK		(1 << PTI_USER_PCID_BIT)
 #define PTI_USER_PGTABLE_AND_PCID_MASK  (PTI_USER_PCID_MASK | PTI_USER_PGTABLE_MASK)
-
-#ifdef CONFIG_INTERNAL_PTI
-#define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
-#define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
-#define PTI_ENTRY_PCID_BIT		X86_CR3_IPTI_PCID_BIT
-#define PTI_ENTRY_PCID_MASK		(1 << PTI_ENTRY_PCID_BIT)
-#define PTI_ENTRY_PGTABLE_AND_PCID_MASK  (PTI_ENTRY_PCID_MASK | PTI_ENTRY_PGTABLE_MASK)
-#endif
 
 .macro SET_NOFLUSH_BIT	reg:req
 	bts	$X86_CR3_PCID_NOFLUSH_BIT, \reg
