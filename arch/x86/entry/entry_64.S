@@ -784,10 +784,15 @@ native_irq_return_ldt:
 END(common_interrupt)
 _ASM_NOKPROBE(common_interrupt)
 
+/* Make sure APIC interrupt handlers end up in the irqentry section: */
+#define PUSH_SECTION_IRQENTRY	.pushsection .irqentry.text, "ax"
+#define POP_SECTION_IRQENTRY	.popsection
+
 /*
  * APIC interrupts.
  */
 .macro apicinterrupt3 num sym do_sym
+PUSH_SECTION_IRQENTRY
 ENTRY(\sym)
 	UNWIND_HINT_IRET_REGS
 	pushq	$~(\num)
@@ -798,16 +803,11 @@ ENTRY(\sym)
 	jmp	ret_from_intr
 END(\sym)
 _ASM_NOKPROBE(\sym)
+POP_SECTION_IRQENTRY
 .endm
 
-/* Make sure APIC interrupt handlers end up in the irqentry section: */
-#define PUSH_SECTION_IRQENTRY	.pushsection .irqentry.text, "ax"
-#define POP_SECTION_IRQENTRY	.popsection
-
 .macro apicinterrupt num sym do_sym
-PUSH_SECTION_IRQENTRY
 apicinterrupt3 \num \sym \do_sym
-POP_SECTION_IRQENTRY
 .endm
 
 #ifdef CONFIG_SMP
