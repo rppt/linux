@@ -1254,6 +1254,53 @@ static int fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
+#ifdef CONFIG_INTERNAL_PTI
+static void ipti_bad_access(struct pt_regs *regs, unsigned long error_code,
+			    unsigned long address, struct task_struct *tsk)
+{
+	no_context(regs, error_code, address, SIGBUS, BUS_ADRERR);
+}
+
+static bool do_ipti_fault(struct pt_regs *regs, unsigned long hw_error_code,
+			  unsigned long address)
+{
+	struct task_struct *tsk = current;
+
+	/* pr_info("=> KF: rip: %lx, address: %lx hw: %lx, %s\n", regs->ip, address, hw_error_code, current->in_ipti_syscall ? "ipti" : ""); */
+
+	/* dump_pagetable(address); */
+	/* __dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address); */
+
+	if (!tsk->in_ipti_syscall)
+		return false;
+
+	/* struct tss_struct *tss = this_cpu_ptr(&cpu_tss_rw); */
+
+	if (!ipti_address_is_safe(regs, address, hw_error_code)) {
+		pr_err("access is not safe\n");
+		/* ipti_clear_mappins(); */
+		ipti_bad_access(regs, hw_error_code, address, tsk);
+	} else {
+		/* pr_info("=> KF: entry_cr3: %lx\n", tss->ipti_scratch.cr3); */
+		ipti_clone_pgtable(address);
+		/* __dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address); */
+		/* __native_flush_tlb(); */
+		/* __native_flush_tlb_global(); */
+	}
+
+	/* local_irq_enable(); */
+
+	return true;
+}
+#else
+static inline bool do_ipti_fault(struct pt_regs *regs,
+				 unsigned long hw_error_code,
+				 unsigned long address)
+{
+	return false;
+}
+#endif
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1535,10 +1582,13 @@ __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		return;
 
 	/* Was the fault on kernel-controlled part of the address space? */
-	if (unlikely(fault_in_kernel_space(address)))
+	if (unlikely(fault_in_kernel_space(address))) {
+		if (do_ipti_fault(regs, hw_error_code, address))
+			return;
 		do_kern_addr_fault(regs, hw_error_code, address);
-	else
+	} else {
 		do_user_addr_fault(regs, hw_error_code, address);
+	}
 }
 NOKPROBE_SYMBOL(__do_page_fault);
 
