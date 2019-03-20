@@ -35,6 +35,7 @@
 #include <linux/spinlock.h>
 #include <linux/mm.h>
 #include <linux/uaccess.h>
+#include <linux/kallsyms.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
@@ -46,6 +47,7 @@
 #include <asm/tlbflush.h>
 #include <asm/desc.h>
 #include <asm/sections.h>
+#include <asm/traps.h>
 
 #undef pr_fmt
 #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
@@ -788,3 +790,256 @@ void pti_finalize(void)
 
 	debug_checkwx_user();
 }
+
+#ifdef CONFIG_INTERNAL_PTI
+struct ipti_mapping {
+	unsigned long addr;
+	pte_t *pte;
+};
+
+struct ipti_mm_data {
+	unsigned long index;
+	unsigned long rip_index;
+	unsigned long size;
+	unsigned long rips[128];
+	struct ipti_mapping mappings[0];
+};
+
+int ipti_pgd_alloc(struct mm_struct *mm)
+{
+	struct ipti_mm_data *ipti;
+
+	ipti = (struct ipti_mm_data *)__get_free_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!ipti)
+		return -ENOMEM;
+
+	ipti->size = PAGE_SIZE - (4 * sizeof(unsigned long) + sizeof(ipti->rips));
+
+	mm->ipti_mapping = ipti;
+
+	return 0;
+}
+
+void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
+{
+	struct ipti_mm_data *ipti;
+
+	if (WARN_ON(!mm))
+		return;
+
+	ipti = mm->ipti_mapping;
+	free_page((unsigned long)ipti);
+}
+
+static void __ipti_clear_mapping(struct ipti_mapping *m)
+{
+	if (WARN_ON(!m->pte))
+		return;
+
+	pte_clear(NULL, 0, m->pte);
+}
+
+void ipti_clear_mappins(void)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct ipti_mm_data *ipti;
+	int i;
+
+	if (WARN_ON(!mm))
+		return;
+
+	ipti = mm->ipti_mapping;
+
+	for (i = 0; i < ipti->index; i++) {
+		struct ipti_mapping *m = &ipti->mappings[i];
+		__ipti_clear_mapping(m);
+	}
+
+	memset(ipti->mappings, 0, ipti->size);
+	memset(ipti->rips, 0, sizeof(ipti->rips));
+	ipti->index = 0;
+	ipti->rip_index = 0;
+}
+
+static int ipti_mapping_realloc(struct mm_struct *mm)
+{
+	return -ENOMEM;
+}
+
+static int ipti_add_mapping(unsigned long addr, pte_t *pte)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct ipti_mm_data *ipti;
+	int err = 0;
+
+	if (!mm) {
+		pr_err("System call from kernel thread?!\n");
+		return -ENOMEM;
+	}
+
+	ipti = mm->ipti_mapping;
+
+	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
+		err = ipti_mapping_realloc(mm);
+		if (err)
+			return err;
+	}
+
+	ipti->mappings[ipti->index].addr = addr;
+	ipti->mappings[ipti->index].pte = pte;
+	ipti->index++;
+
+	return 0;
+}
+
+/* FIXME: split common code from ?pti_clone_pgtable */
+void ipti_clone_pgtable(unsigned long addr)
+{
+	pte_t *pte, *target_pte, ptev;
+	pmd_t *pmd, *target_pmd;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+
+	pgd = pgd_offset_k(addr);
+	if (WARN_ON(pgd_none(*pgd)))
+		return;
+	p4d = p4d_offset(pgd, addr);
+	if (WARN_ON(p4d_none(*p4d)))
+		return;
+
+	pud = pud_offset(p4d, addr);
+	if (WARN_ON(pud_none(*pud)))
+		return;
+
+	pmd = pmd_offset(pud, addr);
+	if (WARN_ON(pmd_none(*pmd)))
+		return;
+
+	if (pmd_large(*pmd)) {
+		pgprot_t flags;
+		unsigned long pa;
+
+		target_pmd = pti_entry_pagetable_walk_pmd(addr);
+		if (WARN_ON(!target_pmd))
+			return;
+
+		if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
+			return;
+
+		if (WARN_ON(pmd_large(*target_pmd)))
+			return;
+
+		flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
+		/* flags = pmd_pgprot(*pmd); */
+		pa = __pa(addr);
+
+		ptev = pfn_pte(pa >> PAGE_SHIFT, flags);
+	} else {
+		/* Walk the page-table down to the pte level */
+		pte = pte_offset_kernel(pmd, addr);
+		if (WARN_ON(pte_none(*pte)))
+			return;
+
+		/* Only clone present PTEs */
+		if (WARN_ON(!(pte_flags(*pte) & _PAGE_PRESENT)))
+			return;
+
+		ptev = *pte;
+	}
+
+	/* Allocate PTE in the user page-table */
+	target_pte = pti_entry_pagetable_walk_pte(addr);
+	if (WARN_ON(!target_pte))
+		return;
+
+	/* Clone the PTE */
+	*target_pte = ptev;
+
+	WARN_ON(ipti_add_mapping(addr, target_pte));
+}
+
+static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
+{
+	struct mm_struct *mm = current->active_mm;
+	struct ipti_mm_data *ipti;
+	char namebuf[KSYM_NAME_LEN];
+	const char *symbol;
+	unsigned long offset, size;
+	char *modname;
+
+	if (!mm) {
+		pr_err("System call from kernel thread?!\n");
+		return false;
+	}
+
+	ipti = mm->ipti_mapping;
+
+	/* struct unwind_state state; */
+
+	pr_info("code: %lx reads %lx\n", regs->ip, addr);
+
+	/* instruction fetch outside kernel or module text */
+	if (!(is_kernel_text(addr) || is_module_text_address(addr))) {
+		pr_err("not text\n");
+		return false;
+	}
+
+	/* no symbol matches the address */
+	symbol = kallsyms_lookup(addr, &size, &offset, &modname, namebuf);
+	if (!symbol) {
+		pr_err("no symbol at %lx\n", addr);
+		return false;
+	}
+
+	pr_info("sym: %s, name: %s, sz: %ld, off: %lx\n", symbol, namebuf, size, offset);
+	if (symbol != namebuf) {
+		pr_err("BPF or ftrace: %s vs %s\n", symbol, namebuf);
+		return false;
+	}
+
+	/* call/jmp <symbol> */
+	if (offset) {
+		int i = 0;
+
+		for (i = ipti->rip_index - 1; i >= 0; i--) {
+			unsigned long rip = ipti->rips[i];
+
+			if ((addr >> PAGE_SHIFT) == ((rip >> PAGE_SHIFT) + 1))
+				return true;
+		}
+
+		pr_err("offset is too far: off: %lx, addr: %lx\n", offset, addr);
+		return false;
+	}
+
+	/* dump_stack(); */
+	/* caller_stack = unwind_start(&state, current, regs, NULL); */
+	/* stack = stack ? : get_stack_pointer(task, regs); */
+
+	/*
+	 * access in the middle of a function
+	 * for now, treat jumps inside a functions as safe.
+	 */
+
+	ipti->rips[ipti->rip_index++] = regs->ip;
+
+	return true;
+}
+
+static bool ipti_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
+{
+	/* pr_info("data: %lx reads %lx\n", regs->ip, addr); */
+	return true;
+}
+
+bool ipti_address_is_safe(struct pt_regs *regs, unsigned long addr,
+			  unsigned long hw_error_code)
+{
+	/* return false; */
+	if (hw_error_code & X86_PF_INSTR)
+		return ipti_is_code_access_safe(regs, addr);
+
+	return ipti_is_data_access_safe(regs, addr);
+}
+#endif
