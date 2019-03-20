@@ -549,7 +549,7 @@ ENTRY(interrupt_entry)
 	pushq	%rcx
 	movq	%cr3, %r14
 	movq	%r14, %rcx
-	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rcx
+	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), %rcx
 	movq	%rcx, %cr3
 	popq	%rcx
 	jmp	2f
@@ -1282,7 +1282,7 @@ ENTRY(error_entry)
 #ifdef CONFIG_INTERNAL_PTI
 	movq	%cr3, %r14
 	movq	%r14, %rcx
-	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), %rcx
+	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), %rcx
 	movq	%rcx, %cr3
 #endif
 
