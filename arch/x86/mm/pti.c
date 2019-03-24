@@ -892,35 +892,36 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 	return 0;
 }
 
-/* FIXME: split common code from ?pti_clone_pgtable */
 void ipti_clone_pgtable(unsigned long addr)
 {
 	pte_t *pte, *target_pte, ptev;
 	pmd_t *pmd, *target_pmd;
-	pgd_t *pgd;
+	pgd_t *pgd, *target_pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 
-	pgd = pgd_offset_k(addr);
+	pgd = pgd_offset(current->mm, addr);
 	if (WARN_ON(pgd_none(*pgd)))
-		return;
+		BUG();
 	p4d = p4d_offset(pgd, addr);
 	if (WARN_ON(p4d_none(*p4d)))
-		return;
+		BUG();
 
 	pud = pud_offset(p4d, addr);
 	if (WARN_ON(pud_none(*pud)))
-		return;
+		BUG();
 
 	pmd = pmd_offset(pud, addr);
 	if (WARN_ON(pmd_none(*pmd)))
-		return;
+		BUG();
+
+	target_pgd = kernel_to_entry_pgdp(pgd);
 
 	if (pmd_large(*pmd)) {
 		pgprot_t flags;
 		unsigned long pa;
 
-		target_pmd = pti_entry_pagetable_walk_pmd(addr);
+		target_pmd = pti_shadow_pagetable_walk_pmd(target_pgd, addr);
 		if (WARN_ON(!target_pmd))
 			return;
 
@@ -948,8 +949,8 @@ void ipti_clone_pgtable(unsigned long addr)
 		ptev = *pte;
 	}
 
-	/* Allocate PTE in the user page-table */
-	target_pte = pti_entry_pagetable_walk_pte(addr);
+	/* Allocate PTE in the entry page-table */
+	target_pte = pti_shadow_pagetable_walk_pte(target_pgd, addr);
 	if (WARN_ON(!target_pte))
 		return;
 
