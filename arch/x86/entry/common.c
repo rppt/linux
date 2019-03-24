@@ -273,22 +273,15 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 
 #ifdef CONFIG_INTERNAL_PTI
-#ifndef CONFIG_VMAP_STACK
 static inline void ipti_map_stack(void)
 {
-	unsigned long stack;
-	int i;
+	unsigned long stack = (unsigned long)current->stack;
+	unsigned long addr;
 
-	stack = this_cpu_read(cpu_current_top_of_stack);
-	stack -= 8 * PAGE_SIZE;
-	stack = ALIGN(stack, PAGE_SIZE);
-
-	for (i = 0; i < 8; i++, stack += PAGE_SIZE)
-		ipti_clone_pgtable(stack);
+	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
+		ipti_clone_pgtable(addr);
 }
-#else
-static inline void ipti_map_stack(void) {}
-#endif
+
 static inline unsigned long ipti_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
