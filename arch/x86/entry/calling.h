@@ -196,21 +196,40 @@ For 32-bit we have the following conventions - kernel is built with
 #define PTI_ENTRY_PCID_MASK		(1 << PTI_ENTRY_PCID_BIT)
 #define PTI_ENTRY_PGTABLE_AND_PCID_MASK  (PTI_ENTRY_PCID_MASK | PTI_ENTRY_PGTABLE_MASK)
 
+#define THIS_CPU_ipti_syscall   \
+	PER_CPU_VAR(cpu_tss_rw) + IPTI_SYSCALL
+
+#define THIS_CPU_ipti_cr3   \
+	PER_CPU_VAR(cpu_tss_rw) + IPTI_CR3
+
 .macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+	movq	THIS_CPU_ipti_syscall, \scratch_reg
+	cmpq	$0, \scratch_reg
+	je	.Ldone_\@
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
-	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	andq	$(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
 	cmpq	\scratch_reg, \save_reg
-	je	.Ldone_\@
+	je	.Lno_change_\@
 	movq	\scratch_reg, %cr3
+	jmp	.Lwrite_ipti_cr3_\@
+.Lno_change_\@:
+	xorq	\scratch_reg, \scratch_reg
+.Lwrite_ipti_cr3_\@:
+	movq	\scratch_reg, THIS_CPU_ipti_cr3
 .Ldone_\@:
-	.endm
+.endm
 
 .macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
-	movq	%cr3, \scratch_reg
-	cmpq	\scratch_reg, \save_reg
+	movq	THIS_CPU_ipti_syscall, \scratch_reg
+	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
-	movq	\save_reg, %cr3
+	movq	THIS_CPU_ipti_cr3, \scratch_reg
+	cmpq	$0, \scratch_reg
+	je	.Ldone_\@
+	orq	$(PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	movq	\scratch_reg, THIS_CPU_ipti_cr3
+	movq	\scratch_reg, %cr3
 .Ldone_\@:
 .endm
 

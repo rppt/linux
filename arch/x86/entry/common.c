@@ -290,7 +290,7 @@ static inline unsigned long ipti_syscall_enter(unsigned long nr)
 		return 0;
 
 	current->in_ipti_syscall = true;
-
+	this_cpu_write(cpu_tss_rw.ipti_syscall, 1);
 	ipti_map_stack();
 
 	/* FIXME: add support for PV ops */
@@ -310,6 +310,7 @@ static inline void ipti_syscall_exit(unsigned long cr3)
 	if (cr3) {
 		native_write_cr3(cr3);
 		current->in_ipti_syscall = false;
+		this_cpu_write(cpu_tss_rw.ipti_syscall, 0);
 		ipti_clear_mappins();
 	}
 }

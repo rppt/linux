@@ -105,4 +105,8 @@ static void __used common(void)
 	OFFSET(TSS_sp0, tss_struct, x86_tss.sp0);
 	OFFSET(TSS_sp1, tss_struct, x86_tss.sp1);
 	OFFSET(TSS_sp2, tss_struct, x86_tss.sp2);
+
+	/* ipti */
+	OFFSET(IPTI_SYSCALL, tss_struct, ipti_syscall);
+	OFFSET(IPTI_CR3, tss_struct, ipti_cr3);
 }
