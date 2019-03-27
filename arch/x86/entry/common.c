@@ -280,6 +280,9 @@ static inline void ipti_map_stack(void)
 
 	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
 		ipti_clone_pgtable(addr);
+
+	addr = (unsigned long)current;
+	ipti_clone_pgtable(addr);
 }
 
 static inline unsigned long ipti_syscall_enter(unsigned long nr)

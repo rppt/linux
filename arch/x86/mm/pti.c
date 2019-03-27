@@ -50,7 +50,8 @@
 #include <asm/traps.h>
 
 #undef pr_fmt
-#define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
+/* #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt */
+#define pr_fmt(fmt)     "kPTI: " fmt
 
 /* Backporting helper */
 #ifndef __GFP_NOTRACK
@@ -793,15 +794,16 @@ void pti_finalize(void)
 
 #ifdef CONFIG_INTERNAL_PTI
 struct ipti_mapping {
-	unsigned long addr;
+	/* unsigned long addr; */
 	pte_t *pte;
 };
 
 struct ipti_mm_data {
-	unsigned long index;
-	unsigned long rip_index;
+	struct list_head pt_pages;
 	unsigned long size;
+	unsigned long rip_index;
 	unsigned long rips[128];
+	unsigned long index;
 	struct ipti_mapping mappings[0];
 };
 
@@ -813,7 +815,9 @@ int ipti_pgd_alloc(struct mm_struct *mm)
 	if (!ipti)
 		return -ENOMEM;
 
-	ipti->size = PAGE_SIZE - (4 * sizeof(unsigned long) + sizeof(ipti->rips));
+	INIT_LIST_HEAD(&ipti->pt_pages);
+
+	ipti->size = PAGE_SIZE - sizeof(*ipti);
 
 	mm->ipti_mapping = ipti;
 
@@ -823,11 +827,23 @@ int ipti_pgd_alloc(struct mm_struct *mm)
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	struct ipti_mm_data *ipti;
+	/* struct page *page, *next; */
 
 	if (WARN_ON(!mm))
 		return;
 
 	ipti = mm->ipti_mapping;
+
+	/* if (!list_empty(&ipti->pt_pages)) { */
+	/* 	list_for_each_entry_safe(page, next, &ipti->pt_pages, lru) { */
+	/* 		pr_info("free page %px\n", page); */
+	/* 		__ClearPageTable(page); */
+	/* 		list_del_init(&page->lru); */
+	/* 		clear_page(page); */
+	/* 		__free_page(page); */
+	/* 	} */
+	/* } */
+
 	free_page((unsigned long)ipti);
 }
 
@@ -881,19 +897,173 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 
 	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
 		err = ipti_mapping_realloc(mm);
-		if (err)
+		if (err) {
+			pr_err("can realloc, idx: %ld, size: %ld\n", ipti->index, ipti->size);
+			BUG();
 			return err;
+		}
 	}
 
-	ipti->mappings[ipti->index].addr = addr;
+	/* ipti->mappings[ipti->index].addr = addr; */
 	ipti->mappings[ipti->index].pte = pte;
 	ipti->index++;
 
 	return 0;
 }
 
+/*
+ * Walk the user copy of the page tables (optionally) trying to allocate
+ * page table pages on the way down.
+ *
+ * Returns a pointer to a P4D on success, or NULL on failure.
+ */
+static p4d_t *ipti_pagetable_walk_p4d(struct ipti_mm_data *ipti,
+				      pgd_t *pgd, unsigned long address)
+{
+	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
+
+	if (address < PAGE_OFFSET) {
+		WARN_ONCE(1, "attempt to walk user address\n");
+		return NULL;
+	}
+
+	if (pgd_none(*pgd)) {
+		struct page *page = alloc_page(gfp);
+		unsigned long p4d_addr;
+
+		/* unsigned long page = page_address(p4d_page); */
+		if (WARN_ON_ONCE(!page))
+			return NULL;
+
+		__SetPageTable(page);
+		list_add(&page->lru, &ipti->pt_pages);
+		p4d_addr = (unsigned long)page_address(page);
+
+		if (system_state == SYSTEM_RUNNING)
+			pr_info("new p4d: %px (%lx)\n", page, p4d_addr);
+
+		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(p4d_addr)));
+	}
+	BUILD_BUG_ON(pgd_large(*pgd) != 0);
+
+	return p4d_offset(pgd, address);
+}
+
+/*
+ * Walk the user copy of the page tables (optionally) trying to allocate
+ * page table pages on the way down.
+ *
+ * Returns a pointer to a PMD on success, or NULL on failure.
+ */
+static pmd_t *ipti_pagetable_walk_pmd(struct ipti_mm_data *ipti,
+				      pgd_t *pgd, unsigned long address)
+{
+	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
+	p4d_t *p4d;
+	pud_t *pud;
+
+	p4d = ipti_pagetable_walk_p4d(ipti, pgd, address);
+	if (!p4d)
+		return NULL;
+
+	BUILD_BUG_ON(p4d_large(*p4d) != 0);
+	if (p4d_none(*p4d)) {
+		struct page *page = alloc_page(gfp);
+		unsigned long pud_addr;
+
+		if (WARN_ON_ONCE(!page))
+			return NULL;
+
+		__SetPageTable(page);
+		list_add(&page->lru, &ipti->pt_pages);
+		pud_addr = (unsigned long)page_address(page);
+
+		if (system_state == SYSTEM_RUNNING)
+			pr_info("new pud: %px (%lx), p4d: %px\n", page, pud_addr, p4d);
+
+		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(pud_addr)));
+	}
+
+	pud = pud_offset(p4d, address);
+	/* The user page tables do not use large mappings: */
+	if (pud_large(*pud)) {
+		WARN_ON(1);
+		return NULL;
+	}
+	if (pud_none(*pud)) {
+		struct page *page = alloc_page(gfp);
+		unsigned long pmd_addr;
+
+		if (WARN_ON_ONCE(!page))
+			return NULL;
+
+		__SetPageTable(page);
+		list_add(&page->lru, &ipti->pt_pages);
+		pmd_addr = (unsigned long)page_address(page);
+
+		if (system_state == SYSTEM_RUNNING)
+			pr_info("new pmd: %px (%lx)\n", page, pmd_addr);
+
+		set_pud(pud, __pud(_KERNPG_TABLE | __pa(pmd_addr)));
+	}
+
+	return pmd_offset(pud, address);
+}
+
+/*
+ * Walk the shadow copy of the page tables (optionally) trying to allocate
+ * page table pages on the way down.  Does not support large pages.
+ *
+ * Note: this is only used when mapping *new* kernel data into the
+ * user/shadow page tables.  It is never used for userspace data.
+ *
+ * Returns a pointer to a PTE on success, or NULL on failure.
+ */
+static pte_t *ipti_pagetable_walk_pte(struct ipti_mm_data *ipti,
+				      pgd_t *pgd, unsigned long address)
+{
+	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
+	pmd_t *pmd;
+	pte_t *pte;
+
+	pmd = ipti_pagetable_walk_pmd(ipti, pgd, address);
+	if (!pmd)
+		return NULL;
+
+	/* We can't do anything sensible if we hit a large mapping. */
+	if (pmd_large(*pmd)) {
+		WARN_ON(1);
+		return NULL;
+	}
+
+	if (pmd_none(*pmd)) {
+		struct page *page = alloc_page(gfp);
+		unsigned long pte_addr;
+
+		if (!page)
+			return NULL;
+
+		__SetPageTable(page);
+		list_add(&page->lru, &ipti->pt_pages);
+		pte_addr = (unsigned long)page_address(page);
+
+		if (system_state == SYSTEM_RUNNING)
+			pr_info("new pte: %px (%lx)\n", page, pte_addr);
+
+		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr)));
+	}
+
+	pte = pte_offset_kernel(pmd, address);
+	if (pte_flags(*pte) & _PAGE_USER) {
+		WARN_ONCE(1, "attempt to walk to user pte\n");
+		return NULL;
+	}
+	return pte;
+}
+
 void ipti_clone_pgtable(unsigned long addr)
 {
+	struct ipti_mm_data *ipti = current->mm->ipti_mapping;
 	pte_t *pte, *target_pte, ptev;
 	pmd_t *pmd, *target_pmd;
 	pgd_t *pgd, *target_pgd;
@@ -921,7 +1091,7 @@ void ipti_clone_pgtable(unsigned long addr)
 		pgprot_t flags;
 		unsigned long pa;
 
-		target_pmd = pti_shadow_pagetable_walk_pmd(target_pgd, addr);
+		target_pmd = ipti_pagetable_walk_pmd(ipti, target_pgd, addr);
 		if (WARN_ON(!target_pmd))
 			return;
 
@@ -950,7 +1120,7 @@ void ipti_clone_pgtable(unsigned long addr)
 	}
 
 	/* Allocate PTE in the entry page-table */
-	target_pte = pti_shadow_pagetable_walk_pte(target_pgd, addr);
+	target_pte = ipti_pagetable_walk_pte(ipti, target_pgd, addr);
 	if (WARN_ON(!target_pte))
 		return;
 
