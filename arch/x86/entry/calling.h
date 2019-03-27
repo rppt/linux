@@ -207,13 +207,11 @@ For 32-bit we have the following conventions - kernel is built with
 	movq	\scratch_reg, \save_reg
 	andq	$(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
 	cmpq	\scratch_reg, \save_reg
-	je	.Lno_change_\@
+	jne	.Lipti_context_\@
+	xorq	\save_reg, \save_reg
+	jmp	.Ldone_\@
+.Lipti_context_\@:
 	movq	\scratch_reg, %cr3
-	jmp	.Lwrite_ipti_cr3_\@
-.Lno_change_\@:
-	xorq	\scratch_reg, \scratch_reg
-.Lwrite_ipti_cr3_\@:
-	movq	\scratch_reg, \save_reg
 .Ldone_\@:
 .endm
 
