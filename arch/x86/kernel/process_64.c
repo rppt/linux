@@ -576,6 +576,8 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	this_cpu_write(current_task, next_p);
 	this_cpu_write(cpu_current_top_of_stack, task_top_of_stack(next_p));
 
+	this_cpu_write(cpu_tss_rw.ipti_syscall, next_p->in_ipti_syscall);
+
 	/* Reload sp0. */
 	update_task_stack(next_p);
 

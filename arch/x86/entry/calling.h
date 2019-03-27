@@ -199,9 +199,6 @@ For 32-bit we have the following conventions - kernel is built with
 #define THIS_CPU_ipti_syscall   \
 	PER_CPU_VAR(cpu_tss_rw) + IPTI_SYSCALL
 
-#define THIS_CPU_ipti_cr3   \
-	PER_CPU_VAR(cpu_tss_rw) + IPTI_CR3
-
 .macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
 	movq	THIS_CPU_ipti_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
@@ -216,7 +213,7 @@ For 32-bit we have the following conventions - kernel is built with
 .Lno_change_\@:
 	xorq	\scratch_reg, \scratch_reg
 .Lwrite_ipti_cr3_\@:
-	movq	\scratch_reg, THIS_CPU_ipti_cr3
+	movq	\scratch_reg, \save_reg
 .Ldone_\@:
 .endm
 
@@ -224,11 +221,11 @@ For 32-bit we have the following conventions - kernel is built with
 	movq	THIS_CPU_ipti_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
-	movq	THIS_CPU_ipti_cr3, \scratch_reg
+	movq	\save_reg, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
 	orq	$(PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
-	movq	\scratch_reg, THIS_CPU_ipti_cr3
+	movq	\scratch_reg, \save_reg
 	movq	\scratch_reg, %cr3
 .Ldone_\@:
 .endm
