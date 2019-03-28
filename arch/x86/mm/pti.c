@@ -798,7 +798,7 @@ struct ipti_mapping {
 	pte_t *pte;
 };
 
-struct ipti_mm_data {
+struct ipti_data {
 	unsigned long size;
 	unsigned long page_index;
 	struct page  *pages[128];
@@ -812,28 +812,28 @@ struct ipti_mm_data {
 
 int ipti_pgd_alloc(struct mm_struct *mm)
 {
-	struct ipti_mm_data *ipti;
+	struct ipti_data *ipti;
 
-	ipti = (struct ipti_mm_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, IPTI_ORDER);
+	ipti = (struct ipti_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, IPTI_ORDER);
 	if (!ipti)
 		return -ENOMEM;
 
 	ipti->size = (PAGE_SIZE << IPTI_ORDER) - sizeof(*ipti);
 
-	mm->ipti_mapping = ipti;
+	mm->context.ipti = ipti;
 
 	return 0;
 }
 
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	struct ipti_mm_data *ipti;
+	struct ipti_data *ipti;
 	int i;
 
 	if (WARN_ON(!mm))
 		return;
 
-	ipti = mm->ipti_mapping;
+	ipti = mm->context.ipti;
 
 	for (i = 0; i < ipti->page_index; i++) {
 		struct page *page = ipti->pages[i];
@@ -855,13 +855,13 @@ static void __ipti_clear_mapping(struct ipti_mapping *m)
 void ipti_clear_mappins(void)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_mm_data *ipti;
+	struct ipti_data *ipti;
 	int i;
 
 	if (WARN_ON(!mm))
 		return;
 
-	ipti = mm->ipti_mapping;
+	ipti = mm->context.ipti;
 
 	for (i = 0; i < ipti->index; i++) {
 		struct ipti_mapping *m = &ipti->mappings[i];
@@ -882,7 +882,7 @@ static int ipti_mapping_realloc(struct mm_struct *mm)
 static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_mm_data *ipti;
+	struct ipti_data *ipti;
 	int err = 0;
 
 	if (!mm) {
@@ -890,7 +890,7 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 		return -ENOMEM;
 	}
 
-	ipti = mm->ipti_mapping;
+	ipti = mm->context.ipti;
 
 	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
 		err = ipti_mapping_realloc(mm);
@@ -914,7 +914,7 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
  *
  * Returns a pointer to a P4D on success, or NULL on failure.
  */
-static p4d_t *ipti_pagetable_walk_p4d(struct ipti_mm_data *ipti,
+static p4d_t *ipti_pagetable_walk_p4d(struct ipti_data *ipti,
 				      pgd_t *pgd, unsigned long address)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
@@ -953,7 +953,7 @@ static p4d_t *ipti_pagetable_walk_p4d(struct ipti_mm_data *ipti,
  *
  * Returns a pointer to a PMD on success, or NULL on failure.
  */
-static pmd_t *ipti_pagetable_walk_pmd(struct ipti_mm_data *ipti,
+static pmd_t *ipti_pagetable_walk_pmd(struct ipti_data *ipti,
 				      pgd_t *pgd, unsigned long address)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
@@ -1021,7 +1021,7 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_mm_data *ipti,
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pte_t *ipti_pagetable_walk_pte(struct ipti_mm_data *ipti,
+static pte_t *ipti_pagetable_walk_pte(struct ipti_data *ipti,
 				      pgd_t *pgd, unsigned long address)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
@@ -1067,7 +1067,7 @@ static pte_t *ipti_pagetable_walk_pte(struct ipti_mm_data *ipti,
 
 void ipti_clone_pgtable(unsigned long addr)
 {
-	struct ipti_mm_data *ipti = current->mm->ipti_mapping;
+	struct ipti_data *ipti = current->mm->context.ipti;
 	pte_t *pte, *target_pte, ptev;
 	pmd_t *pmd, *target_pmd;
 	pgd_t *pgd, *target_pgd;
@@ -1137,7 +1137,7 @@ void ipti_clone_pgtable(unsigned long addr)
 static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_mm_data *ipti;
+	struct ipti_data *ipti;
 	char namebuf[KSYM_NAME_LEN];
 	const char *symbol;
 	unsigned long offset, size;
@@ -1148,7 +1148,7 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		return false;
 	}
 
-	ipti = mm->ipti_mapping;
+	ipti = mm->context.ipti;
 
 	/* struct unwind_state state; */
 

@@ -363,10 +363,6 @@ struct mm_struct {
 		unsigned long highest_vm_end;	/* highest vma end address */
 		pgd_t * pgd;
 
-#ifdef CONFIG_INTERNAL_PTI
-		void *ipti_mapping;
-#endif
-
 		/**
 		 * @mm_users: The number of users including userspace.
 		 *
