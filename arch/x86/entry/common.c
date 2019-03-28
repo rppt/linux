@@ -272,7 +272,7 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 
 #ifdef CONFIG_X86_64
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static inline void ipti_map_stack(void)
 {
 	unsigned long stack = (unsigned long)current->stack;

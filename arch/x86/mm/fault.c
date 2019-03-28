@@ -1254,7 +1254,7 @@ static int fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static void ipti_bad_access(struct pt_regs *regs, unsigned long error_code,
 			    unsigned long address, struct task_struct *tsk)
 {

@@ -54,7 +54,7 @@ typedef struct {
 	/* address of the bounds directory */
 	void __user *bd_addr;
 #endif
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	struct ipti_data *ipti;
 #endif
 } mm_context_t;

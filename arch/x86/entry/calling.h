@@ -189,7 +189,7 @@ For 32-bit we have the following conventions - kernel is built with
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 #define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
 #define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
 #define PTI_ENTRY_PCID_BIT		X86_CR3_IPTI_PCID_BIT
@@ -314,7 +314,7 @@ For 32-bit we have the following conventions - kernel is built with
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	/*
 	 * Test the entry pagetable bit. If set, then the entry page tables
 	 * are active. If clear CR3 has either the kernel or user page table

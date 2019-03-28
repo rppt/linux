@@ -582,7 +582,7 @@ void ptdump_walk_pgd_level_debugfs(struct seq_file *m, pgd_t *pgd,
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 	if (mode == PTDUMP_WALK_USER && static_cpu_has(X86_FEATURE_PTI))
 		pgd = kernel_to_user_pgdp(pgd);
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	else if (mode == PTDUMP_WALK_ENTRY && static_cpu_has(X86_FEATURE_PTI))
 		pgd = kernel_to_entry_pgdp(pgd);
 #endif

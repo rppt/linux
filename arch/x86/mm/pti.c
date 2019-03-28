@@ -151,7 +151,7 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	 */
 	kernel_to_user_pgdp(pgdp)->pgd = pgd.pgd;
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
 #endif
 
@@ -307,7 +307,7 @@ static pte_t *pti_user_pagetable_walk_pte(unsigned long address)
 	return pti_shadow_pagetable_walk_pte(pgd, address);
 }
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static p4d_t *pti_entry_pagetable_walk_p4d(unsigned long address)
 {
 	pgd_t *pgd = kernel_to_entry_pgdp(pgd_offset_k(address));
@@ -493,7 +493,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 
 #ifdef CONFIG_X86_64
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static void __init ipti_clone_p4d(unsigned long addr, p4d_t *kernel_p4d)
 {
 	p4d_t *entry_p4d;
@@ -792,7 +792,7 @@ void pti_finalize(void)
 	debug_checkwx_user();
 }
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 struct ipti_mapping {
 	/* unsigned long addr; */
 	pte_t *pte;

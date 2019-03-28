@@ -42,7 +42,7 @@ static int ptdump_curusr_show(struct seq_file *m, void *v)
 DEFINE_SHOW_ATTRIBUTE(ptdump_curusr);
 #endif
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static struct dentry *pe_entry;
 
 static int ptdump_entry_show(struct seq_file *m, void *v)
@@ -109,7 +109,7 @@ static int __init pt_dump_debug_init(void)
 		goto err;
 #endif
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	pe_entry = debugfs_create_file("entry", 0400, dir, NULL,
 				       &ptdump_entry_fops);
 	if (!pe_entry)

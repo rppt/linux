@@ -30,7 +30,7 @@ static inline void paravirt_release_p4d(unsigned long pfn) {}
  */
 extern gfp_t __userpte_alloc_gfp;
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 /*
  * Instead of one PGD, we need three PGDs: kernel, user and "isolated
  * kernel". To make conversion between PGDs and cr3 simpler, we get 4

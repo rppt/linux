@@ -32,7 +32,7 @@ enum ptdump_walk_mode {
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 	PTDUMP_WALK_USER = 1,
 #endif
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	PTDUMP_WALK_ENTRY = 2,
 #endif
 };
@@ -1235,7 +1235,7 @@ static inline int pgd_large(pgd_t pgd) { return 0; }
  */
 #define PTI_PGTABLE_SWITCH_BIT	PAGE_SHIFT
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 #define PTI_PGTABLE_SWITCH_BIT2	(PAGE_SHIFT + 1)
 #endif
 
@@ -1278,7 +1278,7 @@ static inline p4d_t *user_to_kernel_p4dp(p4d_t *p4dp)
 	return ptr_clear_bit(p4dp, PTI_PGTABLE_SWITCH_BIT);
 }
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 static inline pgd_t *kernel_to_entry_pgdp(pgd_t *pgdp)
 {
 	return ptr_set_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
@@ -1322,7 +1322,7 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
 #endif
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	/* Clone the entry space pgd as well */
 	memcpy(kernel_to_entry_pgdp(dst), kernel_to_entry_pgdp(src),
 	       count * sizeof(pgd_t));

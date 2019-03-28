@@ -11,7 +11,7 @@ extern void pti_finalize(void);
 static inline void pti_check_boottime_disable(void) { }
 #endif
 
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 void ipti_clone_pgtable(unsigned long addr);
 int ipti_pgd_alloc(struct mm_struct *mm);
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd);

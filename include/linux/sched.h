@@ -686,7 +686,7 @@ struct task_struct {
 
 	struct mm_struct		*mm;
 	struct mm_struct		*active_mm;
-#ifdef CONFIG_INTERNAL_PTI
+#ifdef CONFIG_SYSCALL_ISOLATION
 	unsigned long			in_ipti_syscall;
 #endif
 	/* Per-thread vma caching: */
