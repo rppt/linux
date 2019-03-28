@@ -799,25 +799,26 @@ struct ipti_mapping {
 };
 
 struct ipti_mm_data {
-	struct list_head pt_pages;
 	unsigned long size;
+	unsigned long page_index;
+	struct page  *pages[128];
 	unsigned long rip_index;
 	unsigned long rips[128];
 	unsigned long index;
 	struct ipti_mapping mappings[0];
 };
 
+#define IPTI_ORDER 0
+
 int ipti_pgd_alloc(struct mm_struct *mm)
 {
 	struct ipti_mm_data *ipti;
 
-	ipti = (struct ipti_mm_data *)__get_free_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	ipti = (struct ipti_mm_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, IPTI_ORDER);
 	if (!ipti)
 		return -ENOMEM;
 
-	INIT_LIST_HEAD(&ipti->pt_pages);
-
-	ipti->size = PAGE_SIZE - sizeof(*ipti);
+	ipti->size = (PAGE_SIZE << IPTI_ORDER) - sizeof(*ipti);
 
 	mm->ipti_mapping = ipti;
 
@@ -827,24 +828,20 @@ int ipti_pgd_alloc(struct mm_struct *mm)
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	struct ipti_mm_data *ipti;
-	/* struct page *page, *next; */
+	int i;
 
 	if (WARN_ON(!mm))
 		return;
 
 	ipti = mm->ipti_mapping;
 
-	/* if (!list_empty(&ipti->pt_pages)) { */
-	/* 	list_for_each_entry_safe(page, next, &ipti->pt_pages, lru) { */
-	/* 		pr_info("free page %px\n", page); */
-	/* 		__ClearPageTable(page); */
-	/* 		list_del_init(&page->lru); */
-	/* 		clear_page(page); */
-	/* 		__free_page(page); */
-	/* 	} */
-	/* } */
+	for (i = 0; i < ipti->page_index; i++) {
+		struct page *page = ipti->pages[i];
 
-	free_page((unsigned long)ipti);
+		__free_page(page);
+	}
+
+	free_pages((unsigned long)ipti, IPTI_ORDER);
 }
 
 static void __ipti_clear_mapping(struct ipti_mapping *m)
@@ -931,16 +928,17 @@ static p4d_t *ipti_pagetable_walk_p4d(struct ipti_mm_data *ipti,
 		struct page *page = alloc_page(gfp);
 		unsigned long p4d_addr;
 
-		/* unsigned long page = page_address(p4d_page); */
 		if (WARN_ON_ONCE(!page))
 			return NULL;
 
-		__SetPageTable(page);
-		list_add(&page->lru, &ipti->pt_pages);
 		p4d_addr = (unsigned long)page_address(page);
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new p4d: %px (%lx)\n", page, p4d_addr);
+
+		if (WARN_ON(ipti->page_index >= 100))
+			return NULL;
+		ipti->pages[ipti->page_index++] = page;
 
 		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(p4d_addr)));
 	}
@@ -974,12 +972,14 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_mm_data *ipti,
 		if (WARN_ON_ONCE(!page))
 			return NULL;
 
-		__SetPageTable(page);
-		list_add(&page->lru, &ipti->pt_pages);
 		pud_addr = (unsigned long)page_address(page);
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pud: %px (%lx), p4d: %px\n", page, pud_addr, p4d);
+
+		if (WARN_ON(ipti->page_index >= 100))
+			return NULL;
+		ipti->pages[ipti->page_index++] = page;
 
 		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(pud_addr)));
 	}
@@ -997,12 +997,14 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_mm_data *ipti,
 		if (WARN_ON_ONCE(!page))
 			return NULL;
 
-		__SetPageTable(page);
-		list_add(&page->lru, &ipti->pt_pages);
 		pmd_addr = (unsigned long)page_address(page);
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pmd: %px (%lx)\n", page, pmd_addr);
+
+		if (WARN_ON(ipti->page_index >= 100))
+			return NULL;
+		ipti->pages[ipti->page_index++] = page;
 
 		set_pud(pud, __pud(_KERNPG_TABLE | __pa(pmd_addr)));
 	}
@@ -1043,12 +1045,14 @@ static pte_t *ipti_pagetable_walk_pte(struct ipti_mm_data *ipti,
 		if (!page)
 			return NULL;
 
-		__SetPageTable(page);
-		list_add(&page->lru, &ipti->pt_pages);
 		pte_addr = (unsigned long)page_address(page);
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pte: %px (%lx)\n", page, pte_addr);
+
+		if (WARN_ON(ipti->page_index >= 100))
+			return NULL;
+		ipti->pages[ipti->page_index++] = page;
 
 		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr)));
 	}
