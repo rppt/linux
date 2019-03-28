@@ -28,6 +28,7 @@
 #include <asm/mmu_context.h>		/* vma_pkey()			*/
 #include <asm/efi.h>			/* efi_recover_from_page_fault()*/
 #include <asm/desc.h>			/* store_idt(), ...		*/
+#include <asm/sci.h>			/* syscall isolation		*/
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>

@@ -31,7 +31,7 @@
 #include <asm/vdso.h>
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
-#include <asm/pti.h>
+#include <asm/sci.h>
 #include <asm/tlbflush.h>
 
 #define CREATE_TRACE_POINTS
