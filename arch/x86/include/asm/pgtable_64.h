@@ -144,6 +144,7 @@ static inline void native_set_p4d(p4d_t *p4dp, p4d_t p4d)
 
 	pgd = native_make_pgd(native_p4d_val(p4d));
 	pgd = pti_set_user_pgtbl((pgd_t *)p4dp, pgd);
+	pgd = sci_set_user_pgtbl((pgd_t *)p4dp, pgd);
 	WRITE_ONCE(*p4dp, native_make_p4d(native_pgd_val(pgd)));
 }
 
@@ -154,7 +155,8 @@ static inline void native_p4d_clear(p4d_t *p4d)
 
 static inline void native_set_pgd(pgd_t *pgdp, pgd_t pgd)
 {
-	WRITE_ONCE(*pgdp, pti_set_user_pgtbl(pgdp, pgd));
+	pgd = pti_set_user_pgtbl(pgdp, pgd);
+	WRITE_ONCE(*pgdp, sci_set_user_pgtbl(pgdp, pgd));
 }
 
 static inline void native_pgd_clear(pgd_t *pgd)

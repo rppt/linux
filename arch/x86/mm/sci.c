@@ -451,3 +451,10 @@ bool ipti_address_is_safe(struct pt_regs *regs, unsigned long addr,
 
 	return ipti_is_data_access_safe(regs, addr);
 }
+
+pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
+{
+	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
+
+	return pgd;
+}

@@ -695,6 +695,20 @@ static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 }
 #endif  /* CONFIG_PAGE_TABLE_ISOLATION */
 
+#ifdef CONFIG_SYSCALL_ISOLATION
+pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd);
+
+static inline pgd_t sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
+{
+	return __sci_set_user_pgtbl(pgdp, pgd);
+}
+#else   /* CONFIG_SYSCALL_ISOLATION */
+static inline pgd_t sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
+{
+	return pgd;
+}
+#endif  /* CONFIG_SYSCALL_ISOLATION */
+
 #endif	/* __ASSEMBLY__ */
 
 

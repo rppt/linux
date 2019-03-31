@@ -148,10 +148,6 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	 */
 	kernel_to_user_pgdp(pgdp)->pgd = pgd.pgd;
 
-#ifdef CONFIG_SYSCALL_ISOLATION
-	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
-#endif
-
 	/*
 	 * If this is normal user memory, make it NX in the kernel
 	 * pagetables so that, if we somehow screw up and return to
