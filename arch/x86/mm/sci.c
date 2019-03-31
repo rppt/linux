@@ -33,8 +33,6 @@ struct ipti_mapping {
 
 struct ipti_data {
 	unsigned long size;
-	unsigned long page_index;
-	struct page  *pages[128];
 	unsigned long rip_index;
 	unsigned long rips[128];
 	unsigned long index;
@@ -61,19 +59,11 @@ int ipti_pgd_alloc(struct mm_struct *mm)
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	struct ipti_data *ipti;
-	int i;
 
 	if (WARN_ON(!mm))
 		return;
 
 	ipti = mm->context.ipti;
-
-	/* FIXME: actually free the pages */
-	/* for (i = 0; i < ipti->page_index; i++) { */
-	/* 	struct page *page = ipti->pages[i]; */
-
-	/* 	__free_page(page); */
-	/* } */
 
 	free_pages((unsigned long)ipti, IPTI_ORDER);
 }
@@ -170,10 +160,6 @@ static p4d_t *ipti_pagetable_walk_p4d(struct ipti_data *ipti,
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new p4d: %px (%lx)\n", page, p4d_addr);
 
-		if (WARN_ON(ipti->page_index >= 100))
-			return NULL;
-		ipti->pages[ipti->page_index++] = page;
-
 		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(p4d_addr)));
 	}
 	BUILD_BUG_ON(pgd_large(*pgd) != 0);
@@ -211,10 +197,6 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_data *ipti,
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pud: %px (%lx), p4d: %px\n", page, pud_addr, p4d);
 
-		if (WARN_ON(ipti->page_index >= 100))
-			return NULL;
-		ipti->pages[ipti->page_index++] = page;
-
 		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(pud_addr)));
 	}
 
@@ -235,10 +217,6 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_data *ipti,
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pmd: %px (%lx)\n", page, pmd_addr);
-
-		if (WARN_ON(ipti->page_index >= 100))
-			return NULL;
-		ipti->pages[ipti->page_index++] = page;
 
 		set_pud(pud, __pud(_KERNPG_TABLE | __pa(pmd_addr)));
 	}
@@ -283,10 +261,6 @@ static pte_t *ipti_pagetable_walk_pte(struct ipti_data *ipti,
 
 		if (system_state == SYSTEM_RUNNING)
 			pr_info("new pte: %px (%lx)\n", page, pte_addr);
-
-		if (WARN_ON(ipti->page_index >= 100))
-			return NULL;
-		ipti->pages[ipti->page_index++] = page;
 
 		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr)));
 	}
