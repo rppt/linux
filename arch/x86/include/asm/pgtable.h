@@ -1324,7 +1324,7 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 #endif
 #ifdef CONFIG_SYSCALL_ISOLATION
 	/* Clone the entry space pgd as well */
-	memcpy(kernel_to_entry_pgdp(dst), kernel_to_entry_pgdp(src),
+	memcpy(kernel_to_entry_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
 #endif
 }

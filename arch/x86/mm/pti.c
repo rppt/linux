@@ -35,7 +35,6 @@
 #include <linux/spinlock.h>
 #include <linux/mm.h>
 #include <linux/uaccess.h>
-#include <linux/kallsyms.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
@@ -47,7 +46,6 @@
 #include <asm/tlbflush.h>
 #include <asm/desc.h>
 #include <asm/sections.h>
-#include <asm/traps.h>
 
 #undef pr_fmt
 #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
@@ -181,8 +179,9 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
  *
  * Returns a pointer to a P4D on success, or NULL on failure.
  */
-static p4d_t *pti_shadow_pagetable_walk_p4d(pgd_t *pgd, unsigned long address)
+static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address)
 {
+	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
 
 	if (address < PAGE_OFFSET) {
@@ -208,13 +207,13 @@ static p4d_t *pti_shadow_pagetable_walk_p4d(pgd_t *pgd, unsigned long address)
  *
  * Returns a pointer to a PMD on success, or NULL on failure.
  */
-static pmd_t *pti_shadow_pagetable_walk_pmd(pgd_t *pgd, unsigned long address)
+static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
 	p4d_t *p4d;
 	pud_t *pud;
 
-	p4d = pti_shadow_pagetable_walk_p4d(pgd, address);
+	p4d = pti_user_pagetable_walk_p4d(address);
 	if (!p4d)
 		return NULL;
 
@@ -253,13 +252,13 @@ static pmd_t *pti_shadow_pagetable_walk_pmd(pgd_t *pgd, unsigned long address)
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pte_t *pti_shadow_pagetable_walk_pte(pgd_t *pgd, unsigned long address)
+static pte_t *pti_user_pagetable_walk_pte(unsigned long address)
 {
 	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
 	pmd_t *pmd;
 	pte_t *pte;
 
-	pmd = pti_shadow_pagetable_walk_pmd(pgd, address);
+	pmd = pti_user_pagetable_walk_pmd(address);
 	if (!pmd)
 		return NULL;
 
@@ -284,73 +283,6 @@ static pte_t *pti_shadow_pagetable_walk_pte(pgd_t *pgd, unsigned long address)
 	}
 	return pte;
 }
-
-static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_p4d(pgd, address);
-}
-
-static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_pmd(pgd, address);
-}
-
-static pte_t *pti_user_pagetable_walk_pte(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_pte(pgd, address);
-}
-
-#ifdef CONFIG_SYSCALL_ISOLATION
-static p4d_t *pti_entry_pagetable_walk_p4d(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_entry_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_p4d(pgd, address);
-}
-
-static pmd_t *pti_entry_pagetable_walk_pmd(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_entry_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_pmd(pgd, address);
-}
-
-static pte_t *pti_entry_pagetable_walk_pte(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_entry_pgdp(pgd_offset_k(address));
-
-	return pti_shadow_pagetable_walk_pte(pgd, address);
-}
-
-static void ipti_clone_pmd(unsigned long addr, pmd_t pmdv)
-{
-	pmd_t *target_pmd = pti_entry_pagetable_walk_pmd(addr);
-
-	if (WARN_ON(!target_pmd))
-		return;
-
-	*target_pmd = pmdv;
-}
-
-static void ipti_clone_pte(unsigned long addr, pte_t ptev)
-{
-	pte_t *target_pte = pti_entry_pagetable_walk_pte(addr);
-
-	if (WARN_ON(!target_pte))
-		return;
-
-	*target_pte = ptev;
-}
-#else
-static inline void ipti_clone_pmd(unsigned long addr, pmd_t pmdv) {}
-static inline void ipti_clone_pte(unsigned long addr, pte_t ptev) {}
-#endif
 
 #ifdef CONFIG_X86_VSYSCALL_EMULATION
 static void __init pti_setup_vsyscall(void)
@@ -451,8 +383,6 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 			 */
 			*target_pmd = *pmd;
 
-			ipti_clone_pmd(addr, *pmd);
-
 			addr += PMD_SIZE;
 
 		} else if (level == PTI_CLONE_PTE) {
@@ -480,8 +410,6 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 			/* Clone the PTE */
 			*target_pte = *pte;
 
-			ipti_clone_pte(addr, *pte);
-
 			addr += PAGE_SIZE;
 
 		} else {
@@ -491,34 +419,6 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 }
 
 #ifdef CONFIG_X86_64
-
-#ifdef CONFIG_SYSCALL_ISOLATION
-static void __init ipti_clone_p4d(unsigned long addr, p4d_t *kernel_p4d)
-{
-	p4d_t *entry_p4d;
-
-	entry_p4d = pti_entry_pagetable_walk_p4d(addr);
-	if (!entry_p4d)
-		return;
-
-	*entry_p4d = *kernel_p4d;
-}
-
-static void __init ipti_clone_cpu_tss(unsigned long addr, pte_t ptev)
-{
-	pte_t *target_pte;
-
-	target_pte = pti_entry_pagetable_walk_pte(addr);
-	if (WARN_ON(!target_pte))
-		return;
-
-	*target_pte = ptev;
-}
-#else
-static inline void ipti_clone_p4d(unsigned long addr, p4d_t *kernel_p4d) {}
-static inline void ipti_clone_cpu_tss(unsigned long addr, pte_t ptev) {}
-#endif
-
 /*
  * Clone a single p4d (i.e. a top-level entry on 4-level systems and a
  * next-level entry on 5-level systems.
@@ -535,8 +435,6 @@ static void __init pti_clone_p4d(unsigned long addr)
 	kernel_pgd = pgd_offset_k(addr);
 	kernel_p4d = p4d_offset(kernel_pgd, addr);
 	*user_p4d = *kernel_p4d;
-
-	ipti_clone_p4d(addr, kernel_p4d);
 }
 
 /*
@@ -568,16 +466,13 @@ static void __init pti_clone_user_shared(void)
 
 		unsigned long va = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
 		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
-		pte_t *target_pte, ptev;
+		pte_t *target_pte;
 
 		target_pte = pti_user_pagetable_walk_pte(va);
 		if (WARN_ON(!target_pte))
 			return;
 
-		ptev = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
-		*target_pte = ptev;
-
-		ipti_clone_cpu_tss(va, ptev);
+		*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
 	}
 }
 
