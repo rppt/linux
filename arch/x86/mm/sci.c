@@ -892,32 +892,6 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 	/* ptdump_walk_pgd_level(NULL, kernel_to_entry_pgdp(mm->pgd)); */
 }
 
-int __sci_clone_entry_pgtable(struct mm_struct *mm)
-{
-	/* sci_dump_debug_info(mm, "syscall before", false); */
-
-	/* sci_clone_user_shared(mm); */
-	/* sci_clone_entry_text(mm); */
-
-	/* sci_dump_debug_info(mm, "syscall after", true); */
-
-	/* pr_info("%s: %px: %ld\n", __func__, mm, mm->ipti->pages_index); */
-	/* sci_debug = 0; */
-	return 0;
-}
-
-int sci_clone_entry_pgtable(struct mm_struct *mm)
-{
-	/* sci_dump_debug_info(mm, "fork before", false); */
-
-	/* sci_clone_user_shared(mm); */
-	/* sci_clone_entry_text(mm); */
-
-	/* sci_dump_debug_info(mm, "fork after", false); */
-
-	return 0;
-}
-
 /*
  * This function frees user-level page tables of a process.
  */

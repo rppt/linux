@@ -460,8 +460,6 @@ void free_task(struct task_struct *tsk)
 EXPORT_SYMBOL(free_task);
 
 #ifdef CONFIG_MMU
-int sci_clone_entry_pgtable(struct mm_struct *mm);
-
 static __latent_entropy int dup_mmap(struct mm_struct *mm,
 					struct mm_struct *oldmm)
 {
@@ -500,8 +498,6 @@ static __latent_entropy int dup_mmap(struct mm_struct *mm,
 	retval = khugepaged_fork(mm, oldmm);
 	if (retval)
 		goto out;
-
-	sci_clone_entry_pgtable(mm);
 
 	prev = NULL;
 	for (mpnt = oldmm->mmap; mpnt; mpnt = mpnt->vm_next) {
