@@ -467,9 +467,6 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 	spin_unlock(&pgd_lock);
 
-	/* if (ipti_pgd_alloc(mm) != 0) */
-	/* 	goto out_free_user_pmds; */
-
 	return pgd;
 
 out_free_user_pmds:
