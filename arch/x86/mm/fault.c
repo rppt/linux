@@ -420,7 +420,7 @@ NOKPROBE_SYMBOL(vmalloc_fault);
 
 #ifdef CONFIG_CPU_SUP_AMD
 static const char errata93_warning[] =
-KERN_ERR 
+KERN_ERR
 "******* Your BIOS seems to not contain a fix for K8 errata #93\n"
 "******* Working around it, but it may cause SEGVs or burn power.\n"
 "******* Please consider a BIOS update.\n"
@@ -1349,6 +1349,9 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (kprobes_fault(regs))
 		return;
 
+	if (do_ipti_fault(regs, hw_error_code, address))
+		return;
+
 	/*
 	 * Note, despite being a "bad area", there are quite a few
 	 * acceptable reasons to get here, such as erratum fixups
@@ -1584,8 +1587,6 @@ __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address))) {
-		if (do_ipti_fault(regs, hw_error_code, address))
-			return;
 		do_kern_addr_fault(regs, hw_error_code, address);
 	} else {
 		do_user_addr_fault(regs, hw_error_code, address);

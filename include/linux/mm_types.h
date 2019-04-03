@@ -496,6 +496,10 @@ struct mm_struct {
 		/* HMM needs to track a few things per mm */
 		struct hmm *hmm;
 #endif
+
+#ifdef CONFIG_SYSCALL_ISOLATION
+		struct ipti_data *ipti;
+#endif
 	} __randomize_layout;
 
 	/*

@@ -445,11 +445,8 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 	mm->pgd = pgd;
 
-	if (ipti_pgd_alloc(mm) != 0)
-		goto out_free_pgd;
-
 	if (preallocate_pmds(mm, pmds, PREALLOCATED_PMDS) != 0)
-		goto out_free_ipti;
+		goto out_free_pgd;
 
 	if (preallocate_pmds(mm, u_pmds, PREALLOCATED_USER_PMDS) != 0)
 		goto out_free_pmds;
@@ -470,14 +467,15 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 	spin_unlock(&pgd_lock);
 
+	/* if (ipti_pgd_alloc(mm) != 0) */
+	/* 	goto out_free_user_pmds; */
+
 	return pgd;
 
 out_free_user_pmds:
 	free_pmds(mm, u_pmds, PREALLOCATED_USER_PMDS);
 out_free_pmds:
 	free_pmds(mm, pmds, PREALLOCATED_PMDS);
-out_free_ipti:
-	ipti_pgd_free(mm, pgd);
 out_free_pgd:
 	_pgd_free(pgd);
 out:

@@ -275,26 +275,42 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_SYSCALL_ISOLATION
 static inline void ipti_map_stack(void)
 {
-	unsigned long stack = (unsigned long)current->stack;
-	unsigned long addr;
+	/* unsigned long stack = (unsigned long)current->stack; */
+	/* unsigned long addr; */
 
-	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
-		ipti_clone_pgtable(addr);
+	/* for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE) */
+	/* 	ipti_clone_pgtable(addr); */
 
-	addr = (unsigned long)current;
-	ipti_clone_pgtable(addr);
+	/* addr = (unsigned long)current; */
+	/* ipti_clone_pgtable(addr); */
 }
+
+int __sci_clone_entry_pgtable(struct mm_struct *mm);
+void sci_free_pgd(pgd_t *pgdp);
 
 static inline unsigned long ipti_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
 
-	if (nr < 335)
+	/* if (nr < 335) */
+	if (nr < 323)
 		return 0;
 
+	local_irq_disable();
 	current->in_ipti_syscall = true;
 	this_cpu_write(cpu_tss_rw.ipti_syscall, 1);
+	__sci_clone_entry_pgtable(current->mm);
 	ipti_map_stack();
+
+	/* pr_info("====================\n"); */
+	/* ptdump_walk_pgd_level(NULL, kernel_to_user_pgdp(current->mm->pgd)); */
+	/* pr_info("--------------------\n"); */
+	/* ptdump_walk_pgd_level(NULL, kernel_to_entry_pgdp(current->mm->pgd)); */
+	/* pr_info("====================\n"); */
+	/* ptdump_walk_pgd_level(NULL, kernel_to_user_pgdp(init_mm.pgd)); */
+	/* pr_info("--------------------\n"); */
+	/* ptdump_walk_pgd_level(NULL, kernel_to_entry_pgdp(init_mm.pgd)); */
+	/* return 0; */
 
 	/* FIXME: add support for PV ops */
 	orig_cr3 = __native_read_cr3();
@@ -315,6 +331,8 @@ static inline void ipti_syscall_exit(unsigned long cr3)
 		current->in_ipti_syscall = false;
 		this_cpu_write(cpu_tss_rw.ipti_syscall, 0);
 		ipti_clear_mappins();
+		local_irq_enable();
+		/* sci_free_pgd(kernel_to_entry_pgdp(current->mm->pgd)); */
 	}
 }
 #else
