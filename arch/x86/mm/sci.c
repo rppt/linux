@@ -268,9 +268,10 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
  *
  * Returns a pointer to a P4D on success, or NULL on failure.
  */
-static p4d_t *ipti_pagetable_walk_p4d(struct ipti_data *ipti,
+static p4d_t *ipti_pagetable_walk_p4d(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
+	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 
 	if (address < PAGE_OFFSET) {
@@ -310,14 +311,15 @@ static p4d_t *ipti_pagetable_walk_p4d(struct ipti_data *ipti,
  *
  * Returns a pointer to a PMD on success, or NULL on failure.
  */
-static pmd_t *ipti_pagetable_walk_pmd(struct ipti_data *ipti,
+static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
+	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 	p4d_t *p4d;
 	pud_t *pud;
 
-	p4d = ipti_pagetable_walk_p4d(ipti, pgd, address);
+	p4d = ipti_pagetable_walk_p4d(mm, pgd, address);
 	if (!p4d)
 		return NULL;
 
@@ -383,14 +385,15 @@ static pmd_t *ipti_pagetable_walk_pmd(struct ipti_data *ipti,
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pte_t *ipti_pagetable_walk_pte(struct ipti_data *ipti,
+static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
+	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 	pmd_t *pmd;
 	pte_t *pte;
 
-	pmd = ipti_pagetable_walk_pmd(ipti, pgd, address);
+	pmd = ipti_pagetable_walk_pmd(mm, pgd, address);
 	if (!pmd)
 		return NULL;
 
@@ -498,7 +501,7 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 		pgprot_t flags;
 		unsigned long pfn;
 
-		target_pmd = ipti_pagetable_walk_pmd(ipti, target_pgd, addr);
+		target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
 		if (WARN_ON(!target_pmd))
 			return NO_TGT;
 
@@ -527,7 +530,7 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	}
 
 	/* Allocate PTE in the entry page-table */
-	target_pte = ipti_pagetable_walk_pte(ipti, target_pgd, addr);
+	target_pte = ipti_pagetable_walk_pte(mm, target_pgd, addr);
 	if (WARN_ON(!target_pte))
 		return NO_TGT;
 
@@ -1026,6 +1029,110 @@ static int sci_free_page_range(struct mm_struct *mm)
 
 	return 0;
 }
+
+/* static int sci_clone_pte_range(struct mm_struct *mm, pmd_t *pmd, */
+/* 			       unsigned long addr, unsigned long end, int *nr) */
+/* { */
+/* 	pte_t *pte; */
+
+/* 	/\* */
+/* 	 * nr is a running index into the array which helps higher level */
+/* 	 * callers keep track of where we're up to. */
+/* 	 *\/ */
+
+/* 	pte = pte_alloc_kernel(pmd, addr); */
+/* 	if (!pte) */
+/* 		return -ENOMEM; */
+/* 	do { */
+/* 		struct page *page = pages[*nr]; */
+
+/* 		if (WARN_ON(!pte_none(*pte))) */
+/* 			return -EBUSY; */
+/* 		if (WARN_ON(!page)) */
+/* 			return -ENOMEM; */
+/* 		set_pte_at(&init_mm, addr, pte, mk_pte(page, prot)); */
+/* 		(*nr)++; */
+/* 	} while (pte++, addr += PAGE_SIZE, addr != end); */
+/* 	return 0; */
+/* } */
+
+/* static int sci_clone_pmd_range(struct mm_struct *mm, pud_t *pud, */
+/* 			       unsigned long addr, unsigned long end, int *nr) */
+/* { */
+/* 	pmd_t *pmd; */
+/* 	unsigned long next; */
+
+/* 	pmd = pmd_alloc(mm, pud, addr); */
+/* 	if (!pmd) */
+/* 		return -ENOMEM; */
+/* 	do { */
+/* 		next = pmd_addr_end(addr, end); */
+/* 		if (sci_clone_pte_range(mm, pmd, addr, next, nr)) */
+/* 			return -ENOMEM; */
+/* 	} while (pmd++, addr = next, addr != end); */
+/* 	return 0; */
+/* } */
+
+/* static int sci_clone_pud_range(struct mm_struct *mm, p4d_t *p4d, */
+/* 			       unsigned long addr, unsigned long end, int *nr) */
+/* { */
+/* 	pud_t *pud; */
+/* 	unsigned long next; */
+
+/* 	pud = pud_alloc(mm, p4d, addr); */
+/* 	if (!pud) */
+/* 		return -ENOMEM; */
+/* 	do { */
+/* 		next = pud_addr_end(addr, end); */
+/* 		if (sci_clone_pmd_range(mm, pud, addr, next, nr)) */
+/* 			return -ENOMEM; */
+/* 	} while (pud++, addr = next, addr != end); */
+/* 	return 0; */
+/* } */
+
+/* static int sci_clone_p4d_range(struct mm_struct *mm, pgd_t *pgd, */
+/* 			       unsigned long addr, unsigned long end, int *nr) */
+/* { */
+/* 	p4d_t *p4d; */
+/* 	unsigned long next; */
+
+/* 	p4d = p4d_alloc(&mm, pgd, addr); */
+/* 	if (!p4d) */
+/* 		return -ENOMEM; */
+/* 	do { */
+/* 		next = p4d_addr_end(addr, end); */
+/* 		if (sci_clone_pud_range(mm, p4d, addr, next, nr)) */
+/* 			return -ENOMEM; */
+/* 	} while (p4d++, addr = next, addr != end); */
+/* 	return 0; */
+/* } */
+
+/* /\* */
+/*  * Set up page tables in kva (addr, end). The ptes shall have prot "prot", and */
+/*  * will have pfns corresponding to the "pages" array. */
+/*  * */
+/*  * Ie. pte at addr+N*PAGE_SIZE shall point to pfn corresponding to pages[N] */
+/*  *\/ */
+/* static int sci_clone_page_range(struct mm_struct *mm, */
+/* 				unsigned long start, unsigned long end) */
+/* { */
+/* 	pgd_t *pgd; */
+/* 	unsigned long next; */
+/* 	unsigned long addr = start; */
+/* 	int err = 0; */
+/* 	int nr = 0; */
+
+/* 	BUG_ON(addr >= end); */
+/* 	pgd = kernel_to_entry_pgdp(pgd_offset(mm, addr)); */
+/* 	do { */
+/* 		next = pgd_addr_end(addr, end); */
+/* 		err = sci_clone_p4d_range(mm, pgd, addr, next, &nr); */
+/* 		if (err) */
+/* 			return err; */
+/* 	} while (pgd++, addr = next, addr != end); */
+
+/* 	return nr; */
+/* } */
 
 static int sci_subsys_init(void)
 {
