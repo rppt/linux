@@ -118,6 +118,7 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 static int __ipti_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add);
+static int sci_free_page_range(struct mm_struct *mm);
 
 static inline void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 {
@@ -182,6 +183,8 @@ void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 		return;
 
 	ipti = mm->ipti;
+
+	sci_free_page_range(mm);
 
 	sci_free_pgd(ipti);
 	kfree(ipti->pages);
@@ -571,6 +574,8 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	unsigned long offset, size;
 	char *modname;
 
+	sci_debug = 1;
+
 	if (!mm) {
 		pr_err("System call from kernel thread?!\n");
 		return false;
@@ -902,10 +907,10 @@ void sci_free_pgd(struct ipti_data *ipti)
 	/* __native_flush_tlb_global(); */
 	/* __native_flush_tlb(); */
 
-	for (i = ipti->pages_index - 1; i >= 0; i--) {
-		/* dump_page(sci_pages[i], "sci free"); */
-		__free_page(ipti->pages[i]);
-	}
+	/* for (i = ipti->pages_index - 1; i >= 0; i--) { */
+	/* 	/\* dump_page(sci_pages[i], "sci free"); *\/ */
+	/* 	__free_page(ipti->pages[i]); */
+	/* } */
 
 	/* pages_idx = 0; */
 	/* pgd_t *pgd; */
@@ -915,6 +920,111 @@ void sci_free_pgd(struct ipti_data *ipti)
 	/* 		continue; */
 	/* 	sci_free_p4d_range(pgd); */
 	/* } */
+}
+
+static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
+{
+	pte_t *pte, *ptep;
+	int i;
+
+	ptep = pte_offset_kernel(pmd, 0);
+
+	for (i = 0, pte = ptep; i < PTRS_PER_PTE; i++, pte++) {
+		if (pte_none(*pte))
+			continue;
+		if (sci_debug)
+			pr_info("%s: %d: %px\n", __func__, i, pte);
+	}
+
+	pmd_clear(pmd);
+	pte_free_kernel(mm, ptep);
+
+	return 0;
+}
+
+static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
+{
+	pmd_t *pmd, *pmdp;
+	int i;
+
+	pmdp = pmd_offset(pud, 0);
+
+	for (i = 0, pmd = pmdp; i < PTRS_PER_PMD; i++, pmd++) {
+		if (pmd_none(*pmd))
+			continue;
+		sci_free_pte_range(mm, pmd);
+		if (sci_debug)
+			pr_info("%s: %d: %px\n", __func__, i, pmd);
+	}
+
+	pud_clear(pud);
+	pte_free_kernel(mm, (pte_t*)pmdp);
+
+	return 0;
+}
+
+static int sci_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
+{
+	pud_t *pud, *pudp;
+	int i;
+
+	pudp = pud_offset(p4d, 0);
+
+	for (i = 0, pud = pudp; i < PTRS_PER_PUD; i++, pud++) {
+		if (pud_none(*pud))
+			continue;
+		sci_free_pmd_range(mm, pud);
+		if (sci_debug)
+			pr_info("%s: %d: %px\n", __func__, i, pud);
+	}
+
+	p4d_clear(p4d);
+	pud_free(mm, pudp);
+
+	return 0;
+}
+
+static int sci_free_p4d_range(struct mm_struct *mm, pgd_t *pgd)
+{
+	p4d_t *p4d, *p4dp;
+	int i;
+
+	p4dp = p4d_offset(pgd, 0);
+
+	for (i = 0, p4d = p4dp; i < PTRS_PER_P4D; i++, p4d++) {
+		if (p4d_none(*p4d))
+			continue;
+		sci_free_pud_range(mm, p4d);
+		if (sci_debug)
+			pr_info("%s: %d: %px\n", __func__, i, p4d);
+	}
+
+	pgd_clear(pgd);
+	p4d_free(mm, p4dp);
+
+	return 0;
+}
+
+static int sci_free_page_range(struct mm_struct *mm)
+{
+	pgd_t *pgdp, *pgd;
+	int i;
+
+	pgdp = kernel_to_entry_pgdp(mm->pgd);
+
+	for (i = 0, pgd = pgdp; i < PTRS_PER_PGD; i++, pgd++) {
+		if (pgdp_maps_userspace(pgd))
+			continue;
+		if (!pgd_present(*pgd))
+			continue;
+		sci_free_p4d_range(mm, pgd);
+		if (sci_debug)
+			pr_info("%s: %d: %px: %lx\n", __func__, i, pgd, pgd_val(*pgd));
+	}
+
+	sci_debug = 0;
+
+	return 0;
 }
 
 static int sci_subsys_init(void)
