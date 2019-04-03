@@ -301,7 +301,7 @@ void ipti_clone_pgtable(unsigned long addr)
 
 	if (pmd_large(*pmd)) {
 		pgprot_t flags;
-		unsigned long pa;
+		unsigned long pfn;
 
 		target_pmd = ipti_pagetable_walk_pmd(ipti, target_pgd, addr);
 		if (WARN_ON(!target_pmd))
@@ -314,10 +314,8 @@ void ipti_clone_pgtable(unsigned long addr)
 			return;
 
 		flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
-		/* flags = pmd_pgprot(*pmd); */
-		pa = __pa(addr);
-
-		ptev = pfn_pte(pa >> PAGE_SHIFT, flags);
+		pfn = pmd_pfn(*pmd) + pte_index(addr);
+		ptev = pfn_pte(pfn, flags);
 	} else {
 		/* Walk the page-table down to the pte level */
 		pte = pte_offset_kernel(pmd, addr);
