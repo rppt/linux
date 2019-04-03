@@ -91,9 +91,6 @@ bad:
 	pr_info("BAD\n");
 }
 
-/* static struct page *sci_pages[4096]; */
-/* static int pages_idx; */
-
 struct ipti_mapping {
 	/* unsigned long addr; */
 	pte_t *pte;
@@ -101,8 +98,6 @@ struct ipti_mapping {
 
 struct ipti_data {
 	unsigned long size;
-	unsigned long pages_index;
-	struct page **pages;
 	unsigned long rip_index;
 	unsigned long rips[256];
 	unsigned long index;
@@ -110,7 +105,6 @@ struct ipti_data {
 };
 
 #define IPTI_ORDER 0
-#define SCI_PAGES 1024
 
 static void sci_clone_user_shared(struct mm_struct *mm);
 static void sci_clone_entry_text(struct mm_struct *mm);
@@ -149,13 +143,6 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	if (!ipti)
 		return -ENOMEM;
 
-	ipti->pages = kvzalloc(sizeof(struct page *) * SCI_PAGES,
-			       GFP_KERNEL_ACCOUNT | __GFP_ZERO);
-	if (!ipti->pages) {
-		free_pages((unsigned long)ipti, IPTI_ORDER);
-		return -ENOMEM;
-	}
-
 	mm->ipti = ipti;
 
 	ipti->size = (PAGE_SIZE << IPTI_ORDER) - sizeof(*ipti);
@@ -187,7 +174,6 @@ void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	sci_free_page_range(mm);
 
 	sci_free_pgd(ipti);
-	kfree(ipti->pages);
 
 	free_pages((unsigned long)ipti, IPTI_ORDER);
 }
@@ -271,7 +257,6 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 static p4d_t *ipti_pagetable_walk_p4d(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
-	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 
 	if (address < PAGE_OFFSET) {
@@ -289,14 +274,10 @@ static p4d_t *ipti_pagetable_walk_p4d(struct mm_struct *mm,
 		p4d_addr = (unsigned long)page_address(page);
 
 		if (sci_debug) {
-			pr_info("new p4d: %px (%lx)\n", page, p4d_addr);
+			pr_info("%d: new p4d: %px (%lx)\n",
+				current->pid, page, p4d_addr);
 			/* dump_page(page, "sci alloc"); */
 		}
-
-		if (ipti->pages_index > SCI_PAGES - 10)
-			pr_info("%s: addr: %lx, pages: %ld\n", __func__, address, ipti->pages_index);
-		BUG_ON(ipti->pages_index > SCI_PAGES - 10);
-		ipti->pages[ipti->pages_index++] = page;
 
 		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(p4d_addr)));
 	}
@@ -314,7 +295,6 @@ static p4d_t *ipti_pagetable_walk_p4d(struct mm_struct *mm,
 static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
-	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 	p4d_t *p4d;
 	pud_t *pud;
@@ -334,14 +314,10 @@ static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 		pud_addr = (unsigned long)page_address(page);
 
 		if (sci_debug) {
-			pr_info("new pud: %px (%lx), p4d: %px\n", page, pud_addr, p4d);
+			pr_info("%d: new pud: %px (%lx)\n",
+				current->pid, page, pud_addr);
 			/* dump_page(page, "sci alloc"); */
 		}
-
-		if (ipti->pages_index > SCI_PAGES - 10)
-			pr_info("%s: addr: %lx, pages: %ld\n", __func__, address, ipti->pages_index);
-		BUG_ON(ipti->pages_index > SCI_PAGES - 10);
-		ipti->pages[ipti->pages_index++] = page;
 
 		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(pud_addr)));
 	}
@@ -362,13 +338,10 @@ static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 		pmd_addr = (unsigned long)page_address(page);
 
 		if (sci_debug) {
-			pr_info("new pmd: %px (%lx)\n", page, pmd_addr);
+			pr_info("%d: new pmd: %px (%lx)\n",
+				current->pid, page, pmd_addr);
 			/* dump_page(page, "sci alloc"); */
 		}
-		if (ipti->pages_index > SCI_PAGES - 10)
-			pr_info("%s: addr: %lx, pages: %ld\n", __func__, address, ipti->pages_index);
-		BUG_ON(ipti->pages_index > SCI_PAGES - 10);
-		ipti->pages[ipti->pages_index++] = page;
 
 		set_pud(pud, __pud(_KERNPG_TABLE | __pa(pmd_addr)));
 	}
@@ -388,7 +361,6 @@ static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
-	struct ipti_data *ipti = mm->ipti;
 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
 	pmd_t *pmd;
 	pte_t *pte;
@@ -413,13 +385,10 @@ static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 		pte_addr = (unsigned long)page_address(page);
 
 		if (sci_debug) {
-			pr_info("new pte: %px (%lx)\n", page, pte_addr);
+			pr_info("%d: new pte: %px (%lx)\n",
+				current->pid, page, pte_addr);
 			/* dump_page(page, "sci alloc"); */
 		}
-		if (ipti->pages_index > SCI_PAGES - 10)
-			pr_info("%s: addr: %lx, pages: %ld\n", __func__, address, ipti->pages_index);
-		BUG_ON(ipti->pages_index > SCI_PAGES - 10);
-		ipti->pages[ipti->pages_index++] = page;
 
 		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr)));
 	}
@@ -444,7 +413,6 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 				 pgd_t *pgdp, pgd_t *target_pgdp,
 				 unsigned long addr, bool add)
 {
-	struct ipti_data *ipti = mm->ipti;
 	pte_t *pte, *target_pte, ptev;
 	pmd_t *pmd, *target_pmd;
 	pgd_t *pgd, *target_pgd;
@@ -905,7 +873,7 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
  */
 void sci_free_pgd(struct ipti_data *ipti)
 {
-	int i;
+	/* int i; */
 
 	/* __native_flush_tlb_global(); */
 	/* __native_flush_tlb(); */
@@ -927,17 +895,10 @@ void sci_free_pgd(struct ipti_data *ipti)
 
 static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
 {
-	pte_t *pte, *ptep;
-	int i;
+	pte_t *ptep = pte_offset_kernel(pmd, 0);
 
-	ptep = pte_offset_kernel(pmd, 0);
-
-	for (i = 0, pte = ptep; i < PTRS_PER_PTE; i++, pte++) {
-		if (pte_none(*pte))
-			continue;
-		if (sci_debug)
-			pr_info("%s: %d: %px\n", __func__, i, pte);
-	}
+	if (sci_debug)
+		pr_info("%s: %d: %px\n", __func__, current->pid, ptep);
 
 	pmd_clear(pmd);
 	pte_free_kernel(mm, ptep);
@@ -956,9 +917,10 @@ static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
 		if (pmd_none(*pmd))
 			continue;
 		sci_free_pte_range(mm, pmd);
-		if (sci_debug)
-			pr_info("%s: %d: %px\n", __func__, i, pmd);
 	}
+
+	if (sci_debug)
+		pr_info("%s: %d: %px\n", __func__, current->pid, pmdp);
 
 	pud_clear(pud);
 	pte_free_kernel(mm, (pte_t*)pmdp);
@@ -977,9 +939,10 @@ static int sci_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
 		if (pud_none(*pud))
 			continue;
 		sci_free_pmd_range(mm, pud);
-		if (sci_debug)
-			pr_info("%s: %d: %px\n", __func__, i, pud);
 	}
+
+	if (sci_debug)
+		pr_info("%s: %d: %px\n", __func__, current->pid, pudp);
 
 	p4d_clear(p4d);
 	pud_free(mm, pudp);
@@ -998,10 +961,10 @@ static int sci_free_p4d_range(struct mm_struct *mm, pgd_t *pgd)
 		if (p4d_none(*p4d))
 			continue;
 		sci_free_pud_range(mm, p4d);
-		if (sci_debug)
-			pr_info("%s: %d: %px\n", __func__, i, p4d);
 	}
 
+	/* if (sci_debug) */
+	/* 	pr_info("%s: %d: %px\n", __func__, current->pid, p4dp); */
 	pgd_clear(pgd);
 	p4d_free(mm, p4dp);
 
@@ -1021,8 +984,8 @@ static int sci_free_page_range(struct mm_struct *mm)
 		if (!pgd_present(*pgd))
 			continue;
 		sci_free_p4d_range(mm, pgd);
-		if (sci_debug)
-			pr_info("%s: %d: %px: %lx\n", __func__, i, pgd, pgd_val(*pgd));
+		/* if (sci_debug) */
+		/* 	pr_info("%s: %d: %px: %lx\n", __func__, i, pgd, pgd_val(*pgd)); */
 	}
 
 	sci_debug = 0;
