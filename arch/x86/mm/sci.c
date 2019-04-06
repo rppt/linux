@@ -249,107 +249,6 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 }
 
 /*
- * Walk the user copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.
- *
- * Returns a pointer to a P4D on success, or NULL on failure.
- */
-static p4d_t *ipti_pagetable_walk_p4d(struct mm_struct *mm,
-				      pgd_t *pgd, unsigned long address)
-{
-	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
-
-	if (address < PAGE_OFFSET) {
-		WARN_ONCE(1, "attempt to walk user address\n");
-		return NULL;
-	}
-
-	if (pgd_none(*pgd)) {
-		struct page *page = alloc_page(gfp);
-		unsigned long p4d_addr;
-
-		if (WARN_ON_ONCE(!page))
-			return NULL;
-
-		p4d_addr = (unsigned long)page_address(page);
-
-		if (sci_debug) {
-			pr_info("%d: new p4d: %px (%lx)\n",
-				current->pid, page, p4d_addr);
-			/* dump_page(page, "sci alloc"); */
-		}
-
-		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(p4d_addr)));
-	}
-	BUILD_BUG_ON(pgd_large(*pgd) != 0);
-
-	return p4d_offset(pgd, address);
-}
-
-/*
- * Walk the user copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.
- *
- * Returns a pointer to a PMD on success, or NULL on failure.
- */
-static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
-				      pgd_t *pgd, unsigned long address)
-{
-	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
-	p4d_t *p4d;
-	pud_t *pud;
-
-	p4d = ipti_pagetable_walk_p4d(mm, pgd, address);
-	if (!p4d)
-		return NULL;
-
-	BUILD_BUG_ON(p4d_large(*p4d) != 0);
-	if (p4d_none(*p4d)) {
-		struct page *page = alloc_page(gfp);
-		unsigned long pud_addr;
-
-		if (WARN_ON_ONCE(!page))
-			return NULL;
-
-		pud_addr = (unsigned long)page_address(page);
-
-		if (sci_debug) {
-			pr_info("%d: new pud: %px (%lx)\n",
-				current->pid, page, pud_addr);
-			/* dump_page(page, "sci alloc"); */
-		}
-
-		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(pud_addr)));
-	}
-
-	pud = pud_offset(p4d, address);
-	/* The user page tables do not use large mappings: */
-	if (pud_large(*pud)) {
-		WARN_ON(1);
-		return NULL;
-	}
-	if (pud_none(*pud)) {
-		struct page *page = alloc_page(gfp);
-		unsigned long pmd_addr;
-
-		if (WARN_ON_ONCE(!page))
-			return NULL;
-
-		pmd_addr = (unsigned long)page_address(page);
-
-		if (sci_debug) {
-			pr_info("%d: new pmd: %px (%lx)\n",
-				current->pid, page, pmd_addr);
-			/* dump_page(page, "sci alloc"); */
-		}
-
-		set_pud(pud, __pud(_KERNPG_TABLE | __pa(pmd_addr)));
-	}
-
-	return pmd_offset(pud, address);
-}
-
-/*
  * Walk the shadow copy of the page tables (optionally) trying to allocate
  * page table pages on the way down.  Does not support large pages.
  *
@@ -378,15 +277,7 @@ static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 	if (__pte_alloc(mm, pmd))
 		goto free_pmd;
 
-	pte = pte_offset_kernel(pmd, address);
-	if (current->pid == 1) {
-		pr_info("p4d: %lx, pud: %lx, pmd: %lx, mapcount: %d\n",
-			p4d_pfn(*p4d), pud_pfn(*pud),
-			pmd_pfn(*pmd), page_mapcount(pmd_page(*pmd)));
-	}
-
-	return pte;
-	/* return pte_offset_kernel(pmd, address); */
+	return pte_offset_kernel(pmd, address);
 
 free_pmd:
 	pmd_free(mm, pmd);
@@ -397,46 +288,6 @@ free_pud:
 free_p4d:
 	p4d_free(mm, p4d);
 	return NULL;
-
-
-	/* gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
-	/* pmd_t *pmd; */
-	/* pte_t *pte; */
-
-	/* pmd = ipti_pagetable_walk_pmd(mm, pgd, address); */
-	/* if (!pmd) */
-	/* 	return NULL; */
-
-	/* /\* We can't do anything sensible if we hit a large mapping. *\/ */
-	/* if (pmd_large(*pmd)) { */
-	/* 	WARN_ON(1); */
-	/* 	return NULL; */
-	/* } */
-
-	/* if (pmd_none(*pmd)) { */
-	/* 	struct page *page = alloc_page(gfp); */
-	/* 	unsigned long pte_addr; */
-
-	/* 	if (!page) */
-	/* 		return NULL; */
-
-	/* 	pte_addr = (unsigned long)page_address(page); */
-
-	/* 	if (sci_debug) { */
-	/* 		pr_info("%d: new pte: %px (%lx)\n", */
-	/* 			current->pid, page, pte_addr); */
-	/* 		/\* dump_page(page, "sci alloc"); *\/ */
-	/* 	} */
-
-	/* 	set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr))); */
-	/* } */
-
-	/* pte = pte_offset_kernel(pmd, address); */
-	/* if (pte_flags(*pte) & _PAGE_USER) { */
-	/* 	WARN_ONCE(1, "attempt to walk to user pte\n"); */
-	/* 	return NULL; */
-	/* } */
-	/* return pte; */
 }
 
 enum {
@@ -463,24 +314,7 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 		dump_pagetable(pgdp, addr);
 	}
 
-	/* if (sci_debug) */
-	/* 	pr_info("addr: %lx PGD: %ld PUD %ld\n", addr, pgd_index(addr), pud_index(addr)); */
-
 	pgd = pgd_offset_pgd(pgdp, addr);
-	/* if (WARN_ON(pgd_none(*pgd))) */
-	/* 	return; */
-	/* p4d = p4d_offset(pgd, addr); */
-	/* if (WARN_ON(p4d_none(*p4d))) */
-	/* 	return; */
-
-	/* pud = pud_offset(p4d, addr); */
-	/* if (WARN_ON(pud_none(*pud))) */
-	/* 	return; */
-
-	/* pmd = pmd_offset(pud, addr); */
-	/* if (WARN_ON(pmd_none(*pmd))) */
-	/* 	return; */
-
 	if (pgd_none(*pgd))
 		return NO_PGD;
 
@@ -508,15 +342,6 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 		pgprot_t flags;
 		unsigned long pfn;
 
-		/* target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr); */
-		/* if (WARN_ON(!target_pmd)) */
-		/* 	return NO_TGT; */
-
-		/* if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT))) */
-		/* 	return NO_TGT; */
-
-		/* if (WARN_ON(pmd_large(*target_pmd))) */
-		/* 	return NO_TGT; */
 
 		flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
 		pfn = pmd_pfn(*pmd) + pte_index(addr);
@@ -526,14 +351,6 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 		pte = pte_offset_kernel(pmd, addr);
 		if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
 			return NO_PTE;
-		/* if (WARN_ON(pte_none(*pte))) */
-		/* 	return; */
-
-		/* /\* Only clone present PTEs *\/ */
-		/* /\* if (WARN_ON(!(pte_flags(*pte) & _PAGE_PRESENT))) *\/ */
-		/* if (!(pte_flags(*pte) & _PAGE_PRESENT)) */
-		/* 	pr_info("PTE !P: %lx\n", pte_val(*pte)); */
-		/* return; */
 
 		ptev = *pte;
 	}
@@ -542,13 +359,6 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	target_pte = ipti_pagetable_walk_pte(mm, target_pgd, addr);
 	if (WARN_ON(!target_pte))
 		return NO_TGT;
-
-	/* /\* Clone the PTE *\/ */
-	/* if (!pte_none(*target_pte)) { */
-	/* 	if (pte_val(*target_pte) == pte_val(ptev)) */
-	/* 		return 0; */
-	/* 	pr_info("old: %lx, new: %lx\n", pte_val(*target_pte), pte_val(ptev)); */
-	/* } */
 
 	*target_pte = ptev;
 
@@ -686,156 +496,6 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 
 	return pgd;
 }
-
-/* static int sci_clone_pmd_range(pmd_t *dst, pmd_t *src) */
-/* { */
-/* 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
-/* 	pmd_t *s_pmd, *d_pmd; */
-/* 	pte_t *s_pte, *d_pte; */
-/* 	int i; */
-
-/* 	pr_info("PMD: src: %px dst: %px\n", src, dst); */
-
-/* 	for (s_pmd = src, d_pmd = dst; s_pmd < src + PTRS_PER_PMD; */
-/* 	     s_pmd++, d_pmd++) { */
-/* 		if (pmd_none(*s_pmd)) */
-/* 			continue; */
-
-/* 		s_pte = phys_to_virt(PFN_PHYS(pmd_pfn(*s_pmd))); */
-/* 		d_pte = (pte_t *)__get_free_page(gfp); */
-/* 		if (!d_pte) */
-/* 			return -ENOMEM; */
-
-/* 		pr_info("NEW PTE: %px\n", d_pte); */
-
-/* 		set_pmd(d_pmd, __pmd(_KERNPG_TABLE | __pa(d_pte))); */
-
-/* 		/\* for (i = 0; i < PTRS_PER_PTE; i++) { *\/ */
-/* 		/\* 	pte_t *ss_pte, *dd_pte; *\/ */
-
-/* 		/\* 	ss_pte = &s_pte[i]; *\/ */
-/* 		/\* 	dd_pte = &d_pte[i]; *\/ */
-
-/* 		/\* 	if (!pte_none(*ss_pte)) { *\/ */
-/* 		/\* 		pr_info("SET %d: %px to %lx\n", i, dd_pte, pte_val(*ss_pte)); *\/ */
-/* 		/\* 		*dd_pte = *ss_pte; *\/ */
-/* 		/\* 	} *\/ */
-/* 		/\* } *\/ */
-
-/* 		memcpy(d_pte, s_pte, PAGE_SIZE); */
-/* 	} */
-
-/* 	return 0; */
-/* } */
-
-/* static int sci_clone_pud_range(pud_t *dst, pud_t *src) */
-/* { */
-/* 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
-/* 	pud_t *s_pud, *d_pud; */
-/* 	pmd_t *s_pmd, *d_pmd; */
-/* 	int ret; */
-
-/* 	pr_info("PUD: src: %px dst: %px\n", src, dst); */
-/* 	for (s_pud = src, d_pud = dst; s_pud < src + PTRS_PER_PUD; */
-/* 	     s_pud++, d_pud++) { */
-/* 		if (pud_none(*s_pud)) */
-/* 			continue; */
-
-/* 		s_pmd = phys_to_virt(PFN_PHYS(pud_pfn(*s_pud))); */
-/* 		d_pmd = (pmd_t *)__get_free_page(gfp); */
-/* 		if (!d_pmd) */
-/* 			return -ENOMEM; */
-
-/* 		pr_info("NEW PMD: %px\n", d_pmd); */
-
-/* 		set_pud(d_pud, __pud(_KERNPG_TABLE | __pa(d_pmd))); */
-
-/* 		ret = sci_clone_pmd_range(d_pmd, s_pmd); */
-/* 		if (ret) */
-/* 			return ret; */
-/* 	} */
-
-/* 	return 0; */
-/* } */
-
-/* static int sci_clone_p4d_range(p4d_t *dst, p4d_t *src) */
-/* { */
-/* 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
-/* 	p4d_t *s_p4d, *d_p4d; */
-/* 	pud_t *s_pud, *d_pud; */
-/* 	int ret; */
-
-/* 	pr_info("P4D: src: %px dst: %px\n", src, dst); */
-/* 	for (s_p4d = src, d_p4d = dst; s_p4d < src + PTRS_PER_P4D; */
-/* 	     s_p4d++, d_p4d++) { */
-/* 		if (p4d_none(*s_p4d)) */
-/* 			continue; */
-
-/* 		s_pud = phys_to_virt(PFN_PHYS(p4d_pfn(*s_p4d))); */
-/* 		d_pud = (pud_t *)__get_free_page(gfp); */
-/* 		if (!d_pud) */
-/* 			return -ENOMEM; */
-
-/* 		pr_info("NEW PUD: %px\n", d_pud); */
-
-/* 		set_p4d(d_p4d, __p4d(_KERNPG_TABLE | __pa(d_pud))); */
-
-/* 		ret = sci_clone_pud_range(d_pud, s_pud); */
-/* 		if (ret) */
-/* 			return ret; */
-/* 	} */
-
-/* 	return 0; */
-/* } */
-
-
-/* static int sci_clone_pdg_range(pgd_t *dst, pgd_t *src, int count) */
-/* { */
-/* 	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
-/* 	pgd_t *s_pgd, *d_pgd; */
-/* 	p4d_t *s_p4d, *d_p4d; */
-/* 	int ret; */
-
-/* 	pr_info("PGD: src: %px dst: %px cnt: %d\n", src, dst, count); */
-/* 	for (s_pgd = src, d_pgd = dst; s_pgd < src + count; s_pgd++, d_pgd++) { */
-/* 		if (pgd_none(*s_pgd)) */
-/* 			continue; */
-
-/* 		s_p4d = phys_to_virt(PFN_PHYS(pgd_pfn(*s_pgd))); */
-/* 		d_p4d = (p4d_t *)__get_free_page(gfp); */
-/* 		if (!d_p4d) */
-/* 			return -ENOMEM; */
-
-/* 		pr_info("NEW P4D: %px\n", d_p4d); */
-
-/* 		set_pgd(d_pgd, __pgd(_KERNPG_TABLE | __pa(d_p4d))); */
-
-/* 		ret = sci_clone_p4d_range(d_p4d, s_p4d); */
-/* 		if (ret) */
-/* 			return ret; */
-/* 	} */
-
-/* 	return 0; */
-/* } */
-
-/* /\* clone_pgd_range(pgd + KERNEL_PGD_BOUNDARY, *\/ */
-/* /\* 		swapper_pg_dir + KERNEL_PGD_BOUNDARY, *\/ */
-/* /\* 		KERNEL_PGD_PTRS); *\/ */
-
-
-/* int sci_clone_entry_pgtable(struct mm_struct *mm) */
-/* { */
-/* 	pgd_t *k_pgd, *u_pgd, *e_pgd; */
-
-/* 	if (!mm && mm == &init_mm) */
-/* 		return 0; */
-
-/* 	k_pgd = mm->pgd + KERNEL_PGD_BOUNDARY; */
-/* 	u_pgd = kernel_to_user_pgdp(k_pgd); */
-/* 	e_pgd = kernel_to_entry_pgdp(k_pgd); */
-
-/* 	return sci_clone_pdg_range(e_pgd, u_pgd, KERNEL_PGD_PTRS); */
-/* } */
 
 static void sci_clone_user_shared(struct mm_struct *mm)
 {
