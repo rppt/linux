@@ -108,13 +108,15 @@ struct ipti_data {
 
 static void sci_clone_user_shared(struct mm_struct *mm);
 static void sci_clone_entry_text(struct mm_struct *mm);
+static void sci_clone_vmalloc(struct mm_struct *mm);
+static void sci_clone_vmemmap(struct mm_struct *mm);
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
 static int __ipti_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add);
 static int sci_free_page_range(struct mm_struct *mm);
 
-static inline void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
+void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 {
 	unsigned long stack = (unsigned long)tsk->stack;
 	unsigned long addr;
@@ -151,7 +153,6 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
-	ipti_map_stack(tsk, mm);
 	sci_dump_debug_info(mm, "init", false);
 
 	/* if (current->pid == 1) */

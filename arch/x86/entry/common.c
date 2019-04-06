@@ -273,6 +273,8 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 
 #ifdef CONFIG_SYSCALL_ISOLATION
+void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm);
+
 static inline unsigned long ipti_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
@@ -282,6 +284,7 @@ static inline unsigned long ipti_syscall_enter(unsigned long nr)
 
 	current->in_ipti_syscall = true;
 	this_cpu_write(cpu_tss_rw.ipti_syscall, 1);
+	ipti_map_stack(current, current->active_mm);
 
 	/* FIXME: add support for PV ops */
 	orig_cr3 = __native_read_cr3();
