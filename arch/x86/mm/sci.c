@@ -153,6 +153,7 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
+	sci_clone_vmemmap(mm);
 	sci_dump_debug_info(mm, "init", false);
 
 	/* if (current->pid == 1) */
@@ -413,6 +414,77 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	return 0;
 }
 
+static int __ipti_clone_range(struct mm_struct *mm,
+			      pgd_t *pgdp, pgd_t *target_pgdp,
+			      unsigned long start, unsigned long end)
+{
+	unsigned long addr;
+
+	/*
+	 * Clone the populated PMDs which cover start to end. These PMD areas
+	 * can have holes.
+	 */
+	for (addr = start; addr < end;) {
+		pte_t *pte, *target_pte, ptev;
+		pgd_t *pgd, *target_pgd;
+		pmd_t *pmd, *target_pmd;
+		p4d_t *p4d;
+		pud_t *pud;
+
+		/* Overflow check */
+		if (addr < start)
+			break;
+
+		pgd = pgd_offset_pgd(pgdp, addr);
+		if (pgd_none(*pgd))
+			return NO_PGD;
+
+		p4d = p4d_offset(pgd, addr);
+		if (p4d_none(*p4d))
+			return NO_P4D;
+
+		pud = pud_offset(p4d, addr);
+		if (pud_none(*pud)) {
+			addr += PUD_SIZE;
+			continue;
+		}
+
+		pmd = pmd_offset(pud, addr);
+		if (pmd_none(*pmd)) {
+			addr += PMD_SIZE;
+			continue;
+		}
+
+		target_pgd = pgd_offset_pgd(target_pgdp, addr);
+
+		if (pmd_large(*pmd)) {
+			target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
+			if (WARN_ON(!target_pmd))
+				return NO_TGT;
+			*target_pmd = *pmd;
+
+			addr += PMD_SIZE;
+			continue;
+		} else {
+			/* Walk the page-table down to the pte level */
+			pte = pte_offset_kernel(pmd, addr);
+			if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
+				return NO_PTE;
+
+			ptev = *pte;
+		}
+
+		/* Allocate PTE in the entry page-table */
+		target_pte = ipti_pagetable_walk_pte(mm, target_pgd, addr);
+		if (WARN_ON(!target_pte))
+			return NO_TGT;
+
+		*target_pte = ptev;
+	}
+
+	return 0;
+}
+
 void ipti_clone_pgtable(unsigned long addr)
 {
 	int ret = __ipti_clone_pgtable(current->mm, current->mm->pgd,
@@ -577,6 +649,18 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
 }
+
+#define VMEMMAP_END 0xffffeb0000000000
+
+static void sci_clone_vmemmap(struct mm_struct *mm)
+{
+	/* unsigned long addr; */
+	/* int ret; */
+
+	__ipti_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			   VMEMMAP_START, VMEMMAP_END);
+}
+
 
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last)
 {
