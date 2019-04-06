@@ -233,7 +233,7 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
 		err = ipti_mapping_realloc(mm);
 		if (err) {
-			sci_debug = 0;
+			/* sci_debug = 0; */
 			pr_err("can realloc, idx: %ld, size: %ld\n", ipti->index, ipti->size);
 			BUG();
 			return err;
@@ -361,44 +361,82 @@ static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
 static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
-	gfp_t gfp = (GFP_KERNEL | __GFP_ZERO);
+	p4d_t *p4d;
+	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 
-	pmd = ipti_pagetable_walk_pmd(mm, pgd, address);
+	p4d = p4d_alloc(mm, pgd, address);
+	if (!p4d)
+		return NULL;
+	pud = pud_alloc(mm, p4d, address);
+	if (!pud)
+		goto free_p4d;
+	pmd = pmd_alloc(mm, pud, address);
 	if (!pmd)
-		return NULL;
-
-	/* We can't do anything sensible if we hit a large mapping. */
-	if (pmd_large(*pmd)) {
-		WARN_ON(1);
-		return NULL;
-	}
-
-	if (pmd_none(*pmd)) {
-		struct page *page = alloc_page(gfp);
-		unsigned long pte_addr;
-
-		if (!page)
-			return NULL;
-
-		pte_addr = (unsigned long)page_address(page);
-
-		if (sci_debug) {
-			pr_info("%d: new pte: %px (%lx)\n",
-				current->pid, page, pte_addr);
-			/* dump_page(page, "sci alloc"); */
-		}
-
-		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr)));
-	}
+		goto free_pud;
+	if (__pte_alloc(mm, pmd))
+		goto free_pmd;
 
 	pte = pte_offset_kernel(pmd, address);
-	if (pte_flags(*pte) & _PAGE_USER) {
-		WARN_ONCE(1, "attempt to walk to user pte\n");
-		return NULL;
+	if (current->pid == 1) {
+		pr_info("p4d: %lx, pud: %lx, pmd: %lx, mapcount: %d\n",
+			p4d_pfn(*p4d), pud_pfn(*pud),
+			pmd_pfn(*pmd), page_mapcount(pmd_page(*pmd)));
 	}
+
 	return pte;
+	/* return pte_offset_kernel(pmd, address); */
+
+free_pmd:
+	pmd_free(mm, pmd);
+	mm_dec_nr_pmds(mm);
+free_pud:
+	pud_free(mm, pud);
+	mm_dec_nr_puds(mm);
+free_p4d:
+	p4d_free(mm, p4d);
+	return NULL;
+
+
+	/* gfp_t gfp = (GFP_KERNEL | __GFP_ZERO); */
+	/* pmd_t *pmd; */
+	/* pte_t *pte; */
+
+	/* pmd = ipti_pagetable_walk_pmd(mm, pgd, address); */
+	/* if (!pmd) */
+	/* 	return NULL; */
+
+	/* /\* We can't do anything sensible if we hit a large mapping. *\/ */
+	/* if (pmd_large(*pmd)) { */
+	/* 	WARN_ON(1); */
+	/* 	return NULL; */
+	/* } */
+
+	/* if (pmd_none(*pmd)) { */
+	/* 	struct page *page = alloc_page(gfp); */
+	/* 	unsigned long pte_addr; */
+
+	/* 	if (!page) */
+	/* 		return NULL; */
+
+	/* 	pte_addr = (unsigned long)page_address(page); */
+
+	/* 	if (sci_debug) { */
+	/* 		pr_info("%d: new pte: %px (%lx)\n", */
+	/* 			current->pid, page, pte_addr); */
+	/* 		/\* dump_page(page, "sci alloc"); *\/ */
+	/* 	} */
+
+	/* 	set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(pte_addr))); */
+	/* } */
+
+	/* pte = pte_offset_kernel(pmd, address); */
+	/* if (pte_flags(*pte) & _PAGE_USER) { */
+	/* 	WARN_ONCE(1, "attempt to walk to user pte\n"); */
+	/* 	return NULL; */
+	/* } */
+	/* return pte; */
 }
 
 enum {
@@ -406,7 +444,8 @@ enum {
 	NO_P4D = -2,
 	NO_PUD = -3,
 	NO_PMD = -4,
-	NO_TGT = -5,
+	NO_PTE = -5,
+	NO_TGT = -6,
 };
 
 static int __ipti_clone_pgtable(struct mm_struct *mm,
@@ -469,15 +508,15 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 		pgprot_t flags;
 		unsigned long pfn;
 
-		target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
-		if (WARN_ON(!target_pmd))
-			return NO_TGT;
+		/* target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr); */
+		/* if (WARN_ON(!target_pmd)) */
+		/* 	return NO_TGT; */
 
-		if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
-			return NO_TGT;
+		/* if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT))) */
+		/* 	return NO_TGT; */
 
-		if (WARN_ON(pmd_large(*target_pmd)))
-			return NO_TGT;
+		/* if (WARN_ON(pmd_large(*target_pmd))) */
+		/* 	return NO_TGT; */
 
 		flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
 		pfn = pmd_pfn(*pmd) + pte_index(addr);
@@ -485,6 +524,8 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	} else {
 		/* Walk the page-table down to the pte level */
 		pte = pte_offset_kernel(pmd, addr);
+		if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
+			return NO_PTE;
 		/* if (WARN_ON(pte_none(*pte))) */
 		/* 	return; */
 
@@ -545,7 +586,7 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	unsigned long offset, size;
 	char *modname;
 
-	sci_debug = 1;
+	/* sci_debug = 1; */
 
 	if (!mm) {
 		pr_err("System call from kernel thread?!\n");
@@ -897,11 +938,12 @@ static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
 {
 	pte_t *ptep = pte_offset_kernel(pmd, 0);
 
-	if (sci_debug)
+	if (sci_debug || current->pid == 1)
 		pr_info("%s: %d: %px\n", __func__, current->pid, ptep);
 
 	pmd_clear(pmd);
-	pte_free_kernel(mm, ptep);
+	pte_free(mm, virt_to_page(ptep));
+	mm_dec_nr_ptes(mm);
 
 	return 0;
 }
@@ -919,11 +961,12 @@ static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
 		sci_free_pte_range(mm, pmd);
 	}
 
-	if (sci_debug)
+	if (sci_debug || current->pid == 1)
 		pr_info("%s: %d: %px\n", __func__, current->pid, pmdp);
 
 	pud_clear(pud);
-	pte_free_kernel(mm, (pte_t*)pmdp);
+	pmd_free(mm, pmdp);
+	mm_dec_nr_pmds(mm);
 
 	return 0;
 }
@@ -941,11 +984,12 @@ static int sci_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
 		sci_free_pmd_range(mm, pud);
 	}
 
-	if (sci_debug)
+	if (sci_debug || current->pid == 1)
 		pr_info("%s: %d: %px\n", __func__, current->pid, pudp);
 
 	p4d_clear(p4d);
 	pud_free(mm, pudp);
+	mm_dec_nr_puds(mm);
 
 	return 0;
 }
@@ -988,7 +1032,7 @@ static int sci_free_page_range(struct mm_struct *mm)
 		/* 	pr_info("%s: %d: %px: %lx\n", __func__, i, pgd, pgd_val(*pgd)); */
 	}
 
-	sci_debug = 0;
+	/* sci_debug = 0; */
 
 	return 0;
 }
