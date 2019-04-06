@@ -113,7 +113,7 @@ static void sci_clone_vmemmap(struct mm_struct *mm);
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
 static int __ipti_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
-				unsigned long addr, bool add);
+				unsigned long addr, bool add, bool large);
 static int sci_free_page_range(struct mm_struct *mm);
 
 void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
@@ -123,7 +123,7 @@ void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
 		__ipti_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-				     addr, false);
+				     addr, false, false);
 
 }
 
@@ -258,6 +258,33 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
+static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
+				      pgd_t *pgd, unsigned long address)
+{
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	p4d = p4d_alloc(mm, pgd, address);
+	if (!p4d)
+		return NULL;
+	pud = pud_alloc(mm, p4d, address);
+	if (!pud)
+		goto free_p4d;
+	pmd = pmd_alloc(mm, pud, address);
+	if (!pmd)
+		goto free_pud;
+
+	return pmd;
+
+free_pud:
+	pud_free(mm, pud);
+	mm_dec_nr_puds(mm);
+free_p4d:
+	p4d_free(mm, p4d);
+	return NULL;
+}
+
 static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
@@ -301,13 +328,13 @@ enum {
 
 static int __ipti_clone_pgtable(struct mm_struct *mm,
 				 pgd_t *pgdp, pgd_t *target_pgdp,
-				 unsigned long addr, bool add)
+				unsigned long addr, bool add, bool large)
 {
 	pte_t *pte, *target_pte, ptev;
 	pgd_t *pgd, *target_pgd;
+	pmd_t *pmd, *target_pmd;
 	p4d_t *p4d;
 	pud_t *pud;
-	pmd_t *pmd;
 
 	if (sci_debug && add) {
 		pr_info("CLONE ==>: %lx\n", addr);
@@ -339,13 +366,21 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	target_pgd = pgd_offset_pgd(target_pgdp, addr);
 
 	if (pmd_large(*pmd)) {
-		pgprot_t flags;
-		unsigned long pfn;
+		if (large) {
+			target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
+			if (WARN_ON(!target_pmd))
+				return NO_TGT;
+			*target_pmd = *pmd;
+			return 0;
+		} else {
+			pgprot_t flags;
+			unsigned long pfn;
 
 
-		flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
-		pfn = pmd_pfn(*pmd) + pte_index(addr);
-		ptev = pfn_pte(pfn, flags);
+			flags = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
+			pfn = pmd_pfn(*pmd) + pte_index(addr);
+			ptev = pfn_pte(pfn, flags);
+		}
 	} else {
 		/* Walk the page-table down to the pte level */
 		pte = pte_offset_kernel(pmd, addr);
@@ -382,7 +417,7 @@ void ipti_clone_pgtable(unsigned long addr)
 {
 	int ret = __ipti_clone_pgtable(current->mm, current->mm->pgd,
 				       kernel_to_entry_pgdp(current->mm->pgd),
-				       addr, true);
+				       addr, true, false);
 	if (ret)
 		pr_info("%s: %d\n", __func__, ret);
 }
@@ -520,7 +555,7 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 		ret = __ipti_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false);
+					   addr, false, true);
 		/* if (ret && sci_debug) */
 		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
@@ -537,7 +572,7 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 		ret = __ipti_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false);
+					   addr, false, true);
 		/* if (ret && sci_debug) */
 		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
@@ -595,7 +630,7 @@ static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
 	pmdp = pmd_offset(pud, 0);
 
 	for (i = 0, pmd = pmdp; i < PTRS_PER_PMD; i++, pmd++)
-		if (!pmd_none(*pmd))
+		if (!pmd_none(*pmd) && !pmd_large(*pmd))
 			sci_free_pte_range(mm, pmd);
 
 	pud_clear(pud);
