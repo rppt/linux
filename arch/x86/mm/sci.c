@@ -616,7 +616,7 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 		ret = __ipti_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false);
+					   addr, false, true);
 		/* if (ret && sci_debug) */
 		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
