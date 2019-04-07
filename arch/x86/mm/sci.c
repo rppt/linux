@@ -29,8 +29,6 @@
 #undef pr_fmt
 #define pr_fmt(fmt)     "SCI: " fmt
 
-static u8 sci_debug;
-
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -101,7 +99,6 @@ struct sci_data {
 	pte_t		**ptes;
 };
 
-static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
 static int __sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
@@ -319,9 +316,6 @@ int sci_pgd_alloc(struct mm_struct *mm)
 	if (!static_cpu_has(X86_FEATURE_SCI))
 		return 0;
 
-	if (sci_debug)
-		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
-
 	sci = kzalloc(sizeof(*sci), GFP_KERNEL);
 	if (!sci)
 		return err;
@@ -510,11 +504,6 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 	p4d_t *p4d;
 	pud_t *pud;
 
-	if (sci_debug && add) {
-		pr_info("CLONE ==>: %lx\n", addr);
-		dump_pagetable(pgdp, addr);
-	}
-
 	pgd = pgd_offset_pgd(pgdp, addr);
 	if (pgd_none(*pgd))
 		return NO_PGD;
@@ -574,16 +563,6 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 	if (add)
 		WARN_ON(sci_add_mapping(addr, target_pte));
 
-	if (sci_debug && add) {
-		pr_info("<=== CLONE %lx\n", addr);
-		dump_pagetable(target_pgdp, addr);
-		if (addr > (unsigned long)vmemmap &&
-		    addr < (unsigned long)(vmemmap + SZ_1G)) {
-			struct page *page = (struct page *)(addr - 8);
-			dump_page(page, "sci");
-		}
-	}
-
 	return 0;
 }
 
@@ -604,8 +583,6 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	const char *symbol;
 	unsigned long offset, size;
 	char *modname;
-
-	/* sci_debug = 1; */
 
 	if (!mm) {
 		pr_err("System call from kernel thread?!\n");
@@ -692,13 +669,6 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	if (!pgdp_maps_userspace(pgdp))
 		return pgd;
 
-	if (sci_debug) {
-		unsigned long ptr = (unsigned long)pgdp;
-		unsigned long idx = (ptr & ~PAGE_MASK) / sizeof(pgd_t);
-
-		pr_info("SET USER: pgd: %px idx: %ld\n", pgdp, idx);
-	}
-
 	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
 
 	if ((pgd.pgd & (_PAGE_USER|_PAGE_PRESENT)) == (_PAGE_USER|_PAGE_PRESENT) &&
@@ -707,45 +677,6 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 
 	return pgd;
 }
-
-static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last)
-{
-	unsigned long addr = (unsigned long)&per_cpu(cpu_tss_rw, 0);
-
-	if (!sci_debug)
-		return;
-
-	pr_info("========= %s ===========\n", msg);
-
-	pr_info("mm: %px, pgd: %px\n", mm, mm->pgd);
-	pr_info("u_pgd: %px, e_pgd: %px\n", kernel_to_user_pgdp(mm->pgd),
-		kernel_to_entry_pgdp(mm->pgd));
-
-	dump_pagetable(kernel_to_user_pgdp(mm->pgd), addr);
-	dump_pagetable(kernel_to_user_pgdp(mm->pgd), CPU_ENTRY_AREA_BASE);
-	dump_pagetable(kernel_to_user_pgdp(mm->pgd), (unsigned long) __entry_text_start);
-
-	pr_info("--------------------\n");
-
-	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), addr);
-	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), CPU_ENTRY_AREA_BASE);
-	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), (unsigned long) __entry_text_start);
-}
-
-static int sci_subsys_init(void)
-{
-	unsigned long addr = (unsigned long)&per_cpu(cpu_tss_rw, 0);
-
-	pr_info("PGD KERN: %ld\n", PGD_KERNEL_START);
-	pr_info("CPU_ENTRY: %ld\n", pgd_index(CPU_ENTRY_AREA_BASE));
-	pr_info("TSS: %ld\n", pgd_index(addr));
-	pr_info("ENTRY_TEXT: %ld\n", pgd_index((unsigned long) __entry_text_start));
-
-	debugfs_create_u8("sci", 0644, NULL, &sci_debug);
-
-	return 0;
-}
-late_initcall(sci_subsys_init);
 
 void __init sci_check_boottime_disable(void)
 {
