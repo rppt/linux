@@ -514,28 +514,16 @@ void sci_clone_pgtable(unsigned long addr)
 		pr_info("%s: %d\n", __func__, ret);
 }
 
-static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
+static bool sci_verify_code_access(struct sci_data *sci,
+				   struct pt_regs *regs, unsigned long addr)
 {
-	struct mm_struct *mm = current->active_mm;
-	struct sci_data *sci;
 	char namebuf[KSYM_NAME_LEN];
-	const char *symbol;
 	unsigned long offset, size;
+	const char *symbol;
 	char *modname;
-
-	if (!mm) {
-		pr_err("System call from kernel thread?!\n");
-		return false;
-	}
-
-	sci = mm->sci;
 
 	if (sci->rips_count >= SCI_MAX_RIPS)
 		return false;
-
-	/* struct unwind_state state; */
-
-	/* pr_info("code: %lx reads %lx\n", regs->ip, addr); */
 
 	/* instruction fetch outside kernel or module text */
 	if (!(is_kernel_text(addr) || is_module_text_address(addr))) {
@@ -579,28 +567,18 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	return true;
 }
 
-static bool sci_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
-{
-	pr_info("data: %lx reads %lx\n", regs->ip, addr);
-	return true;
-}
-
 bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 			unsigned long hw_error_code)
 {
-	bool safe;
+	struct mm_struct *mm = current->active_mm;
+	struct sci_data *sci = mm->sci;
 
-	if (hw_error_code & X86_PF_INSTR)
-		safe = sci_is_code_access_safe(regs, addr);
-	else
-		safe = sci_is_data_access_safe(regs, addr);
+	if (hw_error_code & X86_PF_INSTR &&
+	    !sci_verify_code_access(sci, regs, addr))
+		return false;
 
-	if (safe) {
-		sci_clone_pgtable(addr);
-		return true;
-	}
-
-	return false;
+	sci_clone_pgtable(addr);
+	return true;
 }
 
 pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
