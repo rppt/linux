@@ -29,7 +29,7 @@ static inline void check_entry_cr3(char ch)
 typedef void (*foo)(void);
 
 
-SYSCALL_DEFINE2(ipti_write, const char __user *, ubuf, size_t, count)
+SYSCALL_DEFINE2(sci_write, const char __user *, ubuf, size_t, count)
 {
 	char buf[BUF_SIZE];
 
@@ -45,7 +45,7 @@ SYSCALL_DEFINE2(ipti_write, const char __user *, ubuf, size_t, count)
 	return count;
 }
 
-SYSCALL_DEFINE2(ipti_write_bad, const char __user *, ubuf, size_t, count)
+SYSCALL_DEFINE2(sci_write_bad, const char __user *, ubuf, size_t, count)
 {
 	unsigned long addr = (unsigned long)(void *)hugetlb_reserve_pages;
 	char buf[BUF_SIZE];

@@ -273,22 +273,22 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm);
+void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm);
 
-static inline unsigned long ipti_syscall_enter(unsigned long nr)
+static inline unsigned long sci_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
 
-	if (nr < 335)
+	if (nr < 335 && nr != __NR_userfaultfd)
 		return 0;
 
-	current->in_ipti_syscall = true;
-	this_cpu_write(cpu_tss_rw.ipti_syscall, 1);
-	ipti_map_stack(current, current->active_mm);
+	current->in_sci_syscall = true;
+	this_cpu_write(cpu_tss_rw.sci_syscall, 1);
+	sci_map_stack(current, current->active_mm);
 
 	orig_cr3 = __read_cr3();
 
-	cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2) | (1 << X86_CR3_IPTI_PCID_BIT);
+	cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2) | (1 << X86_CR3_SCI_PCID_BIT);
 	pr_info("%s: orig: %lx new: %lx\n", __func__, orig_cr3, cr3);
 
 	write_cr3(cr3);
@@ -296,19 +296,19 @@ static inline unsigned long ipti_syscall_enter(unsigned long nr)
 	return orig_cr3;
 }
 
-static inline void ipti_syscall_exit(unsigned long cr3)
+static inline void sci_syscall_exit(unsigned long cr3)
 {
 
 	if (cr3) {
 		write_cr3(cr3);
-		current->in_ipti_syscall = false;
-		this_cpu_write(cpu_tss_rw.ipti_syscall, 0);
-		ipti_clear_mappins();
+		current->in_sci_syscall = false;
+		this_cpu_write(cpu_tss_rw.sci_syscall, 0);
+		sci_clear_mappins();
 	}
 }
 #else
-static inline unsigned long ipti_syscall_enter(unsigned long nr) { return 0; }
-static inline void ipti_syscall_exit(unsigned long cr3) {}
+static inline unsigned long sci_syscall_enter(unsigned long nr) { return 0; }
+static inline void sci_syscall_exit(unsigned long cr3) {}
 #endif
 
 #define __entry_txt             __attribute__((__section__(".entry.text")))
@@ -330,13 +330,13 @@ __visible __entry_txt void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	 */
 	nr &= __SYSCALL_MASK;
 	if (likely(nr < NR_syscalls)) {
-		unsigned long ipti_cr3 = 0;
+		unsigned long sci_cr3 = 0;
 
 		nr = array_index_nospec(nr, NR_syscalls);
 
-		ipti_cr3 = ipti_syscall_enter(nr);
+		sci_cr3 = sci_syscall_enter(nr);
 		regs->ax = sys_call_table[nr](regs);
-		ipti_syscall_exit(ipti_cr3);
+		sci_syscall_exit(sci_cr3);
 	}
 
 	syscall_return_slowpath(regs);

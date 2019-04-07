@@ -91,54 +91,54 @@ bad:
 	pr_info("BAD\n");
 }
 
-struct ipti_mapping {
+struct sci_mapping {
 	pte_t *pte;
 };
 
-struct ipti_data {
+struct sci_data {
 	unsigned long size;
 	unsigned long rip_index;
 	unsigned long rips[256];
 	unsigned long index;
-	struct ipti_mapping mappings[0];
+	struct sci_mapping mappings[0];
 };
 
-#define IPTI_ORDER 0
+#define SCI_ORDER 0
 
 static void sci_clone_user_shared(struct mm_struct *mm);
 static void sci_clone_entry_text(struct mm_struct *mm);
 static void sci_clone_vmemmap(struct mm_struct *mm);
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
-static int __ipti_clone_pgtable(struct mm_struct *mm,
+static int __sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
 static int sci_free_page_range(struct mm_struct *mm);
 
-void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
+void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 {
 	unsigned long stack = (unsigned long)tsk->stack;
 	unsigned long addr;
 
 	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
-		__ipti_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+		__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
 				     addr, false, false);
 
 }
 
 int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 {
-	struct ipti_data *ipti;
+	struct sci_data *ipti;
 
 	if (sci_debug)
 		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
 
-	ipti = (struct ipti_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, IPTI_ORDER);
+	ipti = (struct sci_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, SCI_ORDER);
 	if (!ipti)
 		return -ENOMEM;
 
 	mm->ipti = ipti;
 
-	ipti->size = (PAGE_SIZE << IPTI_ORDER) - sizeof(*ipti);
+	ipti->size = (PAGE_SIZE << SCI_ORDER) - sizeof(*ipti);
 
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
@@ -148,9 +148,9 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	return 0;
 }
 
-void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
+void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	struct ipti_data *ipti;
+	struct sci_data *ipti;
 
 	if (WARN_ON(!mm))
 		return;
@@ -159,10 +159,10 @@ void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 
 	sci_free_page_range(mm);
 
-	free_pages((unsigned long)ipti, IPTI_ORDER);
+	free_pages((unsigned long)ipti, SCI_ORDER);
 }
 
-static void __ipti_clear_mapping(struct ipti_mapping *m)
+static void __sci_clear_mapping(struct sci_mapping *m)
 {
 	if (WARN_ON(!m->pte))
 		return;
@@ -170,10 +170,10 @@ static void __ipti_clear_mapping(struct ipti_mapping *m)
 	pte_clear(NULL, 0, m->pte);
 }
 
-void ipti_clear_mappins(void)
+void sci_clear_mappins(void)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_data *ipti;
+	struct sci_data *ipti;
 	int i;
 
 	if (WARN_ON(!mm))
@@ -182,8 +182,8 @@ void ipti_clear_mappins(void)
 	ipti = mm->ipti;
 
 	for (i = 0; i < ipti->index; i++) {
-		struct ipti_mapping *m = &ipti->mappings[i];
-		__ipti_clear_mapping(m);
+		struct sci_mapping *m = &ipti->mappings[i];
+		__sci_clear_mapping(m);
 	}
 
 	memset(ipti->mappings, 0, ipti->size);
@@ -192,15 +192,15 @@ void ipti_clear_mappins(void)
 	ipti->rip_index = 0;
 }
 
-static int ipti_mapping_realloc(struct mm_struct *mm)
+static int sci_mapping_realloc(struct mm_struct *mm)
 {
 	return -ENOMEM;
 }
 
-static int ipti_add_mapping(unsigned long addr, pte_t *pte)
+static int sci_add_mapping(unsigned long addr, pte_t *pte)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_data *ipti;
+	struct sci_data *ipti;
 	int i, err = 0;
 
 	if (!mm) {
@@ -215,7 +215,7 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 			return 0;
 
 	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
-		err = ipti_mapping_realloc(mm);
+		err = sci_mapping_realloc(mm);
 		if (err) {
 			/* sci_debug = 0; */
 			pr_err("can realloc, idx: %ld, size: %ld\n", ipti->index, ipti->size);
@@ -239,7 +239,7 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
  *
  * Returns a pointer to a PTE on success, or NULL on failure.
  */
-static pmd_t *ipti_pagetable_walk_pmd(struct mm_struct *mm,
+static pmd_t *sci_pagetable_walk_pmd(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
 	p4d_t *p4d;
@@ -266,7 +266,7 @@ free_p4d:
 	return NULL;
 }
 
-static pte_t *ipti_pagetable_walk_pte(struct mm_struct *mm,
+static pte_t *sci_pagetable_walk_pte(struct mm_struct *mm,
 				      pgd_t *pgd, unsigned long address)
 {
 	p4d_t *p4d;
@@ -307,7 +307,7 @@ enum {
 	NO_TGT = -6,
 };
 
-static int __ipti_clone_pgtable(struct mm_struct *mm,
+static int __sci_clone_pgtable(struct mm_struct *mm,
 				 pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large)
 {
@@ -348,7 +348,7 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 
 	if (pmd_large(*pmd)) {
 		if (large) {
-			target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
+			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
 			if (WARN_ON(!target_pmd))
 				return NO_TGT;
 			*target_pmd = *pmd;
@@ -372,14 +372,14 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	}
 
 	/* Allocate PTE in the entry page-table */
-	target_pte = ipti_pagetable_walk_pte(mm, target_pgd, addr);
+	target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
 	if (WARN_ON(!target_pte))
 		return NO_TGT;
 
 	*target_pte = ptev;
 
 	if (add)
-		WARN_ON(ipti_add_mapping(addr, target_pte));
+		WARN_ON(sci_add_mapping(addr, target_pte));
 
 	if (sci_debug && add) {
 		pr_info("<=== CLONE %lx\n", addr);
@@ -394,7 +394,7 @@ static int __ipti_clone_pgtable(struct mm_struct *mm,
 	return 0;
 }
 
-static int __ipti_clone_range(struct mm_struct *mm,
+static int __sci_clone_range(struct mm_struct *mm,
 			      pgd_t *pgdp, pgd_t *target_pgdp,
 			      unsigned long start, unsigned long end)
 {
@@ -438,7 +438,7 @@ static int __ipti_clone_range(struct mm_struct *mm,
 		target_pgd = pgd_offset_pgd(target_pgdp, addr);
 
 		if (pmd_large(*pmd)) {
-			target_pmd = ipti_pagetable_walk_pmd(mm, target_pgd, addr);
+			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
 			if (WARN_ON(!target_pmd))
 				return NO_TGT;
 			*target_pmd = *pmd;
@@ -455,7 +455,7 @@ static int __ipti_clone_range(struct mm_struct *mm,
 		}
 
 		/* Allocate PTE in the entry page-table */
-		target_pte = ipti_pagetable_walk_pte(mm, target_pgd, addr);
+		target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
 		if (WARN_ON(!target_pte))
 			return NO_TGT;
 
@@ -465,19 +465,19 @@ static int __ipti_clone_range(struct mm_struct *mm,
 	return 0;
 }
 
-void ipti_clone_pgtable(unsigned long addr)
+void sci_clone_pgtable(unsigned long addr)
 {
-	int ret = __ipti_clone_pgtable(current->mm, current->mm->pgd,
+	int ret = __sci_clone_pgtable(current->mm, current->mm->pgd,
 				       kernel_to_entry_pgdp(current->mm->pgd),
 				       addr, true, false);
 	if (ret)
 		pr_info("%s: %d\n", __func__, ret);
 }
 
-static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
+static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct ipti_data *ipti;
+	struct sci_data *ipti;
 	char namebuf[KSYM_NAME_LEN];
 	const char *symbol;
 	unsigned long offset, size;
@@ -541,19 +541,19 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	return true;
 }
 
-static bool ipti_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
+static bool sci_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
 {
 	pr_info("data: %lx reads %lx\n", regs->ip, addr);
 	return true;
 }
 
-bool ipti_address_is_safe(struct pt_regs *regs, unsigned long addr,
+bool sci_address_is_safe(struct pt_regs *regs, unsigned long addr,
 			  unsigned long hw_error_code)
 {
 	if (hw_error_code & X86_PF_INSTR)
-		return ipti_is_code_access_safe(regs, addr);
+		return sci_is_code_access_safe(regs, addr);
 
-	return ipti_is_data_access_safe(regs, addr);
+	return sci_is_data_access_safe(regs, addr);
 }
 
 pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
@@ -586,7 +586,7 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 	for (addr = CPU_ENTRY_AREA_BASE;
 	     addr <= CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE;
 	     addr += PAGE_SIZE) {
-		ret = __ipti_clone_pgtable(mm,
+		ret = __sci_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
@@ -595,7 +595,7 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		ret = __ipti_clone_pgtable(mm,
+		ret = __sci_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
@@ -610,7 +610,7 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 	for (addr = (unsigned long) __entry_text_start;
 	     addr <= (unsigned long) __irqentry_text_end;
 	     addr += PAGE_SIZE) {
-		ret = __ipti_clone_pgtable(mm,
+		ret = __sci_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
@@ -621,7 +621,7 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 
 static void sci_clone_vmemmap(struct mm_struct *mm)
 {
-	__ipti_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+	__sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
 			   VMEMMAP_START, VMEMMAP_END);
 }
 

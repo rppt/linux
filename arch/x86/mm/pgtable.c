@@ -481,7 +481,7 @@ out:
 
 void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	ipti_pgd_free(mm, pgd);
+	sci_pgd_free(mm, pgd);
 	pgd_mop_up_pmds(mm, pgd);
 	pgd_dtor(pgd);
 	paravirt_pgd_free(mm, pgd);

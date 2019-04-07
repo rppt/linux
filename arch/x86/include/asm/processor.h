@@ -346,7 +346,7 @@ struct tss_struct {
 	 */
 	struct x86_hw_tss	x86_tss;
 
-	unsigned long		ipti_syscall;
+	unsigned long		sci_syscall;
 
 	/*
 	 * The extra 1 is there because the CPU will access an

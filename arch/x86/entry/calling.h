@@ -192,31 +192,31 @@ For 32-bit we have the following conventions - kernel is built with
 #ifdef CONFIG_SYSCALL_ISOLATION
 #define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
 #define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
-#define PTI_ENTRY_PCID_BIT		X86_CR3_IPTI_PCID_BIT
+#define PTI_ENTRY_PCID_BIT		X86_CR3_SCI_PCID_BIT
 #define PTI_ENTRY_PCID_MASK		(1 << PTI_ENTRY_PCID_BIT)
 #define PTI_ENTRY_PGTABLE_AND_PCID_MASK  (PTI_ENTRY_PCID_MASK | PTI_ENTRY_PGTABLE_MASK)
 
-#define THIS_CPU_ipti_syscall   \
-	PER_CPU_VAR(cpu_tss_rw) + IPTI_SYSCALL
+#define THIS_CPU_sci_syscall   \
+	PER_CPU_VAR(cpu_tss_rw) + SCI_SYSCALL
 
 .macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
-	movq	THIS_CPU_ipti_syscall, \scratch_reg
+	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
 	andq	$(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
 	cmpq	\scratch_reg, \save_reg
-	jne	.Lipti_context_\@
+	jne	.Lsci_context_\@
 	xorq	\save_reg, \save_reg
 	jmp	.Ldone_\@
-.Lipti_context_\@:
+.Lsci_context_\@:
 	movq	\scratch_reg, %cr3
 .Ldone_\@:
 .endm
 
 .macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
-	movq	THIS_CPU_ipti_syscall, \scratch_reg
+	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
 	movq	\save_reg, \scratch_reg
