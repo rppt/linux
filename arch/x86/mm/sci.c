@@ -92,10 +92,11 @@ bad:
 }
 
 #define SCI_MAX_PTES 256
+#define SCI_MAX_RIPS 64
 
 struct sci_data {
-	unsigned long rip_index;
-	unsigned long rips[256];
+	unsigned long	rips_count;
+	unsigned long	*rips;
 	unsigned long	ptes_count;
 	pte_t		**ptes;
 };
@@ -138,6 +139,10 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	if (!sci->ptes)
 		goto free_sci;
 
+	sci->rips = kcalloc(SCI_MAX_PTES, sizeof(*sci->rips), GFP_KERNEL);
+	if (!sci->rips)
+		goto free_ptes;
+
 	mm->sci = sci;
 
 	sci_clone_user_shared(mm);
@@ -147,6 +152,8 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 
 	return 0;
 
+free_ptes:
+	kfree(sci->ptes);
 free_sci:
 	kfree(sci);
 	return -ENOMEM;
@@ -165,6 +172,8 @@ void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	sci = mm->sci;
 
 	sci_free_page_range(mm);
+
+	kfree(sci->rips);
 	kfree(sci->ptes);
 	kfree(sci);
 }
@@ -184,9 +193,9 @@ void sci_clear_mappins(void)
 		pte_clear(NULL, 0, sci->ptes[i]);
 
 	memset(sci->ptes, 0, sci->ptes_count);
-	memset(sci->rips, 0, sizeof(sci->rips));
+	memset(sci->rips, 0, sci->rips_count);
 	sci->ptes_count = 0;
-	sci->rip_index = 0;
+	sci->rips_count = 0;
 }
 
 static int sci_add_mapping(unsigned long addr, pte_t *pte)
@@ -475,6 +484,9 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 
 	sci = mm->sci;
 
+	if (sci->rips_count >= SCI_MAX_RIPS)
+		return false;
+
 	/* struct unwind_state state; */
 
 	/* pr_info("code: %lx reads %lx\n", regs->ip, addr); */
@@ -505,7 +517,7 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	if (offset) {
 		int i = 0;
 
-		for (i = sci->rip_index - 1; i >= 0; i--) {
+		for (i = sci->rips_count - 1; i >= 0; i--) {
 			unsigned long rip = sci->rips[i];
 
 			if ((addr >> PAGE_SHIFT) == ((rip >> PAGE_SHIFT) + 1))
@@ -516,10 +528,7 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		return false;
 	}
 
-	if (sci->rip_index > 255)
-		return false;
-
-	sci->rips[sci->rip_index++] = regs->ip;
+	sci->rips[sci->rips_count++] = regs->ip;
 
 	return true;
 }
