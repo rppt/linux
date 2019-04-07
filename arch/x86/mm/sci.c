@@ -255,8 +255,6 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 extern void do_syscall_64(unsigned long nr, struct pt_regs *regs);
 unsigned long syscall_entry_addr = (unsigned long)do_syscall_64;
 
-#define VMEMMAP_END 0xffffeb0000000000
-
 static void sci_reset_rips(struct sci_data *sci)
 {
 	memset(sci->rips, 0, sci->rips_count);
@@ -274,6 +272,7 @@ static int sci_pagetable_init(struct mm_struct *mm)
 	pte_t *pte;
 	int ret;
 
+	/* copy the kernel part of user visible page table */
 	ret = sci_clone_range(mm, u_pgd, sci_pgd, CPU_ENTRY_AREA_BASE,
 			      CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE);
 	if (ret)
@@ -285,10 +284,6 @@ static int sci_pagetable_init(struct mm_struct *mm)
 	if (ret)
 		return ret;
 
-	ret = sci_clone_range(mm, k_pgd, sci_pgd, VMEMMAP_START, VMEMMAP_END);
-	if (ret)
-		return ret;
-
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
 		pte = sci_clone_page(mm, u_pgd, sci_pgd, addr);
@@ -296,6 +291,7 @@ static int sci_pagetable_init(struct mm_struct *mm)
 			return -ENOMEM;
 	}
 
+	/* plus do_syscall_64 */
 	pte = sci_clone_page(mm, k_pgd, sci_pgd, syscall_entry_addr);
 	if (!pte)
 		return -ENOMEM;

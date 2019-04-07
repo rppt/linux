@@ -282,7 +282,7 @@ static inline unsigned long sci_syscall_enter(unsigned long nr)
 	if (!static_cpu_has(X86_FEATURE_SCI))
 		return 0;
 
-	if (nr < 335 && nr != __NR_userfaultfd)
+	if (nr < 335)
 		return 0;
 
 	current->in_isolated_syscall = 1;
