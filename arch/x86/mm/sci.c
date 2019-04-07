@@ -280,14 +280,24 @@ static int sci_pagetable_init(struct mm_struct *mm)
 	unsigned int cpu;
 	int ret;
 
-	for (addr = CPU_ENTRY_AREA_BASE;
-	     addr <= CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
+	ret = sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
+			      kernel_to_entry_pgdp(mm->pgd),
+			      CPU_ENTRY_AREA_BASE,
+			      CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE);
+	if (ret)
+		return ret;
+
+	ret = sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
+			      kernel_to_entry_pgdp(mm->pgd),
+			      (unsigned long) __entry_text_start,
+			      (unsigned long) __irqentry_text_end);
+	if (ret)
+		return ret;
+
+	ret = sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			      VMEMMAP_START, VMEMMAP_END);
+	if (ret)
+		return ret;
 
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
@@ -297,19 +307,8 @@ static int sci_pagetable_init(struct mm_struct *mm)
 					   addr, false, true);
 	}
 
-	for (addr = (unsigned long) __entry_text_start;
-	     addr <= (unsigned long) __irqentry_text_end;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
-
 	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
 			    (unsigned long)do_syscall_64, false, false);
-	sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			VMEMMAP_START, VMEMMAP_END);
 
 	return 0;
 }
