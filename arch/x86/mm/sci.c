@@ -101,13 +101,13 @@ struct sci_data {
 	pte_t		**ptes;
 };
 
-static void sci_clone_user_shared(struct mm_struct *mm);
-static void sci_clone_entry_text(struct mm_struct *mm);
-static void sci_clone_vmemmap(struct mm_struct *mm);
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
 static int __sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
+static int __sci_clone_range(struct mm_struct *mm,
+			      pgd_t *pgdp, pgd_t *target_pgdp,
+			     unsigned long start, unsigned long end);
 static int sci_free_page_range(struct mm_struct *mm);
 
 void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
@@ -123,16 +123,59 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 extern void do_syscall_64(unsigned long nr, struct pt_regs *regs);
 
-void sci_reset_rips(struct sci_data *sci)
+static void sci_reset_rips(struct sci_data *sci)
 {
 	memset(sci->rips, 0, sci->rips_count);
 	sci->rips[0] = (unsigned long)do_syscall_64;
 	sci->rips_count = 1;
 }
 
+#define VMEMMAP_END 0xffffeb0000000000
+
+static int sci_pagetable_init(struct mm_struct *mm)
+{
+	unsigned long addr;
+	unsigned int cpu;
+	int ret;
+
+	for (addr = CPU_ENTRY_AREA_BASE;
+	     addr <= CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE;
+	     addr += PAGE_SIZE) {
+		ret = __sci_clone_pgtable(mm,
+					   kernel_to_user_pgdp(mm->pgd),
+					   kernel_to_entry_pgdp(mm->pgd),
+					   addr, false, true);
+	}
+
+	for_each_possible_cpu(cpu) {
+		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
+		ret = __sci_clone_pgtable(mm,
+					   kernel_to_user_pgdp(mm->pgd),
+					   kernel_to_entry_pgdp(mm->pgd),
+					   addr, false, true);
+	}
+
+	for (addr = (unsigned long) __entry_text_start;
+	     addr <= (unsigned long) __irqentry_text_end;
+	     addr += PAGE_SIZE) {
+		ret = __sci_clone_pgtable(mm,
+					   kernel_to_user_pgdp(mm->pgd),
+					   kernel_to_entry_pgdp(mm->pgd),
+					   addr, false, true);
+	}
+
+	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			    (unsigned long)do_syscall_64, false, false);
+	__sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			   VMEMMAP_START, VMEMMAP_END);
+
+	return 0;
+}
+
 int sci_pgd_alloc(struct mm_struct *mm)
 {
 	struct sci_data *sci;
+	int err = -ENOMEM;
 
 	if (!static_cpu_has(X86_FEATURE_SCI))
 		return 0;
@@ -142,7 +185,7 @@ int sci_pgd_alloc(struct mm_struct *mm)
 
 	sci = kzalloc(sizeof(*sci), GFP_KERNEL);
 	if (!sci)
-		return -ENOMEM;
+		return err;
 
 	sci->ptes = kcalloc(SCI_MAX_PTES, sizeof(*sci->ptes), GFP_KERNEL);
 	if (!sci->ptes)
@@ -154,20 +197,21 @@ int sci_pgd_alloc(struct mm_struct *mm)
 
 	mm->sci = sci;
 
-	sci_clone_user_shared(mm);
-	sci_clone_entry_text(mm);
-	sci_clone_vmemmap(mm);
-	sci_dump_debug_info(mm, "init", false);
+	err = sci_pagetable_init(mm);
+	if (err)
+		goto free_rips;
 
 	sci_reset_rips(sci);
 
 	return 0;
 
+free_rips:
+	kfree(sci->rips);
 free_ptes:
 	kfree(sci->ptes);
 free_sci:
 	kfree(sci);
-	return -ENOMEM;
+	return err;
 }
 
 void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
@@ -587,57 +631,6 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 		pgd.pgd |= _PAGE_NX;
 
 	return pgd;
-}
-
-static void sci_clone_user_shared(struct mm_struct *mm)
-{
-	unsigned long addr;
-	unsigned int cpu;
-	int ret;
-
-	for (addr = CPU_ENTRY_AREA_BASE;
-	     addr <= CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
-
-
-	for_each_possible_cpu(cpu) {
-		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
-}
-
-static void sci_clone_entry_text(struct mm_struct *mm)
-{
-	unsigned long addr;
-	int ret;
-
-	for (addr = (unsigned long) __entry_text_start;
-	     addr <= (unsigned long) __irqentry_text_end;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
-
-	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			    (unsigned long)do_syscall_64, false, false);
-}
-
-#define VMEMMAP_END 0xffffeb0000000000
-
-static void sci_clone_vmemmap(struct mm_struct *mm)
-{
-	__sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			   VMEMMAP_START, VMEMMAP_END);
 }
 
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last)
