@@ -130,7 +130,7 @@ void sci_reset_rips(struct sci_data *sci)
 	sci->rips_count = 1;
 }
 
-int sci_init(struct task_struct *tsk, struct mm_struct *mm)
+int sci_pgd_alloc(struct mm_struct *mm)
 {
 	struct sci_data *sci;
 

@@ -967,8 +967,6 @@ static void mm_init_uprobes_state(struct mm_struct *mm)
 #endif
 }
 
-int sci_init(struct task_struct *tsk, struct mm_struct *mm);
-
 static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	struct user_namespace *user_ns)
 {
@@ -1013,14 +1011,9 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	if (init_new_context(p, mm))
 		goto fail_nocontext;
 
-	if (sci_init(p, mm))
-		goto fail_nosci;
-
 	mm->user_ns = get_user_ns(user_ns);
 	return mm;
 
-fail_nosci:
-	destroy_context(mm);
 fail_nocontext:
 	mm_free_pgd(mm);
 fail_nopgd:
