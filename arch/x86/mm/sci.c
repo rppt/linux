@@ -41,7 +41,7 @@ struct sci_data {
 
 static pte_t *__sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
-				unsigned long addr, bool add, bool large);
+				unsigned long addr, bool large);
 /*
  * Walk the shadow copy of the page tables to PMD level (optionally)
  * trying to allocate page table pages on the way down.
@@ -194,7 +194,7 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
 		__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-				     addr, false, false);
+				     addr, false);
 
 }
 
@@ -239,11 +239,11 @@ static int sci_pagetable_init(struct mm_struct *mm)
 		__sci_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
+					   addr, true);
 	}
 
 	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			    (unsigned long)do_syscall_64, false, false);
+			    (unsigned long)do_syscall_64, false);
 
 	return 0;
 }
@@ -431,7 +431,7 @@ enum {
 
 static pte_t *__sci_clone_pgtable(struct mm_struct *mm,
 				  pgd_t *pgdp, pgd_t *target_pgdp,
-				  unsigned long addr, bool add, bool large)
+				  unsigned long addr, bool large)
 {
 	pte_t *pte, *target_pte, ptev;
 	pgd_t *pgd, *target_pgd;
@@ -493,9 +493,6 @@ static pte_t *__sci_clone_pgtable(struct mm_struct *mm,
 		return NULL;
 
 	*target_pte = ptev;
-
-	if (add)
-		WARN_ON(sci_add_mapping(addr, target_pte));
 
 	return target_pte;
 }
@@ -568,9 +565,11 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 
 	pte = __sci_clone_pgtable(current->mm, current->mm->pgd,
 				  kernel_to_entry_pgdp(current->mm->pgd),
-				  addr, true, false);
+				  addr, false);
 	if (!pte)
 		return false;
+
+	sci_add_mapping(addr, pte);
 
 	return true;
 }
