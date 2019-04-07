@@ -127,7 +127,7 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 {
-	struct sci_data *ipti;
+	struct sci_data *sci;
 
 	if (!static_cpu_has(X86_FEATURE_SCI))
 		return 0;
@@ -135,13 +135,13 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	if (sci_debug)
 		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
 
-	ipti = (struct sci_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, SCI_ORDER);
-	if (!ipti)
+	sci = (struct sci_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, SCI_ORDER);
+	if (!sci)
 		return -ENOMEM;
 
-	mm->ipti = ipti;
+	mm->sci = sci;
 
-	ipti->size = (PAGE_SIZE << SCI_ORDER) - sizeof(*ipti);
+	sci->size = (PAGE_SIZE << SCI_ORDER) - sizeof(*sci);
 
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
@@ -153,7 +153,7 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 
 void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	struct sci_data *ipti;
+	struct sci_data *sci;
 
 	if (!static_cpu_has(X86_FEATURE_SCI))
 		return;
@@ -161,11 +161,11 @@ void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	if (WARN_ON(!mm))
 		return;
 
-	ipti = mm->ipti;
+	sci = mm->sci;
 
 	sci_free_page_range(mm);
 
-	free_pages((unsigned long)ipti, SCI_ORDER);
+	free_pages((unsigned long)sci, SCI_ORDER);
 }
 
 static void __sci_clear_mapping(struct sci_mapping *m)
@@ -179,23 +179,23 @@ static void __sci_clear_mapping(struct sci_mapping *m)
 void sci_clear_mappins(void)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct sci_data *ipti;
+	struct sci_data *sci;
 	int i;
 
 	if (WARN_ON(!mm))
 		return;
 
-	ipti = mm->ipti;
+	sci = mm->sci;
 
-	for (i = 0; i < ipti->index; i++) {
-		struct sci_mapping *m = &ipti->mappings[i];
+	for (i = 0; i < sci->index; i++) {
+		struct sci_mapping *m = &sci->mappings[i];
 		__sci_clear_mapping(m);
 	}
 
-	memset(ipti->mappings, 0, ipti->size);
-	memset(ipti->rips, 0, sizeof(ipti->rips));
-	ipti->index = 0;
-	ipti->rip_index = 0;
+	memset(sci->mappings, 0, sci->size);
+	memset(sci->rips, 0, sizeof(sci->rips));
+	sci->index = 0;
+	sci->rip_index = 0;
 }
 
 static int sci_mapping_realloc(struct mm_struct *mm)
@@ -206,7 +206,7 @@ static int sci_mapping_realloc(struct mm_struct *mm)
 static int sci_add_mapping(unsigned long addr, pte_t *pte)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct sci_data *ipti;
+	struct sci_data *sci;
 	int i, err = 0;
 
 	if (!mm) {
@@ -214,24 +214,24 @@ static int sci_add_mapping(unsigned long addr, pte_t *pte)
 		return -ENOMEM;
 	}
 
-	ipti = mm->ipti;
+	sci = mm->sci;
 
-	for (i = ipti->index - 1; i >=0; i--)
-		if (pte == ipti->mappings[ipti->index].pte)
+	for (i = sci->index - 1; i >=0; i--)
+		if (pte == sci->mappings[sci->index].pte)
 			return 0;
 
-	if ((ipti->index + 1) * sizeof(*ipti->mappings) > ipti->size) {
+	if ((sci->index + 1) * sizeof(*sci->mappings) > sci->size) {
 		err = sci_mapping_realloc(mm);
 		if (err) {
 			/* sci_debug = 0; */
-			pr_err("can realloc, idx: %ld, size: %ld\n", ipti->index, ipti->size);
+			pr_err("can realloc, idx: %ld, size: %ld\n", sci->index, sci->size);
 			BUG();
 			return err;
 		}
 	}
 
-	ipti->mappings[ipti->index].pte = pte;
-	ipti->index++;
+	sci->mappings[sci->index].pte = pte;
+	sci->index++;
 
 	return 0;
 }
@@ -483,7 +483,7 @@ void sci_clone_pgtable(unsigned long addr)
 static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct sci_data *ipti;
+	struct sci_data *sci;
 	char namebuf[KSYM_NAME_LEN];
 	const char *symbol;
 	unsigned long offset, size;
@@ -496,7 +496,7 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		return false;
 	}
 
-	ipti = mm->ipti;
+	sci = mm->sci;
 
 	/* struct unwind_state state; */
 
@@ -528,8 +528,8 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 	if (offset) {
 		int i = 0;
 
-		for (i = ipti->rip_index - 1; i >= 0; i--) {
-			unsigned long rip = ipti->rips[i];
+		for (i = sci->rip_index - 1; i >= 0; i--) {
+			unsigned long rip = sci->rips[i];
 
 			if ((addr >> PAGE_SHIFT) == ((rip >> PAGE_SHIFT) + 1))
 				return true;
@@ -539,10 +539,10 @@ static bool sci_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		return false;
 	}
 
-	if (ipti->rip_index > 255)
+	if (sci->rip_index > 255)
 		return false;
 
-	ipti->rips[ipti->rip_index++] = regs->ip;
+	sci->rips[sci->rip_index++] = regs->ip;
 
 	return true;
 }

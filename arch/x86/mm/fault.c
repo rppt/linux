@@ -1272,7 +1272,7 @@ static bool do_sci_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	/* dump_pagetable(address); */
 	/* __dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address); */
 
-	if (!tsk->in_sci_syscall)
+	if (!tsk->in_isolated_syscall)
 		return false;
 
 	/* struct tss_struct *tss = this_cpu_ptr(&cpu_tss_rw); */

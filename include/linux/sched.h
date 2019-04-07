@@ -686,9 +686,7 @@ struct task_struct {
 
 	struct mm_struct		*mm;
 	struct mm_struct		*active_mm;
-#ifdef CONFIG_SYSCALL_ISOLATION
-	unsigned long			in_sci_syscall;
-#endif
+
 	/* Per-thread vma caching: */
 	struct vmacache			vmacache;
 
@@ -1208,6 +1206,10 @@ struct task_struct {
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	unsigned long			lowest_stack;
 	unsigned long			prev_lowest_stack;
+#endif
+
+#ifdef CONFIG_SYSCALL_ISOLATION
+	unsigned long			in_isolated_syscall;
 #endif
 
 	/*

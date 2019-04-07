@@ -498,7 +498,7 @@ struct mm_struct {
 #endif
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-		struct sci_data *ipti;
+		struct sci_data *sci;
 #endif
 	} __randomize_layout;
 
