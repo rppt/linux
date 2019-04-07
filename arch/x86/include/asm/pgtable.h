@@ -1284,7 +1284,7 @@ static inline p4d_t *user_to_kernel_p4dp(p4d_t *p4dp)
 }
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-static inline pgd_t *kernel_to_entry_pgdp(pgd_t *pgdp)
+static inline pgd_t *kernel_to_sci_pgdp(pgd_t *pgdp)
 {
 	return ptr_set_bit(pgdp, PTI_PGTABLE_SWITCH_BIT2);
 }
@@ -1327,11 +1327,6 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
 #endif
-/* #ifdef CONFIG_SYSCALL_ISOLATION */
-/* 	/\* Clone the entry space pgd as well *\/ */
-/* 	memcpy(kernel_to_entry_pgdp(dst), kernel_to_user_pgdp(src), */
-/* 	       count * sizeof(pgd_t)); */
-/* #endif */
 }
 
 #define PTE_SHIFT ilog2(PTRS_PER_PTE)

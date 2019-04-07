@@ -242,7 +242,7 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 	unsigned long addr;
 
 	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
-	       sci_clone_page(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+	       sci_clone_page(mm, mm->pgd, kernel_to_sci_pgdp(mm->pgd),
 			      addr);
 
 }
@@ -265,7 +265,7 @@ static void sci_reset_rips(struct sci_data *sci)
 static int sci_pagetable_init(struct mm_struct *mm)
 {
 	pgd_t *k_pgd = mm->pgd;
-	pgd_t *sci_pgd = kernel_to_entry_pgdp(k_pgd);
+	pgd_t *sci_pgd = kernel_to_sci_pgdp(k_pgd);
 	pgd_t *u_pgd = kernel_to_user_pgdp(k_pgd);
 	unsigned long addr;
 	unsigned int cpu;
@@ -406,7 +406,7 @@ static int sci_free_page_range(struct mm_struct *mm)
 {
 	pgd_t *pgdp, *pgd;
 
-	pgdp = kernel_to_entry_pgdp(mm->pgd);
+	pgdp = kernel_to_sci_pgdp(mm->pgd);
 
 	for (pgd = pgdp + KERNEL_PGD_BOUNDARY; pgd < pgdp + PTRS_PER_PGD; pgd++)
 		if (!pgd_none(*pgd))
@@ -534,7 +534,7 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 		return false;
 
 	pte = sci_clone_page(current->mm, current->mm->pgd,
-			     kernel_to_entry_pgdp(current->mm->pgd),
+			     kernel_to_sci_pgdp(current->mm->pgd),
 			     addr);
 	if (!pte)
 		return false;
@@ -549,7 +549,7 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	if (!pgdp_maps_userspace(pgdp))
 		return pgd;
 
-	kernel_to_entry_pgdp(pgdp)->pgd = pgd.pgd;
+	kernel_to_sci_pgdp(pgdp)->pgd = pgd.pgd;
 
 	if ((pgd.pgd & (_PAGE_USER|_PAGE_PRESENT)) == (_PAGE_USER|_PAGE_PRESENT) &&
 	    (__supported_pte_mask & _PAGE_NX))
