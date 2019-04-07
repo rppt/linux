@@ -247,53 +247,56 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 }
 
+/*
+ * we have to map the syscall entry because we'll fault there after
+ * CR3 switch before the verifier is able to detect this as proper
+ * access
+ */
 extern void do_syscall_64(unsigned long nr, struct pt_regs *regs);
+unsigned long syscall_entry_addr = (unsigned long)do_syscall_64;
+
+#define VMEMMAP_END 0xffffeb0000000000
 
 static void sci_reset_rips(struct sci_data *sci)
 {
 	memset(sci->rips, 0, sci->rips_count);
-	sci->rips[0] = (unsigned long)do_syscall_64;
+	sci->rips[0] = syscall_entry_addr;
 	sci->rips_count = 1;
 }
 
-#define VMEMMAP_END 0xffffeb0000000000
-
 static int sci_pagetable_init(struct mm_struct *mm)
 {
+	pgd_t *k_pgd = mm->pgd;
+	pgd_t *sci_pgd = kernel_to_entry_pgdp(k_pgd);
+	pgd_t *u_pgd = kernel_to_user_pgdp(k_pgd);
 	unsigned long addr;
 	unsigned int cpu;
 	pte_t *pte;
 	int ret;
 
-	ret = sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
-			      kernel_to_entry_pgdp(mm->pgd),
-			      CPU_ENTRY_AREA_BASE,
+	ret = sci_clone_range(mm, u_pgd, sci_pgd, CPU_ENTRY_AREA_BASE,
 			      CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE);
 	if (ret)
 		return ret;
 
-	ret = sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
-			      kernel_to_entry_pgdp(mm->pgd),
+	ret = sci_clone_range(mm, u_pgd, sci_pgd,
 			      (unsigned long) __entry_text_start,
 			      (unsigned long) __irqentry_text_end);
 	if (ret)
 		return ret;
 
-	ret = sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			      VMEMMAP_START, VMEMMAP_END);
+	ret = sci_clone_range(mm, k_pgd, sci_pgd, VMEMMAP_START, VMEMMAP_END);
 	if (ret)
 		return ret;
 
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		pte = sci_clone_page(mm, kernel_to_user_pgdp(mm->pgd),
-				     kernel_to_entry_pgdp(mm->pgd), addr);
+		pte = sci_clone_page(mm, u_pgd, sci_pgd, addr);
 		if (!pte)
 			return -ENOMEM;
 	}
 
-	pte = sci_clone_page(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			     (unsigned long)do_syscall_64);
+	pte = sci_clone_page(mm, k_pgd, sci_pgd, syscall_entry_addr);
 	if (!pte)
 		return -ENOMEM;
 
