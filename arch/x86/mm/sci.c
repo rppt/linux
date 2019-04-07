@@ -403,21 +403,25 @@ void sci_clear_mappins(void)
 	sci_reset_rips(sci);
 }
 
-static int sci_add_mapping(unsigned long addr, pte_t *pte)
+static void sci_add_pte(struct sci_data *sci, pte_t *pte)
 {
-	struct mm_struct *mm = current->active_mm;
-	struct sci_data *sci = mm->sci;
 	int i;
-
-	sci = mm->sci;
 
 	for (i = sci->ptes_count - 1; i >=0; i--)
 		if (pte == sci->ptes[i])
-			return 0;
-
+			return;
 	sci->ptes[sci->ptes_count++] = pte;
+}
 
-	return 0;
+static void sci_add_rip(struct sci_data *sci, unsigned long rip)
+{
+	int i;
+
+	for (i = sci->rips_count - 1; i >=0; i--)
+		if (rip == sci->rips[i])
+			return;
+
+	sci->rips[sci->rips_count++] = rip;
 }
 
 enum {
@@ -543,7 +547,7 @@ static bool sci_verify_code_access(struct sci_data *sci,
 		return false;
 	}
 
-	sci->rips[sci->rips_count++] = regs->ip;
+	sci_add_rip(sci, regs->ip);
 
 	return true;
 }
@@ -569,7 +573,7 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 	if (!pte)
 		return false;
 
-	sci_add_mapping(addr, pte);
+	sci_add_pte(sci, pte);
 
 	return true;
 }
