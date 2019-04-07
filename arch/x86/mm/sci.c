@@ -105,8 +105,6 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 static int __sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
-static int sci_free_page_range(struct mm_struct *mm);
-
 /*
  * Walk the shadow copy of the page tables to PMD level (optionally)
  * trying to allocate page table pages on the way down.
@@ -353,6 +351,83 @@ free_ptes:
 free_sci:
 	kfree(sci);
 	return err;
+}
+
+static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
+{
+	pte_t *ptep = pte_offset_kernel(pmd, 0);
+
+	pmd_clear(pmd);
+	pte_free(mm, virt_to_page(ptep));
+	mm_dec_nr_ptes(mm);
+
+	return 0;
+}
+
+static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
+{
+	pmd_t *pmd, *pmdp;
+	int i;
+
+	pmdp = pmd_offset(pud, 0);
+
+	for (i = 0, pmd = pmdp; i < PTRS_PER_PMD; i++, pmd++)
+		if (!pmd_none(*pmd) && !pmd_large(*pmd))
+			sci_free_pte_range(mm, pmd);
+
+	pud_clear(pud);
+	pmd_free(mm, pmdp);
+	mm_dec_nr_pmds(mm);
+
+	return 0;
+}
+
+static int sci_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
+{
+	pud_t *pud, *pudp;
+	int i;
+
+	pudp = pud_offset(p4d, 0);
+
+	for (i = 0, pud = pudp; i < PTRS_PER_PUD; i++, pud++)
+		if (!pud_none(*pud))
+			sci_free_pmd_range(mm, pud);
+
+	p4d_clear(p4d);
+	pud_free(mm, pudp);
+	mm_dec_nr_puds(mm);
+
+	return 0;
+}
+
+static int sci_free_p4d_range(struct mm_struct *mm, pgd_t *pgd)
+{
+	p4d_t *p4d, *p4dp;
+	int i;
+
+	p4dp = p4d_offset(pgd, 0);
+
+	for (i = 0, p4d = p4dp; i < PTRS_PER_P4D; i++, p4d++)
+		if (!p4d_none(*p4d))
+			sci_free_pud_range(mm, p4d);
+
+	pgd_clear(pgd);
+	p4d_free(mm, p4dp);
+
+	return 0;
+}
+
+static int sci_free_page_range(struct mm_struct *mm)
+{
+	pgd_t *pgdp, *pgd;
+
+	pgdp = kernel_to_entry_pgdp(mm->pgd);
+
+	for (pgd = pgdp + KERNEL_PGD_BOUNDARY; pgd < pgdp + PTRS_PER_PGD; pgd++)
+		if (!pgd_none(*pgd))
+			sci_free_p4d_range(mm, pgd);
+
+	return 0;
 }
 
 void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
@@ -655,83 +730,6 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), addr);
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), CPU_ENTRY_AREA_BASE);
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), (unsigned long) __entry_text_start);
-}
-
-static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
-{
-	pte_t *ptep = pte_offset_kernel(pmd, 0);
-
-	pmd_clear(pmd);
-	pte_free(mm, virt_to_page(ptep));
-	mm_dec_nr_ptes(mm);
-
-	return 0;
-}
-
-static int sci_free_pmd_range(struct mm_struct *mm, pud_t *pud)
-{
-	pmd_t *pmd, *pmdp;
-	int i;
-
-	pmdp = pmd_offset(pud, 0);
-
-	for (i = 0, pmd = pmdp; i < PTRS_PER_PMD; i++, pmd++)
-		if (!pmd_none(*pmd) && !pmd_large(*pmd))
-			sci_free_pte_range(mm, pmd);
-
-	pud_clear(pud);
-	pmd_free(mm, pmdp);
-	mm_dec_nr_pmds(mm);
-
-	return 0;
-}
-
-static int sci_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
-{
-	pud_t *pud, *pudp;
-	int i;
-
-	pudp = pud_offset(p4d, 0);
-
-	for (i = 0, pud = pudp; i < PTRS_PER_PUD; i++, pud++)
-		if (!pud_none(*pud))
-			sci_free_pmd_range(mm, pud);
-
-	p4d_clear(p4d);
-	pud_free(mm, pudp);
-	mm_dec_nr_puds(mm);
-
-	return 0;
-}
-
-static int sci_free_p4d_range(struct mm_struct *mm, pgd_t *pgd)
-{
-	p4d_t *p4d, *p4dp;
-	int i;
-
-	p4dp = p4d_offset(pgd, 0);
-
-	for (i = 0, p4d = p4dp; i < PTRS_PER_P4D; i++, p4d++)
-		if (!p4d_none(*p4d))
-			sci_free_pud_range(mm, p4d);
-
-	pgd_clear(pgd);
-	p4d_free(mm, p4dp);
-
-	return 0;
-}
-
-static int sci_free_page_range(struct mm_struct *mm)
-{
-	pgd_t *pgdp, *pgd;
-
-	pgdp = kernel_to_entry_pgdp(mm->pgd);
-
-	for (pgd = pgdp + KERNEL_PGD_BOUNDARY; pgd < pgdp + PTRS_PER_PGD; pgd++)
-		if (!pgd_none(*pgd))
-			sci_free_p4d_range(mm, pgd);
-
-	return 0;
 }
 
 static int sci_subsys_init(void)
