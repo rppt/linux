@@ -420,7 +420,7 @@ NOKPROBE_SYMBOL(vmalloc_fault);
 
 #ifdef CONFIG_CPU_SUP_AMD
 static const char errata93_warning[] =
-KERN_ERR
+KERN_ERR 
 "******* Your BIOS seems to not contain a fix for K8 errata #93\n"
 "******* Working around it, but it may cause SEGVs or burn power.\n"
 "******* Please consider a BIOS update.\n"
@@ -1256,49 +1256,24 @@ static int fault_in_kernel_space(unsigned long address)
 }
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-static void sci_bad_access(struct pt_regs *regs, unsigned long error_code,
-			    unsigned long address, struct task_struct *tsk)
-{
-	no_context(regs, error_code, address, SIGBUS, BUS_ADRERR);
-}
-
-static bool do_sci_fault(struct pt_regs *regs, unsigned long hw_error_code,
-			  unsigned long address)
+static int sci_fault(struct pt_regs *regs, unsigned long hw_error_code,
+		     unsigned long address)
 {
 	struct task_struct *tsk = current;
 
-	/* pr_info("=> KF: rip: %lx, address: %lx hw: %lx, %s\n", regs->ip, address, hw_error_code, current->in_sci_syscall ? "ipti" : ""); */
-
-	/* dump_pagetable(address); */
-	/* __dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address); */
-
 	if (!tsk->in_isolated_syscall)
-		return false;
+		return 0;
 
-	/* struct tss_struct *tss = this_cpu_ptr(&cpu_tss_rw); */
+	if (!sci_address_is_safe(regs, address, hw_error_code))
+		no_context(regs, error_code, address, SIGKILL, 0);
 
-	if (!sci_address_is_safe(regs, address, hw_error_code)) {
-		pr_err("access is not safe\n");
-		/* sci_clear_mappins(); */
-		sci_bad_access(regs, hw_error_code, address, tsk);
-	} else {
-		/* pr_info("=> KF: entry_cr3: %lx\n", tss->sci_scratch.cr3); */
-		sci_clone_pgtable(address);
-		/* __dump_pagetable(kernel_to_entry_pgdp(__va(read_cr3_pa())), address); */
-		/* __native_flush_tlb(); */
-		/* __native_flush_tlb_global(); */
-	}
-
-	/* local_irq_enable(); */
-
-	return true;
+	return 1;
 }
 #else
-static inline bool do_sci_fault(struct pt_regs *regs,
-				 unsigned long hw_error_code,
-				 unsigned long address)
+static inline int sci_fault(struct pt_regs *regs, unsigned long hw_error_code,
+			    unsigned long address)
 {
-	return false;
+	return 1;
 }
 #endif
 
@@ -1349,7 +1324,7 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (kprobes_fault(regs))
 		return;
 
-	if (do_sci_fault(regs, hw_error_code, address))
+	if (sci_fault(regs, hw_error_code, address))
 		return;
 
 	/*
@@ -1586,11 +1561,10 @@ __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		return;
 
 	/* Was the fault on kernel-controlled part of the address space? */
-	if (unlikely(fault_in_kernel_space(address))) {
+	if (unlikely(fault_in_kernel_space(address)))
 		do_kern_addr_fault(regs, hw_error_code, address);
-	} else {
+	else
 		do_user_addr_fault(regs, hw_error_code, address);
-	}
 }
 NOKPROBE_SYMBOL(__do_page_fault);
 
