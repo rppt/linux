@@ -550,13 +550,22 @@ static bool sci_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
 	return true;
 }
 
-bool sci_address_is_safe(struct pt_regs *regs, unsigned long addr,
-			  unsigned long hw_error_code)
+bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
+			unsigned long hw_error_code)
 {
-	if (hw_error_code & X86_PF_INSTR)
-		return sci_is_code_access_safe(regs, addr);
+	bool safe;
 
-	return sci_is_data_access_safe(regs, addr);
+	if (hw_error_code & X86_PF_INSTR)
+		safe = sci_is_code_access_safe(regs, addr);
+	else
+		safe = sci_is_data_access_safe(regs, addr);
+
+	if (safe) {
+		sci_clone_pgtable(addr);
+		return true;
+	}
+
+	return false;
 }
 
 pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)

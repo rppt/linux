@@ -1264,8 +1264,8 @@ static int sci_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (!tsk->in_isolated_syscall)
 		return 0;
 
-	if (!sci_address_is_safe(regs, address, hw_error_code))
-		no_context(regs, error_code, address, SIGKILL, 0);
+	if (!sci_verify_and_map(regs, address, hw_error_code))
+		no_context(regs, hw_error_code, address, SIGKILL, 0);
 
 	return 1;
 }
