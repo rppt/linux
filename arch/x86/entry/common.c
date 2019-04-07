@@ -286,13 +286,12 @@ static inline unsigned long ipti_syscall_enter(unsigned long nr)
 	this_cpu_write(cpu_tss_rw.ipti_syscall, 1);
 	ipti_map_stack(current, current->active_mm);
 
-	/* FIXME: add support for PV ops */
-	orig_cr3 = __native_read_cr3();
+	orig_cr3 = __read_cr3();
 
 	cr3 = orig_cr3 | (1 << PTI_PGTABLE_SWITCH_BIT2) | (1 << X86_CR3_IPTI_PCID_BIT);
 	pr_info("%s: orig: %lx new: %lx\n", __func__, orig_cr3, cr3);
 
-	native_write_cr3(cr3);
+	write_cr3(cr3);
 
 	return orig_cr3;
 }
@@ -301,7 +300,7 @@ static inline void ipti_syscall_exit(unsigned long cr3)
 {
 
 	if (cr3) {
-		native_write_cr3(cr3);
+		write_cr3(cr3);
 		current->in_ipti_syscall = false;
 		this_cpu_write(cpu_tss_rw.ipti_syscall, 0);
 		ipti_clear_mappins();
