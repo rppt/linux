@@ -39,7 +39,7 @@ struct sci_data {
 	pte_t		**ptes;
 };
 
-static int __sci_clone_pgtable(struct mm_struct *mm,
+static pte_t *__sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
 /*
@@ -236,7 +236,7 @@ static int sci_pagetable_init(struct mm_struct *mm)
 
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		ret = __sci_clone_pgtable(mm,
+		__sci_clone_pgtable(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
@@ -429,9 +429,9 @@ enum {
 	NO_TGT = -6,
 };
 
-static int __sci_clone_pgtable(struct mm_struct *mm,
-				 pgd_t *pgdp, pgd_t *target_pgdp,
-				unsigned long addr, bool add, bool large)
+static pte_t *__sci_clone_pgtable(struct mm_struct *mm,
+				  pgd_t *pgdp, pgd_t *target_pgdp,
+				  unsigned long addr, bool add, bool large)
 {
 	pte_t *pte, *target_pte, ptev;
 	pgd_t *pgd, *target_pgd;
@@ -441,23 +441,23 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 
 	pgd = pgd_offset_pgd(pgdp, addr);
 	if (pgd_none(*pgd))
-		return NO_PGD;
+		return NULL;
 
 	p4d = p4d_offset(pgd, addr);
 	if (p4d_none(*p4d))
-		return NO_P4D;
+		return NULL;
 
 	pud = pud_offset(p4d, addr);
 	if (pud_none(*pud))
-		return NO_PUD;
+		return NULL;
 
 	if (pud_large(*pud)) {
 		pr_info("large PUD: %lx\n", addr);
-		return NO_PUD;
+		return NULL;
 	} else {
 		pmd = pmd_offset(pud, addr);
 		if (pmd_none(*pmd))
-			return NO_PMD;
+			return NULL;
 	}
 
 	target_pgd = pgd_offset_pgd(target_pgdp, addr);
@@ -466,7 +466,7 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 		if (large) {
 			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
 			if (WARN_ON(!target_pmd))
-				return NO_TGT;
+				return NULL;
 			*target_pmd = *pmd;
 			return 0;
 		} else {
@@ -482,7 +482,7 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 		/* Walk the page-table down to the pte level */
 		pte = pte_offset_kernel(pmd, addr);
 		if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
-			return NO_PTE;
+			return NULL;
 
 		ptev = *pte;
 	}
@@ -490,23 +490,14 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 	/* Allocate PTE in the entry page-table */
 	target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
 	if (WARN_ON(!target_pte))
-		return NO_TGT;
+		return NULL;
 
 	*target_pte = ptev;
 
 	if (add)
 		WARN_ON(sci_add_mapping(addr, target_pte));
 
-	return 0;
-}
-
-void sci_clone_pgtable(unsigned long addr)
-{
-	int ret = __sci_clone_pgtable(current->mm, current->mm->pgd,
-				       kernel_to_entry_pgdp(current->mm->pgd),
-				       addr, true, false);
-	if (ret)
-		pr_info("%s: %d\n", __func__, ret);
+	return target_pte;
 }
 
 static bool sci_verify_code_access(struct sci_data *sci,
@@ -565,6 +556,7 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 {
 	struct mm_struct *mm = current->active_mm;
 	struct sci_data *sci = mm->sci;
+	pte_t *pte;
 
 	/* run out of room for metadata, can't grant access */
 	if (sci->ptes_count >= SCI_MAX_PTES || sci->rips_count >= SCI_MAX_RIPS)
@@ -574,7 +566,12 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 	    !sci_verify_code_access(sci, regs, addr))
 		return false;
 
-	sci_clone_pgtable(addr);
+	pte = __sci_clone_pgtable(current->mm, current->mm->pgd,
+				  kernel_to_entry_pgdp(current->mm->pgd),
+				  addr, true, false);
+	if (!pte)
+		return false;
+
 	return true;
 }
 
