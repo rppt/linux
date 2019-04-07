@@ -485,39 +485,30 @@ static bool sci_verify_code_access(struct sci_data *sci,
 
 
 	/* instruction fetch outside kernel or module text */
-	if (!(is_kernel_text(addr) || is_module_text_address(addr))) {
-		pr_err("not text\n");
+	if (!(is_kernel_text(addr) || is_module_text_address(addr)))
 		return false;
-	}
 
 	/* no symbol matches the address */
 	symbol = kallsyms_lookup(addr, &size, &offset, &modname, namebuf);
-	if (!symbol) {
-		pr_err("no symbol at %lx\n", addr);
+	if (!symbol)
 		return false;
-	}
 
-	pr_info("sym: %s, name: %s, sz: %ld, off: %lx\n", symbol, namebuf, size, offset);
-	if (symbol != namebuf) {
-		pr_err("BPF or ftrace: %s vs %s\n", symbol, namebuf);
+	/* BPF or ftrace? */
+	if (symbol != namebuf)
 		return false;
-	}
 
-	/*
-	 * access in the middle of a function
-	 * for now, treat jumps inside a functions as safe.
-	 */
+	/* access in the middle of a function */
 	if (offset) {
 		int i = 0;
 
 		for (i = sci->rips_count - 1; i >= 0; i--) {
 			unsigned long rip = sci->rips[i];
 
+			/* allow jumps to the next page of already mapped one */
 			if ((addr >> PAGE_SHIFT) == ((rip >> PAGE_SHIFT) + 1))
 				return true;
 		}
 
-		pr_err("offset is too far: off: %lx, addr: %lx\n", offset, addr);
 		return false;
 	}
 
@@ -537,6 +528,7 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 	if (sci->ptes_count >= SCI_MAX_PTES || sci->rips_count >= SCI_MAX_RIPS)
 		return false;
 
+	/* only code access is checked */
 	if (hw_error_code & X86_PF_INSTR &&
 	    !sci_verify_code_access(sci, regs, addr))
 		return false;
