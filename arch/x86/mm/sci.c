@@ -189,7 +189,7 @@ static int sci_clone_range(struct mm_struct *mm,
 	 * can have holes.
 	 */
 	for (addr = start; addr < end;) {
-		pte_t *pte, *target_pte, ptev;
+		pte_t *pte, *target_pte;
 		pgd_t *pgd, *target_pgd;
 		pmd_t *pmd, *target_pmd;
 		p4d_t *p4d;
@@ -222,30 +222,31 @@ static int sci_clone_range(struct mm_struct *mm,
 		target_pgd = pgd_offset_pgd(target_pgdp, addr);
 
 		if (pmd_large(*pmd)) {
-			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
-			if (WARN_ON(!target_pmd))
+			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd,
+							    addr);
+			if (!target_pmd)
 				return -ENOMEM;
+
 			*target_pmd = *pmd;
 
 			addr += PMD_SIZE;
 			continue;
 		} else {
-			/* Walk the page-table down to the pte level */
 			pte = pte_offset_kernel(pmd, addr);
-			if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
-				return -ENOENT;
+			if (pte_none(*pte)) {
+				addr += PAGE_SIZE;
+				continue;
+			}
 
-			ptev = *pte;
+			target_pte = sci_pagetable_walk_pte(mm, target_pgd,
+							    addr);
+			if (!target_pte)
+				return -ENOMEM;
+
+			*target_pte = *pte;
+
+			addr += PAGE_SIZE;
 		}
-
-		/* Allocate PTE in the entry page-table */
-		target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
-		if (WARN_ON(!target_pte))
-			return -ENOMEM;
-
-		*target_pte = ptev;
-
-		addr += PAGE_SIZE;
 	}
 
 	return 0;
