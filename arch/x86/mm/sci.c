@@ -129,6 +129,9 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 {
 	struct sci_data *ipti;
 
+	if (!static_cpu_has(X86_FEATURE_SCI))
+		return 0;
+
 	if (sci_debug)
 		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
 
@@ -151,6 +154,9 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	struct sci_data *ipti;
+
+	if (!static_cpu_has(X86_FEATURE_SCI))
+		return;
 
 	if (WARN_ON(!mm))
 		return;
@@ -740,3 +746,18 @@ static int sci_subsys_init(void)
 	return 0;
 }
 late_initcall(sci_subsys_init);
+
+void __init sci_check_boottime_disable(void)
+{
+	char arg[5];
+	int ret;
+
+	/* Assume SCI is disabled unless explicitly overridden. */
+	ret = cmdline_find_option(boot_command_line, "sci", arg, sizeof(arg));
+	if (ret == 2 && !strncmp(arg, "on", 2)) {
+		setup_force_cpu_cap(X86_FEATURE_SCI);
+		pr_info("System call isolation is enabled\n");
+	} else {
+		pr_info("System call isolation is disabled\n");
+	}
+}

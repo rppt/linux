@@ -279,6 +279,9 @@ static inline unsigned long sci_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
 
+	if (!static_cpu_has(X86_FEATURE_SCI))
+		return 0;
+
 	if (nr < 335 && nr != __NR_userfaultfd)
 		return 0;
 

@@ -200,6 +200,7 @@ For 32-bit we have the following conventions - kernel is built with
 	PER_CPU_VAR(cpu_tss_rw) + SCI_SYSCALL
 
 .macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_SCI
 	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
@@ -216,6 +217,7 @@ For 32-bit we have the following conventions - kernel is built with
 .endm
 
 .macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
+	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_SCI
 	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
