@@ -591,38 +591,26 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 	unsigned int cpu;
 	int ret;
 
-	for (addr = CPU_ENTRY_AREA_BASE;
-	     addr <= CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
-
+	__sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
+			  kernel_to_entry_pgdp(mm->pgd),
+			  CPU_ENTRY_AREA_BASE,
+			  CPU_ENTRY_AREA_BASE + CPU_ENTRY_AREA_MAP_SIZE);
 
 	for_each_possible_cpu(cpu) {
 		addr = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		ret = __sci_clone_pgtable(mm,
+		ret = __sci_clone_range(mm,
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
+					   addr, addr + PAGE_SIZE);
 	}
 }
 
 static void sci_clone_entry_text(struct mm_struct *mm)
 {
-	unsigned long addr;
-	int ret;
-
-	for (addr = (unsigned long) __entry_text_start;
-	     addr <= (unsigned long) __irqentry_text_end;
-	     addr += PAGE_SIZE) {
-		ret = __sci_clone_pgtable(mm,
-					   kernel_to_user_pgdp(mm->pgd),
-					   kernel_to_entry_pgdp(mm->pgd),
-					   addr, false, true);
-	}
+	__sci_clone_range(mm, kernel_to_user_pgdp(mm->pgd),
+			  kernel_to_entry_pgdp(mm->pgd),
+			  (unsigned long) __entry_text_start,
+			  (unsigned long) __irqentry_text_end);
 }
 
 #define VMEMMAP_END 0xffffeb0000000000
