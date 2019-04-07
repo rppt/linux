@@ -306,7 +306,7 @@ static inline void sci_syscall_exit(unsigned long cr3)
 		write_cr3(cr3);
 		current->in_isolated_syscall = 0;
 		this_cpu_write(cpu_tss_rw.sci_syscall, 0);
-		sci_clear_mappins();
+		sci_clear_data();
 	}
 }
 #else

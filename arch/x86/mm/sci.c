@@ -383,7 +383,7 @@ void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	kfree(sci);
 }
 
-void sci_clear_mappins(void)
+void sci_clear_data(void)
 {
 	struct mm_struct *mm = current->active_mm;
 	struct sci_data *sci;
