@@ -411,11 +411,6 @@ static int sci_add_mapping(unsigned long addr, pte_t *pte)
 
 	sci = mm->sci;
 
-	if (sci->ptes_count >= SCI_MAX_PTES) {
-		pr_err("Failed to add mapping for %lx\n", addr);
-		return -ENOMEM;
-	}
-
 	for (i = sci->ptes_count - 1; i >=0; i--)
 		if (pte == sci->ptes[i])
 			return 0;
@@ -522,8 +517,6 @@ static bool sci_verify_code_access(struct sci_data *sci,
 	const char *symbol;
 	char *modname;
 
-	if (sci->rips_count >= SCI_MAX_RIPS)
-		return false;
 
 	/* instruction fetch outside kernel or module text */
 	if (!(is_kernel_text(addr) || is_module_text_address(addr))) {
@@ -572,6 +565,10 @@ bool sci_verify_and_map(struct pt_regs *regs, unsigned long addr,
 {
 	struct mm_struct *mm = current->active_mm;
 	struct sci_data *sci = mm->sci;
+
+	/* run out of room for metadata, can't grant access */
+	if (sci->ptes_count >= SCI_MAX_PTES || sci->rips_count >= SCI_MAX_RIPS)
+		return false;
 
 	if (hw_error_code & X86_PF_INSTR &&
 	    !sci_verify_code_access(sci, regs, addr))
