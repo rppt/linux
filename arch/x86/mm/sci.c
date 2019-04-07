@@ -105,10 +105,151 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 static int __sci_clone_pgtable(struct mm_struct *mm,
 				pgd_t *pgdp, pgd_t *target_pgdp,
 				unsigned long addr, bool add, bool large);
-static int __sci_clone_range(struct mm_struct *mm,
-			      pgd_t *pgdp, pgd_t *target_pgdp,
-			     unsigned long start, unsigned long end);
 static int sci_free_page_range(struct mm_struct *mm);
+
+/*
+ * Walk the shadow copy of the page tables to PMD level (optionally)
+ * trying to allocate page table pages on the way down.
+ *
+ * Returns a pointer to a PMD on success, or NULL on failure.
+ */
+static pmd_t *sci_pagetable_walk_pmd(struct mm_struct *mm,
+				     pgd_t *pgd, unsigned long address)
+{
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	p4d = p4d_alloc(mm, pgd, address);
+	if (!p4d)
+		return NULL;
+	pud = pud_alloc(mm, p4d, address);
+	if (!pud)
+		goto free_p4d;
+	pmd = pmd_alloc(mm, pud, address);
+	if (!pmd)
+		goto free_pud;
+
+	return pmd;
+
+free_pud:
+	pud_free(mm, pud);
+	mm_dec_nr_puds(mm);
+free_p4d:
+	p4d_free(mm, p4d);
+	return NULL;
+}
+
+/*
+ * Walk the shadow copy of the page tables to PTE level (optionally)
+ * trying to allocate page table pages on the way down.
+ *
+ * Returns a pointer to a PTE on success, or NULL on failure.
+ */
+static pte_t *sci_pagetable_walk_pte(struct mm_struct *mm,
+				     pgd_t *pgd, unsigned long address)
+{
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	p4d = p4d_alloc(mm, pgd, address);
+	if (!p4d)
+		return NULL;
+	pud = pud_alloc(mm, p4d, address);
+	if (!pud)
+		goto free_p4d;
+	pmd = pmd_alloc(mm, pud, address);
+	if (!pmd)
+		goto free_pud;
+	if (__pte_alloc(mm, pmd))
+		goto free_pmd;
+
+	return pte_offset_kernel(pmd, address);
+
+free_pmd:
+	pmd_free(mm, pmd);
+	mm_dec_nr_pmds(mm);
+free_pud:
+	pud_free(mm, pud);
+	mm_dec_nr_puds(mm);
+free_p4d:
+	p4d_free(mm, p4d);
+	return NULL;
+}
+
+static int sci_clone_range(struct mm_struct *mm,
+			   pgd_t *pgdp, pgd_t *target_pgdp,
+			   unsigned long start, unsigned long end)
+{
+	unsigned long addr;
+
+	/*
+	 * Clone the populated PMDs which cover start to end. These PMD areas
+	 * can have holes.
+	 */
+	for (addr = start; addr < end;) {
+		pte_t *pte, *target_pte, ptev;
+		pgd_t *pgd, *target_pgd;
+		pmd_t *pmd, *target_pmd;
+		p4d_t *p4d;
+		pud_t *pud;
+
+		/* Overflow check */
+		if (addr < start)
+			break;
+
+		pgd = pgd_offset_pgd(pgdp, addr);
+		if (pgd_none(*pgd))
+			return 0;
+
+		p4d = p4d_offset(pgd, addr);
+		if (p4d_none(*p4d))
+			return 0;
+
+		pud = pud_offset(p4d, addr);
+		if (pud_none(*pud)) {
+			addr += PUD_SIZE;
+			continue;
+		}
+
+		pmd = pmd_offset(pud, addr);
+		if (pmd_none(*pmd)) {
+			addr += PMD_SIZE;
+			continue;
+		}
+
+		target_pgd = pgd_offset_pgd(target_pgdp, addr);
+
+		if (pmd_large(*pmd)) {
+			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
+			if (WARN_ON(!target_pmd))
+				return -ENOMEM;
+			*target_pmd = *pmd;
+
+			addr += PMD_SIZE;
+			continue;
+		} else {
+			/* Walk the page-table down to the pte level */
+			pte = pte_offset_kernel(pmd, addr);
+			if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
+				return -ENOENT;
+
+			ptev = *pte;
+		}
+
+		/* Allocate PTE in the entry page-table */
+		target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
+		if (WARN_ON(!target_pte))
+			return -ENOMEM;
+
+		*target_pte = ptev;
+
+		addr += PAGE_SIZE;
+	}
+
+	return 0;
+}
 
 void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 {
@@ -166,8 +307,8 @@ static int sci_pagetable_init(struct mm_struct *mm)
 
 	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
 			    (unsigned long)do_syscall_64, false, false);
-	__sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
-			   VMEMMAP_START, VMEMMAP_END);
+	sci_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			VMEMMAP_START, VMEMMAP_END);
 
 	return 0;
 }
@@ -275,74 +416,6 @@ static int sci_add_mapping(unsigned long addr, pte_t *pte)
 	return 0;
 }
 
-/*
- * Walk the shadow copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.  Does not support large pages.
- *
- * Note: this is only used when mapping *new* kernel data into the
- * user/shadow page tables.  It is never used for userspace data.
- *
- * Returns a pointer to a PTE on success, or NULL on failure.
- */
-static pmd_t *sci_pagetable_walk_pmd(struct mm_struct *mm,
-				      pgd_t *pgd, unsigned long address)
-{
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-
-	p4d = p4d_alloc(mm, pgd, address);
-	if (!p4d)
-		return NULL;
-	pud = pud_alloc(mm, p4d, address);
-	if (!pud)
-		goto free_p4d;
-	pmd = pmd_alloc(mm, pud, address);
-	if (!pmd)
-		goto free_pud;
-
-	return pmd;
-
-free_pud:
-	pud_free(mm, pud);
-	mm_dec_nr_puds(mm);
-free_p4d:
-	p4d_free(mm, p4d);
-	return NULL;
-}
-
-static pte_t *sci_pagetable_walk_pte(struct mm_struct *mm,
-				      pgd_t *pgd, unsigned long address)
-{
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-
-	p4d = p4d_alloc(mm, pgd, address);
-	if (!p4d)
-		return NULL;
-	pud = pud_alloc(mm, p4d, address);
-	if (!pud)
-		goto free_p4d;
-	pmd = pmd_alloc(mm, pud, address);
-	if (!pmd)
-		goto free_pud;
-	if (__pte_alloc(mm, pmd))
-		goto free_pmd;
-
-	return pte_offset_kernel(pmd, address);
-
-free_pmd:
-	pmd_free(mm, pmd);
-	mm_dec_nr_pmds(mm);
-free_pud:
-	pud_free(mm, pud);
-	mm_dec_nr_puds(mm);
-free_p4d:
-	p4d_free(mm, p4d);
-	return NULL;
-}
-
 enum {
 	NO_PGD = -1,
 	NO_P4D = -2,
@@ -434,79 +507,6 @@ static int __sci_clone_pgtable(struct mm_struct *mm,
 			struct page *page = (struct page *)(addr - 8);
 			dump_page(page, "sci");
 		}
-	}
-
-	return 0;
-}
-
-static int __sci_clone_range(struct mm_struct *mm,
-			      pgd_t *pgdp, pgd_t *target_pgdp,
-			      unsigned long start, unsigned long end)
-{
-	unsigned long addr;
-
-	/*
-	 * Clone the populated PMDs which cover start to end. These PMD areas
-	 * can have holes.
-	 */
-	for (addr = start; addr < end;) {
-		pte_t *pte, *target_pte, ptev;
-		pgd_t *pgd, *target_pgd;
-		pmd_t *pmd, *target_pmd;
-		p4d_t *p4d;
-		pud_t *pud;
-
-		/* Overflow check */
-		if (addr < start)
-			break;
-
-		pgd = pgd_offset_pgd(pgdp, addr);
-		if (pgd_none(*pgd))
-			return NO_PGD;
-
-		p4d = p4d_offset(pgd, addr);
-		if (p4d_none(*p4d))
-			return NO_P4D;
-
-		pud = pud_offset(p4d, addr);
-		if (pud_none(*pud)) {
-			addr += PUD_SIZE;
-			continue;
-		}
-
-		pmd = pmd_offset(pud, addr);
-		if (pmd_none(*pmd)) {
-			addr += PMD_SIZE;
-			continue;
-		}
-
-		target_pgd = pgd_offset_pgd(target_pgdp, addr);
-
-		if (pmd_large(*pmd)) {
-			target_pmd = sci_pagetable_walk_pmd(mm, target_pgd, addr);
-			if (WARN_ON(!target_pmd))
-				return NO_TGT;
-			*target_pmd = *pmd;
-
-			addr += PMD_SIZE;
-			continue;
-		} else {
-			/* Walk the page-table down to the pte level */
-			pte = pte_offset_kernel(pmd, addr);
-			if (pte_none(*pte) || !(pte_flags(*pte) & _PAGE_PRESENT))
-				return NO_PTE;
-
-			ptev = *pte;
-		}
-
-		/* Allocate PTE in the entry page-table */
-		target_pte = sci_pagetable_walk_pte(mm, target_pgd, addr);
-		if (WARN_ON(!target_pte))
-			return NO_TGT;
-
-		*target_pte = ptev;
-
-		addr += PAGE_SIZE;
 	}
 
 	return 0;
