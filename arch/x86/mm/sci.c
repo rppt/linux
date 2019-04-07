@@ -466,6 +466,8 @@ static int __sci_clone_range(struct mm_struct *mm,
 			return NO_TGT;
 
 		*target_pte = ptev;
+
+		addr += PAGE_SIZE;
 	}
 
 	return 0;
