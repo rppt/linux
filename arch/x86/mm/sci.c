@@ -121,6 +121,15 @@ void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 }
 
+extern void do_syscall_64(unsigned long nr, struct pt_regs *regs);
+
+void sci_reset_rips(struct sci_data *sci)
+{
+	memset(sci->rips, 0, sci->rips_count);
+	sci->rips[0] = (unsigned long)do_syscall_64;
+	sci->rips_count = 1;
+}
+
 int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 {
 	struct sci_data *sci;
@@ -149,6 +158,8 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	sci_clone_entry_text(mm);
 	sci_clone_vmemmap(mm);
 	sci_dump_debug_info(mm, "init", false);
+
+	sci_reset_rips(sci);
 
 	return 0;
 
@@ -193,9 +204,9 @@ void sci_clear_mappins(void)
 		pte_clear(NULL, 0, sci->ptes[i]);
 
 	memset(sci->ptes, 0, sci->ptes_count);
-	memset(sci->rips, 0, sci->rips_count);
 	sci->ptes_count = 0;
-	sci->rips_count = 0;
+
+	sci_reset_rips(sci);
 }
 
 static int sci_add_mapping(unsigned long addr, pte_t *pte)
@@ -607,6 +618,9 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
 	}
+
+	__sci_clone_pgtable(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
+			    (unsigned long)do_syscall_64, false, false);
 }
 
 #define VMEMMAP_END 0xffffeb0000000000

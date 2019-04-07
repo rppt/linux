@@ -314,9 +314,7 @@ static inline unsigned long sci_syscall_enter(unsigned long nr) { return 0; }
 static inline void sci_syscall_exit(unsigned long cr3) {}
 #endif
 
-#define __entry_txt             __attribute__((__section__(".entry.text")))
-
-__visible __entry_txt void do_syscall_64(unsigned long nr, struct pt_regs *regs)
+__visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
 
