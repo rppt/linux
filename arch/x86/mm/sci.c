@@ -92,7 +92,6 @@ bad:
 }
 
 struct ipti_mapping {
-	/* unsigned long addr; */
 	pte_t *pte;
 };
 
@@ -108,7 +107,6 @@ struct ipti_data {
 
 static void sci_clone_user_shared(struct mm_struct *mm);
 static void sci_clone_entry_text(struct mm_struct *mm);
-static void sci_clone_vmalloc(struct mm_struct *mm);
 static void sci_clone_vmemmap(struct mm_struct *mm);
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last);
 static int __ipti_clone_pgtable(struct mm_struct *mm,
@@ -127,16 +125,9 @@ void ipti_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 
 }
 
-/* int ipti_pgd_alloc(struct mm_struct *mm) */
 int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 {
-
 	struct ipti_data *ipti;
-
-	/* if (!sci_debug && current->pid == 1) */
-	/* 	sci_debug = 1; */
-	/* else */
-	/* 	sci_debug = 0; */
 
 	if (sci_debug)
 		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
@@ -149,20 +140,13 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 
 	ipti->size = (PAGE_SIZE << IPTI_ORDER) - sizeof(*ipti);
 
-	/* sci_dump_debug_info(mm, "init 1", false); */
-
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
 	sci_clone_vmemmap(mm);
 	sci_dump_debug_info(mm, "init", false);
 
-	/* if (current->pid == 1) */
-	/* 	sci_debug = 0; */
-
 	return 0;
 }
-
-void sci_free_pgd(struct ipti_data *ipti);
 
 void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
@@ -174,8 +158,6 @@ void ipti_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	ipti = mm->ipti;
 
 	sci_free_page_range(mm);
-
-	sci_free_pgd(ipti);
 
 	free_pages((unsigned long)ipti, IPTI_ORDER);
 }
@@ -242,8 +224,6 @@ static int ipti_add_mapping(unsigned long addr, pte_t *pte)
 		}
 	}
 
-
-	/* ipti->mappings[ipti->index].addr = addr; */
 	ipti->mappings[ipti->index].pte = pte;
 	ipti->index++;
 
@@ -535,7 +515,10 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		return false;
 	}
 
-	/* call/jmp <symbol> */
+	/*
+	 * access in the middle of a function
+	 * for now, treat jumps inside a functions as safe.
+	 */
 	if (offset) {
 		int i = 0;
 
@@ -549,15 +532,6 @@ static bool ipti_is_code_access_safe(struct pt_regs *regs, unsigned long addr)
 		pr_err("offset is too far: off: %lx, addr: %lx\n", offset, addr);
 		return false;
 	}
-
-	/* dump_stack(); */
-	/* caller_stack = unwind_start(&state, current, regs, NULL); */
-	/* stack = stack ? : get_stack_pointer(task, regs); */
-
-	/*
-	 * access in the middle of a function
-	 * for now, treat jumps inside a functions as safe.
-	 */
 
 	if (ipti->rip_index > 255)
 		return false;
@@ -576,7 +550,6 @@ static bool ipti_is_data_access_safe(struct pt_regs *regs, unsigned long addr)
 bool ipti_address_is_safe(struct pt_regs *regs, unsigned long addr,
 			  unsigned long hw_error_code)
 {
-	/* return false; */
 	if (hw_error_code & X86_PF_INSTR)
 		return ipti_is_code_access_safe(regs, addr);
 
@@ -617,8 +590,6 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
-		/* if (ret && sci_debug) */
-		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
 
 
@@ -628,8 +599,6 @@ static void sci_clone_user_shared(struct mm_struct *mm)
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
-		/* if (ret && sci_debug) */
-		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
 }
 
@@ -645,8 +614,6 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 					   kernel_to_user_pgdp(mm->pgd),
 					   kernel_to_entry_pgdp(mm->pgd),
 					   addr, false, true);
-		/* if (ret && sci_debug) */
-		/* 	pr_err("%s: addr: %lx: ret: %d\n", __func__, addr, ret); */
 	}
 }
 
@@ -654,13 +621,9 @@ static void sci_clone_entry_text(struct mm_struct *mm)
 
 static void sci_clone_vmemmap(struct mm_struct *mm)
 {
-	/* unsigned long addr; */
-	/* int ret; */
-
 	__ipti_clone_range(mm, mm->pgd, kernel_to_entry_pgdp(mm->pgd),
 			   VMEMMAP_START, VMEMMAP_END);
 }
-
 
 static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last)
 {
@@ -678,21 +641,12 @@ static void sci_dump_debug_info(struct mm_struct *mm, const char *msg, bool last
 	dump_pagetable(kernel_to_user_pgdp(mm->pgd), addr);
 	dump_pagetable(kernel_to_user_pgdp(mm->pgd), CPU_ENTRY_AREA_BASE);
 	dump_pagetable(kernel_to_user_pgdp(mm->pgd), (unsigned long) __entry_text_start);
-	/* ptdump_walk_pgd_level(NULL, kernel_to_user_pgdp(mm->pgd)); */
 
 	pr_info("--------------------\n");
 
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), addr);
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), CPU_ENTRY_AREA_BASE);
 	dump_pagetable(kernel_to_entry_pgdp(mm->pgd), (unsigned long) __entry_text_start);
-	/* ptdump_walk_pgd_level(NULL, kernel_to_entry_pgdp(mm->pgd)); */
-}
-
-/*
- * This function frees user-level page tables of a process.
- */
-void sci_free_pgd(struct ipti_data *ipti)
-{
 }
 
 static int sci_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
