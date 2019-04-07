@@ -689,6 +689,8 @@ pgd_t __sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd);
 
 static inline pgd_t sci_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 {
+	if (!static_cpu_has(X86_FEATURE_SCI))
+		return pgd;
 	return __sci_set_user_pgtbl(pgdp, pgd);
 }
 #else   /* CONFIG_SYSCALL_ISOLATION */
