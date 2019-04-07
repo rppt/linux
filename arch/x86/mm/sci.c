@@ -91,19 +91,14 @@ bad:
 	pr_info("BAD\n");
 }
 
-struct sci_mapping {
-	pte_t *pte;
-};
+#define SCI_MAX_PTES 256
 
 struct sci_data {
-	unsigned long size;
 	unsigned long rip_index;
 	unsigned long rips[256];
-	unsigned long index;
-	struct sci_mapping mappings[0];
+	unsigned long	ptes_count;
+	pte_t		**ptes;
 };
-
-#define SCI_ORDER 0
 
 static void sci_clone_user_shared(struct mm_struct *mm);
 static void sci_clone_entry_text(struct mm_struct *mm);
@@ -135,13 +130,15 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	if (sci_debug)
 		pr_info("%s: %d: mm: %px stack: %px\n", __func__, current->pid, mm, current->stack);
 
-	sci = (struct sci_data *)__get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, SCI_ORDER);
+	sci = kzalloc(sizeof(*sci), GFP_KERNEL);
 	if (!sci)
 		return -ENOMEM;
 
-	mm->sci = sci;
+	sci->ptes = kcalloc(SCI_MAX_PTES, sizeof(*sci->ptes), GFP_KERNEL);
+	if (!sci->ptes)
+		goto free_sci;
 
-	sci->size = (PAGE_SIZE << SCI_ORDER) - sizeof(*sci);
+	mm->sci = sci;
 
 	sci_clone_user_shared(mm);
 	sci_clone_entry_text(mm);
@@ -149,6 +146,10 @@ int sci_init(struct task_struct *tsk, struct mm_struct *mm)
 	sci_dump_debug_info(mm, "init", false);
 
 	return 0;
+
+free_sci:
+	kfree(sci);
+	return -ENOMEM;
 }
 
 void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
@@ -164,16 +165,8 @@ void sci_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	sci = mm->sci;
 
 	sci_free_page_range(mm);
-
-	free_pages((unsigned long)sci, SCI_ORDER);
-}
-
-static void __sci_clear_mapping(struct sci_mapping *m)
-{
-	if (WARN_ON(!m->pte))
-		return;
-
-	pte_clear(NULL, 0, m->pte);
+	kfree(sci->ptes);
+	kfree(sci);
 }
 
 void sci_clear_mappins(void)
@@ -187,51 +180,33 @@ void sci_clear_mappins(void)
 
 	sci = mm->sci;
 
-	for (i = 0; i < sci->index; i++) {
-		struct sci_mapping *m = &sci->mappings[i];
-		__sci_clear_mapping(m);
-	}
+	for (i = 0; i < sci->ptes_count; i++)
+		pte_clear(NULL, 0, sci->ptes[i]);
 
-	memset(sci->mappings, 0, sci->size);
+	memset(sci->ptes, 0, sci->ptes_count);
 	memset(sci->rips, 0, sizeof(sci->rips));
-	sci->index = 0;
+	sci->ptes_count = 0;
 	sci->rip_index = 0;
-}
-
-static int sci_mapping_realloc(struct mm_struct *mm)
-{
-	return -ENOMEM;
 }
 
 static int sci_add_mapping(unsigned long addr, pte_t *pte)
 {
 	struct mm_struct *mm = current->active_mm;
-	struct sci_data *sci;
-	int i, err = 0;
-
-	if (!mm) {
-		pr_err("System call from kernel thread?!\n");
-		return -ENOMEM;
-	}
+	struct sci_data *sci = mm->sci;
+	int i;
 
 	sci = mm->sci;
 
-	for (i = sci->index - 1; i >=0; i--)
-		if (pte == sci->mappings[sci->index].pte)
-			return 0;
-
-	if ((sci->index + 1) * sizeof(*sci->mappings) > sci->size) {
-		err = sci_mapping_realloc(mm);
-		if (err) {
-			/* sci_debug = 0; */
-			pr_err("can realloc, idx: %ld, size: %ld\n", sci->index, sci->size);
-			BUG();
-			return err;
-		}
+	if (sci->ptes_count >= SCI_MAX_PTES) {
+		pr_err("Failed to add mapping for %lx\n", addr);
+		return -ENOMEM;
 	}
 
-	sci->mappings[sci->index].pte = pte;
-	sci->index++;
+	for (i = sci->ptes_count - 1; i >=0; i--)
+		if (pte == sci->ptes[i])
+			return 0;
+
+	sci->ptes[sci->ptes_count++] = pte;
 
 	return 0;
 }
