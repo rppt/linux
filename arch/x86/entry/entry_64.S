@@ -567,7 +567,7 @@ ENTRY(interrupt_entry)
 	ret
 
 .Linterrupt_entry_kernel:
-	SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
+	SAVE_AND_SWITCH_SCI_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
 	jmp	.Linterrupt_entry_done
 
 END(interrupt_entry)
@@ -661,7 +661,7 @@ retint_kernel:
 	 */
 	TRACE_IRQS_IRETQ
 
-	RESTORE_ENTRY_CR3 scratch_reg=%rax save_reg=%r14
+	RESTORE_SCI_CR3 scratch_reg=%rax save_reg=%r14
 
 GLOBAL(restore_regs_and_return_to_kernel)
 #ifdef CONFIG_DEBUG_ENTRY
@@ -1270,7 +1270,7 @@ ENTRY(error_entry)
 	 * for these here too.
 	 */
 .Lerror_kernelspace:
-	SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
+	SAVE_AND_SWITCH_SCI_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
 
 	leaq	native_irq_return_iret(%rip), %rcx
 	cmpq	%rcx, RIP+8(%rsp)

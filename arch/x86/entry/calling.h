@@ -190,23 +190,23 @@ For 32-bit we have the following conventions - kernel is built with
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-#define PTI_ENTRY_PGTABLE_BIT		(PAGE_SHIFT + 1)
-#define PTI_ENTRY_PGTABLE_MASK		(1 << PTI_ENTRY_PGTABLE_BIT)
-#define PTI_ENTRY_PCID_BIT		X86_CR3_SCI_PCID_BIT
-#define PTI_ENTRY_PCID_MASK		(1 << PTI_ENTRY_PCID_BIT)
-#define PTI_ENTRY_PGTABLE_AND_PCID_MASK  (PTI_ENTRY_PCID_MASK | PTI_ENTRY_PGTABLE_MASK)
+#define SCI_PGTABLE_BIT		(PAGE_SHIFT + 1)
+#define SCI_PGTABLE_MASK		(1 << SCI_PGTABLE_BIT)
+#define SCI_PCID_BIT		X86_CR3_SCI_PCID_BIT
+#define SCI_PCID_MASK		(1 << SCI_PCID_BIT)
+#define SCI_PGTABLE_AND_PCID_MASK  (SCI_PCID_MASK | SCI_PGTABLE_MASK)
 
 #define THIS_CPU_sci_syscall   \
 	PER_CPU_VAR(cpu_tss_rw) + SCI_SYSCALL
 
-.macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+.macro SAVE_AND_SWITCH_SCI_TO_KERNEL_CR3 scratch_reg:req save_reg:req
 	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_SCI
 	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
 	movq	%cr3, \scratch_reg
 	movq	\scratch_reg, \save_reg
-	andq	$(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	andq	$(~SCI_PGTABLE_AND_PCID_MASK), \scratch_reg
 	cmpq	\scratch_reg, \save_reg
 	jne	.Lsci_context_\@
 	xorq	\save_reg, \save_reg
@@ -216,7 +216,7 @@ For 32-bit we have the following conventions - kernel is built with
 .Ldone_\@:
 .endm
 
-.macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
+.macro RESTORE_SCI_CR3 scratch_reg:req save_reg:req
 	ALTERNATIVE "jmp .Ldone_\@", "", X86_FEATURE_SCI
 	movq	THIS_CPU_sci_syscall, \scratch_reg
 	cmpq	$0, \scratch_reg
@@ -224,7 +224,7 @@ For 32-bit we have the following conventions - kernel is built with
 	movq	\save_reg, \scratch_reg
 	cmpq	$0, \scratch_reg
 	je	.Ldone_\@
-	orq	$(PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	orq	$(SCI_PGTABLE_AND_PCID_MASK), \scratch_reg
 	movq	\scratch_reg, \save_reg
 	movq	\scratch_reg, %cr3
 .Ldone_\@:
@@ -232,10 +232,10 @@ For 32-bit we have the following conventions - kernel is built with
 
 #else
 
-.macro SAVE_AND_SWITCH_ENTRY_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+.macro SAVE_AND_SWITCH_SCI_TO_KERNEL_CR3 scratch_reg:req save_reg:req
 .endm
 
-.macro RESTORE_ENTRY_CR3 scratch_reg:req save_reg:req
+.macro RESTORE_SCI_CR3 scratch_reg:req save_reg:req
 .endm
 
 #endif
@@ -322,9 +322,9 @@ For 32-bit we have the following conventions - kernel is built with
 	 * are active. If clear CR3 has either the kernel or user page table
 	 * active.
 	 */
-	bt	$PTI_ENTRY_PGTABLE_BIT, \scratch_reg
+	bt	$SCI_PGTABLE_BIT, \scratch_reg
 	jnc	.Lcheck_user_\@
-	andq    $(~PTI_ENTRY_PGTABLE_AND_PCID_MASK), \scratch_reg
+	andq    $(~SCI_PGTABLE_AND_PCID_MASK), \scratch_reg
 .Lcheck_user_\@:
 #endif
 	/*
