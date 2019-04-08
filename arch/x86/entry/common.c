@@ -25,13 +25,13 @@
 #include <linux/uprobes.h>
 #include <linux/livepatch.h>
 #include <linux/syscalls.h>
+#include <linux/sci.h>
 
 #include <asm/desc.h>
 #include <asm/traps.h>
 #include <asm/vdso.h>
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
-#include <asm/sci.h>
 #include <asm/tlbflush.h>
 
 #define CREATE_TRACE_POINTS

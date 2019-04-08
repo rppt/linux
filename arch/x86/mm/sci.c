@@ -14,11 +14,11 @@
 #include <linux/slab.h>
 #include <linux/debugfs.h>
 #include <linux/sizes.h>
+#include <linux/sci.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
 #include <asm/cmdline.h>
-#include <asm/sci.h>
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>

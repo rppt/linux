@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
-#ifndef _ASM_X86_SCI_H
-#define _ASM_X86_SCI_H
-#ifndef __ASSEMBLY__
+#ifndef _LINUX_SCI_H
+#define _LINUX_SCI_H
 
 #ifdef CONFIG_SYSCALL_ISOLATION
 
@@ -33,9 +32,9 @@ static inline bool sci_verify_and_map(struct pt_regs *regs,unsigned long addr,
 {
 	return true;
 }
+
 static inline void sci_clear_data(void) {}
 
 #endif
 
-#endif /* __ASSEMBLY__ */
-#endif /* _ASM_X86_SCI_H */
+#endif /* _LINUX_SCI_H */

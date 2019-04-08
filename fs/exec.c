@@ -62,11 +62,11 @@
 #include <linux/oom.h>
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
+#include <linux/sci.h>
 
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
-#include <asm/sci.h>
 
 #include <trace/events/task.h>
 #include "internal.h"

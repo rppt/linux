@@ -5,6 +5,7 @@
 #include <linux/memblock.h>
 #include <linux/swapfile.h>
 #include <linux/swapops.h>
+#include <linux/sci.h>
 
 #include <asm/set_memory.h>
 #include <asm/e820/api.h>
@@ -22,7 +23,6 @@
 #include <asm/hypervisor.h>
 #include <asm/cpufeature.h>
 #include <asm/pti.h>
-#include <asm/sci.h>
 
 /*
  * We need to define the tracepoints somewhere, and tlb.c

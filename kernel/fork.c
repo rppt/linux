@@ -92,6 +92,7 @@
 #include <linux/livepatch.h>
 #include <linux/thread_info.h>
 #include <linux/stackleak.h>
+#include <linux/sci.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -99,7 +100,6 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
-#include <asm/sci.h>
 
 #include <trace/events/sched.h>
 
