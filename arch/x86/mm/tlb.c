@@ -14,6 +14,7 @@
 #include <asm/cache.h>
 #include <asm/apic.h>
 #include <asm/uv/uv.h>
+#include <asm/sci.h>
 
 #include "mm_internal.h"
 

@@ -236,15 +236,20 @@ static int sci_clone_range(struct mm_struct *mm,
 	return 0;
 }
 
-void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
+int sci_map_stack(struct task_struct *tsk, struct mm_struct *mm)
 {
 	unsigned long stack = (unsigned long)tsk->stack;
 	unsigned long addr;
 
-	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
-	       sci_clone_page(mm, mm->pgd, kernel_to_sci_pgdp(mm->pgd),
-			      addr);
+	if (!mm)
+		return 0;
 
+	for (addr = stack; addr < stack + THREAD_SIZE; addr += PAGE_SIZE)
+		if (!sci_clone_page(mm, mm->pgd, kernel_to_sci_pgdp(mm->pgd),
+				    addr))
+			return -ENOMEM;
+
+	return 0;
 }
 
 /*

@@ -66,6 +66,7 @@
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
+#include <asm/sci.h>
 
 #include <trace/events/task.h>
 #include "internal.h"
@@ -1030,6 +1031,10 @@ static int exec_mmap(struct mm_struct *mm)
 			return -EINTR;
 		}
 	}
+
+	if (sci_map_stack(tsk, mm))
+		return -ENOMEM;
+
 	task_lock(tsk);
 	active_mm = tsk->active_mm;
 	tsk->mm = mm;

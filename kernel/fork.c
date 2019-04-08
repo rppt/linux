@@ -99,6 +99,7 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
+#include <asm/sci.h>
 
 #include <trace/events/sched.h>
 
@@ -2036,6 +2037,10 @@ static __latent_entropy struct task_struct *copy_process(
 	copy_seccomp(p);
 
 	rseq_fork(p, clone_flags);
+
+	retval = sci_map_stack(p, p->active_mm);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	/* Don't start children in a dying pid namespace */
 	if (unlikely(!(ns_of_pid(pid)->pid_allocated & PIDNS_ADDING))) {

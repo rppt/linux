@@ -273,8 +273,6 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 
 #ifdef CONFIG_SYSCALL_ISOLATION
-void sci_map_stack(struct task_struct *tsk, struct mm_struct *mm);
-
 static inline unsigned long sci_syscall_enter(unsigned long nr)
 {
 	unsigned long cr3, orig_cr3;
@@ -287,7 +285,6 @@ static inline unsigned long sci_syscall_enter(unsigned long nr)
 
 	current->in_isolated_syscall = 1;
 	this_cpu_write(cpu_tss_rw.sci_syscall, 1);
-	sci_map_stack(current, current->active_mm);
 
 	orig_cr3 = __read_cr3();
 
