@@ -1605,34 +1605,36 @@ void __init memblock_enforce_memory_limit(phys_addr_t limit)
 			      PHYS_ADDR_MAX);
 }
 
-void __init memblock_cap_memory_ranges(struct memblock_type *regions_to_keep)
+void __init memblock_cap_memory_range(phys_addr_t base, phys_addr_t size)
 {
-	phys_addr_t start, end;
-	u64 i;
+	int start_rgn, end_rgn;
+	int i, ret;
 
-	/* truncate memory while skipping NOMAP regions */
-	for_each_mem_range(i, &memblock.memory, regions_to_keep, NUMA_NO_NODE,
-			   MEMBLOCK_NONE, &start, &end, NULL)
-		memblock_remove(start, end);
+	if (!size)
+		return;
+
+	ret = memblock_isolate_range(&memblock.memory, base, size,
+						&start_rgn, &end_rgn);
+	if (ret)
+		return;
+
+	/* remove all the MAP regions */
+	for (i = memblock.memory.cnt - 1; i >= end_rgn; i--)
+		if (!memblock_is_nomap(&memblock.memory.regions[i]))
+			memblock_remove_region(&memblock.memory, i);
+
+	for (i = start_rgn - 1; i >= 0; i--)
+		if (!memblock_is_nomap(&memblock.memory.regions[i]))
+			memblock_remove_region(&memblock.memory, i);
 
 	/* truncate the reserved regions */
-	for_each_mem_range(i, &memblock.reserved, regions_to_keep, NUMA_NO_NODE,
-			   MEMBLOCK_NONE, &start, &end, NULL)
-		memblock_remove_range(&memblock.reserved, start, end);
+	memblock_remove_range(&memblock.reserved, 0, base);
+	memblock_remove_range(&memblock.reserved,
+			base + size, PHYS_ADDR_MAX);
 }
 
 void __init memblock_mem_limit_remove_map(phys_addr_t limit)
 {
-	struct memblock_region rgn = {
-		.base = 0,
-	};
-
-	struct memblock_type region_to_keep = {
-		.cnt = 1,
-		.max = 1,
-		.regions = &rgn,
-	};
-
 	phys_addr_t max_addr;
 
 	if (!limit)
@@ -1644,8 +1646,7 @@ void __init memblock_mem_limit_remove_map(phys_addr_t limit)
 	if (max_addr == PHYS_ADDR_MAX)
 		return;
 
-	region_to_keep.regions[0].size = max_addr;
-	memblock_cap_memory_ranges(&region_to_keep);
+	memblock_cap_memory_range(0, max_addr);
 }
 
 static int __init_memblock memblock_search(struct memblock_type *type, phys_addr_t addr)
