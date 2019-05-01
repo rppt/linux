@@ -295,6 +295,7 @@ struct net *get_net_ns_by_id(struct net *net, int id)
 	return peer;
 }
 
+/*
 static void dump_pagedir(pgd_t *base)
 {
 	int i;
@@ -313,6 +314,14 @@ static void cmp_pagedir(unsigned long *pgd1, unsigned long *pgd2)
 		}
 	}
 }
+*/
+
+static void init_once(void *foo)
+{
+	struct socket_alloc *ei = (struct socket_alloc *)foo;
+
+	inode_init_once(&ei->vfs_inode);
+}
 
 /*
  * setup_net runs the initializers for the network namespace object.
@@ -322,6 +331,7 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	/* Must be called with pernet_ops_rwsem held */
 	const struct pernet_operations *ops, *saved_ops;
 	int error = 0;
+	char cache_name[16];
 	LIST_HEAD(net_exit_list);
 
 	refcount_set(&net->count, 1);
@@ -333,6 +343,17 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	spin_lock_init(&net->nsid_lock);
 	mutex_init(&net->ipv4.ra_mutex);
 
+	sprintf(cache_name, "sock_cache_%04x", ((long)net & 0xFFFF));
+	printk("NETNS: %s (%s)\n", __FUNCTION__, cache_name);
+	net->sock_inode_cachep = kmem_cache_create(cache_name,
+					      sizeof(struct socket_alloc),
+					      0,
+					      (SLAB_HWCACHE_ALIGN |
+					       SLAB_RECLAIM_ACCOUNT |
+					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
+					      init_once);
+
+	BUG_ON(net->sock_inode_cachep == NULL);
 	list_for_each_entry(ops, &pernet_list, list) {
 		error = ops_init(ops, net);
 		if (error < 0)
@@ -563,8 +584,6 @@ struct net *copy_net_ns(unsigned long flags,
 		goto put_userns;
 
 	rv = setup_net(net, user_ns);
-
-	//dump_pagedir(__va(read_cr3_pa()));
 
 	up_read(&pernet_ops_rwsem);
 

@@ -170,6 +170,7 @@ struct net {
 	struct sock		*diag_nlsk;
 	atomic_t		fnhe_genid;
 	struct mm_struct *mm;
+	struct kmem_cache *sock_inode_cachep;
 } __randomize_layout;
 
 #include <linux/seq_file_net.h>
