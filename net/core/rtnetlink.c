@@ -726,7 +726,6 @@ int rtnl_unicast(struct sk_buff *skb, struct net *net, u32 pid)
 {
 	int ret;
 
-	printk("%s using net %px\n", __FUNCTION__, net);
 	net_ns_use(net);
 	ret = nlmsg_unicast(net->rtnl, skb, pid);
 	net_ns_unuse(net);
@@ -752,7 +751,6 @@ void rtnl_set_sk_err(struct net *net, u32 group, int error)
 {
 	struct sock *rtnl = net->rtnl;
 
-	printk("%s\n", __FUNCTION__);
 	netlink_set_err(rtnl, 0, group, error);
 }
 EXPORT_SYMBOL(rtnl_set_sk_err);
@@ -1869,7 +1867,6 @@ struct net *rtnl_get_net_ns_capable(struct sock *sk, int netnsid)
 {
 	struct net *net;
 
-	printk("%s\n", __FUNCTION__);
 	net = get_net_ns_by_id(sock_net(sk), netnsid);
 	if (!net)
 		return ERR_PTR(-EINVAL);
@@ -2042,7 +2039,6 @@ struct net *rtnl_link_get_net(struct net *src_net, struct nlattr *tb[])
 	/* Examine the link attributes and figure out which
 	 * network namespace we are talking about.
 	 */
-	printk("%s\n", __FUNCTION__);
 	if (tb[IFLA_NET_NS_PID])
 		net = get_net_ns_by_pid(nla_get_u32(tb[IFLA_NET_NS_PID]));
 	else if (tb[IFLA_NET_NS_FD])
@@ -2065,7 +2061,6 @@ static struct net *rtnl_link_get_net_by_nlattr(struct net *src_net,
 {
 	struct net *net;
 
-	printk("%s\n", __FUNCTION__);
 	if (tb[IFLA_NET_NS_PID] || tb[IFLA_NET_NS_FD])
 		return rtnl_link_get_net(src_net, tb);
 
@@ -2085,7 +2080,6 @@ static struct net *rtnl_link_get_net_capable(const struct sk_buff *skb,
 {
 	struct net *net;
 
-	printk("%s\n", __FUNCTION__);
 	net = rtnl_link_get_net_by_nlattr(src_net, tb);
 	if (IS_ERR(net))
 		return net;
@@ -5163,7 +5157,6 @@ static void rtnetlink_rcv(struct sk_buff *skb)
 
 static int rtnetlink_bind(struct net *net, int group)
 {
-	printk("%s\n", __FUNCTION__);
 	switch (group) {
 	case RTNLGRP_IPV4_MROUTE_R:
 	case RTNLGRP_IPV6_MROUTE_R:

@@ -234,19 +234,27 @@ static int move_addr_to_user(struct sockaddr_storage *kaddr, int klen,
 	return __put_user(klen, ulen);
 }
 
-static struct kmem_cache *sock_inode_cachep __ro_after_init;
+//static struct kmem_cache *sock_inode_cachep __ro_after_init;
 
 static struct inode *sock_alloc_inode(struct super_block *sb)
 {
 	struct socket_alloc *ei;
 	struct socket_wq *wq;
+	struct net *net;
 
-	ei = kmem_cache_alloc(sock_inode_cachep, GFP_KERNEL);
+	if (current && current->nsproxy && current->nsproxy->net_ns) {
+		net = current->nsproxy->net_ns;
+		if (!net->sock_inode_cachep)
+			net = &init_net;
+	}
+	else
+		net =  &init_net;
+	ei = kmem_cache_alloc(net->sock_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
 	wq = kmalloc(sizeof(*wq), GFP_KERNEL);
 	if (!wq) {
-		kmem_cache_free(sock_inode_cachep, ei);
+		kmem_cache_free(net->sock_inode_cachep, ei);
 		return NULL;
 	}
 	init_waitqueue_head(&wq->wait);
@@ -266,29 +274,12 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 static void sock_destroy_inode(struct inode *inode)
 {
 	struct socket_alloc *ei;
+	struct net *net;
 
 	ei = container_of(inode, struct socket_alloc, vfs_inode);
+	net = inode->i_private;
 	kfree_rcu(ei->socket.wq, rcu);
-	kmem_cache_free(sock_inode_cachep, ei);
-}
-
-static void init_once(void *foo)
-{
-	struct socket_alloc *ei = (struct socket_alloc *)foo;
-
-	inode_init_once(&ei->vfs_inode);
-}
-
-static void init_inodecache(void)
-{
-	sock_inode_cachep = kmem_cache_create("sock_inode_cache",
-					      sizeof(struct socket_alloc),
-					      0,
-					      (SLAB_HWCACHE_ALIGN |
-					       SLAB_RECLAIM_ACCOUNT |
-					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
-					      init_once);
-	BUG_ON(sock_inode_cachep == NULL);
+	kmem_cache_free(net->sock_inode_cachep, ei);
 }
 
 static const struct super_operations sockfs_ops = {
@@ -539,7 +530,7 @@ static const struct inode_operations sockfs_inode_ops = {
  *	NULL is returned.
  */
 
-struct socket *sock_alloc(void)
+struct socket *sock_alloc(struct net *netns)
 {
 	struct inode *inode;
 	struct socket *sock;
@@ -555,6 +546,7 @@ struct socket *sock_alloc(void)
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
 	inode->i_op = &sockfs_inode_ops;
+	inode->i_private = netns;
 
 	return sock;
 }
@@ -1086,7 +1078,7 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 	if (err)
 		goto out;
 
-	sock = sock_alloc();
+	sock = sock_alloc(current->nsproxy->net_ns);
 	if (!sock) {
 		err = -ENOMEM;
 		goto out;
@@ -1233,6 +1225,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 		return err;
 
 	/* switch to address space of the network namespace */
+	//printk("%s using net %px\n", __FUNCTION__, net);
 	net_ns_use(net);
 
 	/*
@@ -1240,7 +1233,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 	 *	the protocol is 0, the family is instructed to select an appropriate
 	 *	default.
 	 */
-	sock = sock_alloc();
+	sock = sock_alloc(net);
 	if (!sock) {
 		net_warn_ratelimited("socket: no more sockets\n");
 		return -ENFILE;	/* Not exactly a match, but its the
@@ -1325,7 +1318,6 @@ EXPORT_SYMBOL(sock_create);
 
 int sock_create_kern(struct net *net, int family, int type, int protocol, struct socket **res)
 {
-	printk("sock_create_kern\n");
 	return __sock_create(net, family, type, protocol, res, 1);
 }
 EXPORT_SYMBOL(sock_create_kern);
@@ -1563,7 +1555,7 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 		goto out;
 
 	err = -ENFILE;
-	newsock = sock_alloc();
+	newsock = sock_alloc(current->nsproxy->net_ns);
 	if (!newsock)
 		goto out_put;
 
@@ -1786,8 +1778,6 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 		printk("** ERROR %s ** pid=%i netns=%px socket=%px netns=%px\n",
 			__FUNCTION__, current->pid, task_ns, sock, sk_ns);
 	}
-	//printk("NETNS: sendto pid=%i (pidns=%px) socket=%px (sockns=%px)\n", current->pid, pidnet, sock, socknet);
-	//printk("%s using net %px\n", __FUNCTION__, pidnet);
 	net_ns_use(task_ns);
 	msg.msg_name = NULL;
 	msg.msg_control = NULL;
@@ -2749,7 +2739,7 @@ static int __init sock_init(void)
 	 *      Initialize the protocols module.
 	 */
 
-	init_inodecache();
+	//init_inodecache();
 
 	err = register_filesystem(&sock_fs_type);
 	if (err)

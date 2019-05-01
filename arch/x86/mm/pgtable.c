@@ -482,19 +482,20 @@ out:
 	at each level, allocating a new structure and duplicating the contents */
 static int clone_pmd(pmd_t *pmd)
 {
-	int pmd_index;
-	for (pmd_index = 0; pmd_index < PTRS_PER_PMD; pmd_index++)
-	{
-		if (pmd[pmd_index].pmd) {
-			unsigned long new_pmd_page = get_zeroed_page(GFP_KERNEL);
-			printk("--> Copying pmd index %i\n", pmd_index);
-			if (WARN_ON_ONCE(!new_pmd_page)) {
-				printk("Can't allocate PMD\n");
-				return -1;
+	int idx;
+	for (idx = 0; idx < PTRS_PER_PMD; idx++) {
+		if (pmd[idx].pmd & _PAGE_PRESENT) {
+         if (!pmd_large(pmd[idx])) {
+				unsigned long new_pte_page = get_zeroed_page(GFP_KERNEL);
+				//printk("--> Copying pmd index %i\n", idx);
+				if (WARN_ON_ONCE(!new_pte_page)) {
+					printk("Can't allocate PMD\n");
+					return -1;
+				}
+				memcpy((void*)new_pte_page, (void*)pmd_page_vaddr(pmd[idx]), PAGE_SIZE);
+				// use pte_pgprot to take the original flags?
+				set_pmd(&pmd[idx], __pmd(_KERNPG_TABLE | __pa(new_pte_page)));
 			}
-			memcpy((void*)new_pmd_page, (void*)pmd_page_vaddr(pmd[pmd_index]), PAGE_SIZE);
-			set_pmd(&pmd[pmd_index], __pmd(_KERNPG_TABLE | __pa(new_pmd_page)));
-			//clone_pte(new_pmd_page);
 		}
 	}
 
@@ -503,19 +504,18 @@ static int clone_pmd(pmd_t *pmd)
 
 static int clone_pud(pud_t *pud)
 {
-	int pud_index;
-	for (pud_index = 0; pud_index < PTRS_PER_PUD; pud_index++)
-	{
-		if (pud[pud_index].pud) {
-			unsigned long new_pud_page = get_zeroed_page(GFP_KERNEL);
-			printk("-> Copying pud index %i\n", pud_index);
-			if (WARN_ON_ONCE(!new_pud_page)) {
+	int idx;
+	for (idx = 0; idx < PTRS_PER_PUD; idx++) {
+		if (pud[idx].pud & _PAGE_PRESENT) {
+			unsigned long new_pmd_page = get_zeroed_page(GFP_KERNEL);
+			//printk("-> Copying pud index %i\n", idx);
+			if (WARN_ON_ONCE(!new_pmd_page)) {
 				printk("Can't allocate PUD\n");
 				return -1;
 			}
-			memcpy((void*)new_pud_page, (void*)pud_page_vaddr(pud[pud_index]), PAGE_SIZE);
-			set_pud(&pud[pud_index], __pud(_KERNPG_TABLE | __pa(new_pud_page)));
-			//clone_pmd((pmd_t*)new_pud_page);
+			memcpy((void*)new_pmd_page, (void*)pud_page_vaddr(pud[idx]), PAGE_SIZE);
+			set_pud(&pud[idx], __pud(_KERNPG_TABLE | __pa(new_pmd_page)));
+			clone_pmd((pmd_t*)new_pmd_page);
 		}
 	}
 
@@ -524,24 +524,23 @@ static int clone_pud(pud_t *pud)
 
 static int clone_pgtable_k(struct mm_struct *mm)
 {
-	int pgd_index;
+	int idx;
 	pgd_t *pgd = mm->pgd;
 	smp_wmb(); /* See comment in __pte_alloc */
 
 	spin_lock(&mm->page_table_lock);
 
 	// only copy kernel entries since userspace has no meaning in this context
-	for (pgd_index = KERNEL_PGD_BOUNDARY; pgd_index < PTRS_PER_PGD; pgd_index++)
-	{
-		if (pgd[pgd_index].pgd) {
+	for (idx = KERNEL_PGD_BOUNDARY; idx < PTRS_PER_PGD; idx++) {
+		if (pgd[idx].pgd & _PAGE_PRESENT) {
 			unsigned long new_p4d_page = get_zeroed_page(GFP_KERNEL);
-			printk("Deep copy of pgd index %i\n", pgd_index);
+			//printk("Deep copy of pgd index %i\n", idx);
 			if (WARN_ON_ONCE(!new_p4d_page)) {
 				printk("Can't allocate P4D\n");
 				return -1;
 			}
-			memcpy((void*)new_p4d_page, (void*)pgd_page_vaddr(pgd[pgd_index]), PAGE_SIZE);
-			set_pgd(&pgd[pgd_index], __pgd(_KERNPG_TABLE | __pa(new_p4d_page)));
+			memcpy((void*)new_p4d_page, (void*)pgd_page_vaddr(pgd[idx]), PAGE_SIZE);
+			set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(new_p4d_page)));
 			clone_pud((pud_t*)new_p4d_page);
 		}
 	}
