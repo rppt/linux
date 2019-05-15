@@ -1046,7 +1046,7 @@ struct mm_struct *mm_alloc(void)
 }
 
 static struct mm_struct *mm_init_k(struct mm_struct *mm,
-	struct user_namespace *user_ns)
+	struct mm_struct *parent_mm, struct user_namespace *user_ns)
 {
 	mm->mmap = NULL;
 	mm->mm_rb = RB_ROOT;
@@ -1078,9 +1078,15 @@ static struct mm_struct *mm_init_k(struct mm_struct *mm,
 	mm->def_flags = init_mm.def_flags & VM_INIT_DEF_MASK;
 
 	/* allocate a page directory */
-	pgd_alloc_k(mm);
+	mm->pgd = pgd_alloc_k(parent_mm);
 	if (mm->pgd == NULL)
 		goto fail_nopgd;
+
+	/* list required to sync kernel mapping updates */
+	if (!SHARED_KERNEL_PMD) {
+		pgd_set_mm(mm->pgd, mm);
+		pgd_list_add(mm->pgd);
+	}
 
 	mm->user_ns = get_user_ns(user_ns);
 	return mm;
@@ -1093,7 +1099,7 @@ fail_nopgd:
 /*
  * Allocate and initialize an mm_struct for kernel use
  */
-struct mm_struct *mm_alloc_k(void)
+struct mm_struct *mm_alloc_k(struct mm_struct *parent_mm)
 {
 	struct mm_struct *mm;
 
@@ -1101,9 +1107,9 @@ struct mm_struct *mm_alloc_k(void)
 	if (!mm)
 		return NULL;
 
-	printk("mm_alloc_k %px\n", mm);
+	printk("mm_alloc_k %px parent=%px\n", mm, parent_mm);
 	memset(mm, 0, sizeof(*mm));
-	return mm_init_k(mm, current_user_ns());
+	return mm_init_k(mm, parent_mm, current_user_ns());
 }
 
 static inline void __mmput(struct mm_struct *mm)

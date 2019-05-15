@@ -297,7 +297,7 @@ static bool low_pfn(unsigned long pfn)
 	return pfn < max_low_pfn;
 }
 
-static void dump_pagetable(unsigned long address)
+void dump_pagetable(unsigned long address)
 {
 	pgd_t *base = __va(read_cr3_pa());
 	pgd_t *pgd = &base[pgd_index(address)];
@@ -390,6 +390,8 @@ static noinline int vmalloc_fault(unsigned long address)
 		set_p4d(p4d, *p4d_k);
 		arch_flush_lazy_mmu_mode();
 	} else {
+		printk("Problem accessing 0x%lx\n", address);
+		dump_pgd(__va(read_cr3_pa()), address);
 		BUG_ON(p4d_pfn(*p4d) != p4d_pfn(*p4d_k));
 	}
 
@@ -442,9 +444,8 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-static void dump_pagetable(unsigned long address)
+void dump_pgd(pgd_t *base, unsigned long address)
 {
-	pgd_t *base = __va(read_cr3_pa());
 	pgd_t *pgd = base + pgd_index(address);
 	p4d_t *p4d;
 	pud_t *pud;
@@ -453,6 +454,8 @@ static void dump_pagetable(unsigned long address)
 
 	if (bad_address(pgd))
 		goto bad;
+
+	pr_info("PGD base %px ", base);
 
 	pr_info("PGD %lx ", pgd_val(*pgd));
 
@@ -493,6 +496,12 @@ out:
 	return;
 bad:
 	pr_info("BAD\n");
+}
+
+void dump_pagetable(unsigned long address)
+{
+	pgd_t *base = __va(read_cr3_pa());
+	dump_pgd(base, address);
 }
 
 #endif /* CONFIG_X86_64 */

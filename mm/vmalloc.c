@@ -31,6 +31,7 @@
 #include <linux/compiler.h>
 #include <linux/llist.h>
 #include <linux/bitops.h>
+#include <linux/kdebug.h>
 
 #include <linux/uaccess.h>
 #include <asm/tlbflush.h>
@@ -74,6 +75,7 @@ static void vunmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end)
 	unsigned long next;
 
 	pmd = pmd_offset(pud, addr);
+	//printk("PMD: %px\n", pmd);
 	do {
 		next = pmd_addr_end(addr, end);
 		if (pmd_clear_huge(pmd))
@@ -116,19 +118,27 @@ static void vunmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end)
 	} while (p4d++, addr = next, addr != end);
 }
 
-static void vunmap_page_range(unsigned long addr, unsigned long end)
+void kunmap_page_range(struct mm_struct *mm, unsigned long addr, unsigned long end)
 {
 	pgd_t *pgd;
 	unsigned long next;
 
 	BUG_ON(addr >= end);
-	pgd = pgd_offset_k(addr);
+	pgd = pgd_offset(mm, addr);
+	//printk("Unmapping 0x%lx @ mm=%px pgd=%px\n", addr, mm, mm->pgd);
+	//dump_pgd(mm->pgd, addr);
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
 			continue;
 		vunmap_p4d_range(pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
+}
+EXPORT_SYMBOL(kunmap_page_range);
+
+static void vunmap_page_range(unsigned long addr, unsigned long end)
+{
+	kunmap_page_range(&init_mm, addr, end);
 }
 
 static int vmap_pte_range(pmd_t *pmd, unsigned long addr,

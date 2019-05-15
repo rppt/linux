@@ -1654,6 +1654,10 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 		stat(s, ORDER_FALLBACK);
 	}
 
+	// notify cache owner that a new page was allocated
+	if (s->owner && s->owner->on_page_alloc)
+		s->owner->on_page_alloc(s, page, oo_order(oo), s->owner->data);
+
 	page->objects = oo_objects(oo);
 
 	order = compound_order(page);

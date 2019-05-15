@@ -19,6 +19,7 @@
 #include <linux/sched/task.h>
 #include <linux/uidgid.h>
 #include <linux/mmu_context.h>
+#include <linux/kdebug.h>
 
 #include <net/sock.h>
 #include <net/netlink.h>
@@ -322,17 +323,45 @@ static void init_once(void *foo)
 	inode_init_once(&ei->vfs_inode);
 }
 
+static void net_on_page_alloc(struct kmem_cache *cache, struct page *p, int oo, void *data)
+{
+	struct net *tmp_ns;
+	struct net *current_ns = (struct net*)data;
+	unsigned long addr = (unsigned long)page_to_virt(p);
+	struct mm_struct *active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	//pgd_t *base = __va(read_cr3_pa());
+
+	printk("allocated page 0x%lx for netns=%px\n", addr, current_ns);
+	//printk("active mm=%px pgd=%px pa_pgd=%px\n", active_mm, active_mm->pgd, base);
+	printk("active mm=%px\n", active_mm);
+	if (current_ns->mm != active_mm)
+		printk("BUG: current_ns->mm != active_mm\n");
+
+	dump_pgd(active_mm->pgd, addr);
+	for_each_net(tmp_ns) {
+		if (tmp_ns != current_ns) {
+			printk("Unmapping from 0x%lx to 0x%lx nets=%px\n",
+				addr, addr + (PAGE_SIZE << oo), tmp_ns);
+			dump_pgd(tmp_ns->mm->pgd, addr);
+			kunmap_page_range(tmp_ns->mm, addr, addr + (PAGE_SIZE << oo));
+		}
+	}
+}
+
 /*
  * setup_net runs the initializers for the network namespace object.
  */
 static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 {
+	struct mm_struct *active_mm;
+
 	/* Must be called with pernet_ops_rwsem held */
 	const struct pernet_operations *ops, *saved_ops;
 	int error = 0;
-	char cache_name[16];
+	char cache_name[24];
 	LIST_HEAD(net_exit_list);
 
+	printk("%s\n", __FUNCTION__);
 	refcount_set(&net->count, 1);
 	refcount_set(&net->passive, 1);
 	net->dev_base_seq = 1;
@@ -341,17 +370,30 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	spin_lock_init(&net->nsid_lock);
 	mutex_init(&net->ipv4.ra_mutex);
 
-	sprintf(cache_name, "sock_cache_%04x", ((long)net & 0xFFFF));
+	net->cache_owner.on_page_alloc = net_on_page_alloc;
+	net->cache_owner.on_page_free = NULL;
+	net->cache_owner.data = net;
+
+	/* use the new net right away to finish initializing the objects */
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	printk("Switching to mm=%px\n", net->mm);
+	switch_mm(NULL, net->mm, NULL);
+
+	sprintf(cache_name, "sock_cache_%08lx", ((long)net & 0xFFFFFFFF));
 	printk("NETNS: %s (%s)\n", __FUNCTION__, cache_name);
-	net->sock_inode_cachep = kmem_cache_create(cache_name,
+	net->sock_inode_cachep = kmem_cache_create_ex(cache_name,
 					      sizeof(struct socket_alloc),
 					      0,
 					      (SLAB_HWCACHE_ALIGN |
 					       SLAB_RECLAIM_ACCOUNT |
 					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
-					      init_once);
+					      init_once, &net->cache_owner);
 
 	BUG_ON(net->sock_inode_cachep == NULL);
+
+	printk("Switching back to mm=%px\n", active_mm);
+	switch_mm(NULL, active_mm, NULL);
+
 	list_for_each_entry(ops, &pernet_list, list) {
 		error = ops_init(ops, net);
 		if (error < 0)
@@ -428,6 +470,7 @@ static struct net *net_alloc(void)
 	if (!net)
 		goto out_free;
 
+	printk("%s %px\n", __FUNCTION__, net);
 	rcu_assign_pointer(net->gen, ng);
 out:
 	return net;
@@ -488,20 +531,14 @@ void net_ns_use(struct net *net)
 			//if (((unsigned long )net & 0xFFF) == 0) {
 				//cmp_pagedir((unsigned long*)active_mm->pgd, (unsigned long*)net->mm->pgd);
 			//}
-			switch_mm(active_mm, net->mm, NULL);
+			//printk("%s switching to %px\n", __FUNCTION__, net->mm);
+			//switch_mm(active_mm, net->mm, NULL);
 		}
+	} else {
+		active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 	}
-
-/*
-	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	if (active_mm && active_mm != net->mm) {
-		net->active_mm = active_mm;
-		net->active_pid = current->pid;
-		printk("NETNS: pid %i switching from %px to mm %px\n",
-			current?current->pid:-1, net->active_mm, net->mm);
-		switch_mm(net->active_mm, net->mm, NULL);
-	}
-*/
+	//printk("NETNS: switching to mm %px\n", net->mm);
+	switch_mm(NULL, net->mm, NULL);
 }
 
 void net_ns_unuse(struct net *net)
@@ -515,6 +552,7 @@ void net_ns_unuse(struct net *net)
 		if (current->netns_refcount == 0) {
 			// current process is leaving the netns
 			current->netns_mm = NULL;
+			//printk("switching back to %px\n", current->mm);
 			switch_mm(NULL, current->mm, NULL);
 		}
 	}
@@ -531,6 +569,8 @@ void net_ns_unuse(struct net *net)
 		switch_mm(net->mm, target_mm, NULL);
 	}
 */
+	//printk("switching back to %px\n", &init_mm);
+	switch_mm(NULL, &init_mm, NULL);
 }
 
 struct net *copy_net_ns(unsigned long flags,
@@ -569,13 +609,13 @@ struct net *copy_net_ns(unsigned long flags,
 		functions, since they will use the netns and rely on it
 		being available.
 	*/
-	net->mm = mm_alloc_k();
+	net->mm = mm_alloc_k(&init_mm); // maybe this should be old_net->mm ?
 	if (!net->mm) {
 		printk("Error allocating mm\n");
 		rv = -ENOMEM;
 	}
 
-	printk("Created a new mm %px for netns %px\n", net->mm, net);
+	printk("Created a new mm %px for netns %px pgd=%px\n", net->mm, net, net->mm->pgd);
 
 	rv = down_read_killable(&pernet_ops_rwsem);
 	if (rv < 0)
@@ -941,7 +981,6 @@ static int rtnl_net_getid(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct sk_buff *msg;
 	int err;
 
-	printk("%s\n", __FUNCTION__);
 	err = nlmsg_parse(nlh, sizeof(struct rtgenmsg), tb, NETNSA_MAX,
 			  rtnl_net_policy, extack);
 	if (err < 0)
@@ -1127,7 +1166,6 @@ static void rtnl_net_notifyid(struct net *net, int cmd, int id)
 	};
 	struct sk_buff *msg;
 	int err = -ENOMEM;
-	printk("%s\n", __FUNCTION__);
 
 	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL);
 	if (!msg)
@@ -1167,12 +1205,16 @@ static int __init net_ns_init(void)
 
 	rcu_assign_pointer(init_net.gen, ng);
 
+	printk("init_mm=%px init_mm.pgd=%px\n", &init_mm, init_mm.pgd);
+
 	down_write(&pernet_ops_rwsem);
+	init_net.mm = &init_netns_mm;
+	pgd_alloc_k(&init_netns_mm);
+
+	printk("NETNS: init_net=%px has mm=%px pgd=%px\n", &init_net, init_net.mm, init_net.mm->pgd);
+
 	if (setup_net(&init_net, &init_user_ns))
 		panic("Could not setup the initial network namespace");
-
-	printk("NETNS: init_net_mm=%px for init_net=%px\n", &init_netns_mm, &init_net);
-	init_net.mm = &init_netns_mm;
 
 	init_net_initialized = true;
 	up_write(&pernet_ops_rwsem);

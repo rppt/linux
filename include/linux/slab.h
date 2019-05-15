@@ -18,6 +18,15 @@
 #include <linux/workqueue.h>
 
 
+typedef void (*page_alloc_cb)(struct kmem_cache *, struct page *, int, void*);
+typedef void (*page_free_cb)(struct kmem_cache *, struct page *, int, void*);
+
+struct kmem_cache_owner {
+	void *data;
+	page_alloc_cb on_page_alloc;
+	page_free_cb on_page_free;
+};
+
 /*
  * Flags to pass to kmem_cache_create().
  * The ones marked DEBUG are only valid if CONFIG_DEBUG_SLAB is set.
@@ -137,9 +146,12 @@ bool slab_is_available(void);
 
 extern bool usercopy_fallback;
 
-struct kmem_cache *kmem_cache_create(const char *name, unsigned int size,
-			unsigned int align, slab_flags_t flags,
-			void (*ctor)(void *));
+struct kmem_cache *
+kmem_cache_create_ex(const char *name, unsigned int size, unsigned int align,
+		slab_flags_t flags, void (*ctor)(void *), struct kmem_cache_owner *owner);
+struct kmem_cache *
+kmem_cache_create(const char *name, unsigned int size, unsigned int align,
+		slab_flags_t flags, void (*ctor)(void *));
 struct kmem_cache *kmem_cache_create_usercopy(const char *name,
 			unsigned int size, unsigned int align,
 			slab_flags_t flags,
@@ -147,6 +159,7 @@ struct kmem_cache *kmem_cache_create_usercopy(const char *name,
 			void (*ctor)(void *));
 void kmem_cache_destroy(struct kmem_cache *);
 int kmem_cache_shrink(struct kmem_cache *);
+void kmem_cache_unmap(struct mm_struct *mm, struct kmem_cache *cache);
 
 void memcg_create_kmem_cache(struct mem_cgroup *, struct kmem_cache *);
 void memcg_deactivate_kmem_caches(struct mem_cgroup *);

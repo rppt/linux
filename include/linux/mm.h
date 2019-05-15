@@ -662,6 +662,9 @@ static inline int page_mapcount(struct page *page)
 	return atomic_read(&page->_mapcount) + 1;
 }
 
+/* unmap a page range from virtual memory without freeing the pages */
+void kunmap_page_range(struct mm_struct *mm, unsigned long addr, unsigned long end);
+
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 int total_mapcount(struct page *page);
 int page_trans_huge_mapcount(struct page *page, int *total_mapcount);
