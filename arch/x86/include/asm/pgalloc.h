@@ -25,6 +25,20 @@ static inline void paravirt_release_pud(unsigned long pfn) {}
 static inline void paravirt_release_p4d(unsigned long pfn) {}
 #endif
 
+static inline void pgd_list_add(pgd_t *pgd)
+{
+	struct page *page = virt_to_page(pgd);
+
+	list_add(&page->lru, &pgd_list);
+}
+
+static inline void pgd_list_del(pgd_t *pgd)
+{
+	struct page *page = virt_to_page(pgd);
+
+	list_del(&page->lru);
+}
+
 /*
  * Flags to use when allocating a user page table page.
  */
@@ -44,9 +58,10 @@ extern gfp_t __userpte_alloc_gfp;
 /*
  * Allocate and free page tables.
  */
-extern pgd_t *pgd_alloc(struct mm_struct *);
-extern pgd_t *pgd_alloc_k(struct mm_struct *);
-extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
+pgd_t *pgd_alloc(struct mm_struct *);
+pgd_t *pgd_alloc_k(struct mm_struct *);
+void pgd_free(struct mm_struct *mm, pgd_t *pgd);
+void pgd_set_mm(pgd_t *pgd, struct mm_struct *mm);
 
 extern pte_t *pte_alloc_one_kernel(struct mm_struct *);
 extern pgtable_t pte_alloc_one(struct mm_struct *);

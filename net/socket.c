@@ -102,6 +102,7 @@
 #include <linux/sockios.h>
 #include <net/busy_poll.h>
 #include <linux/errqueue.h>
+#include <asm/tlbflush.h>
 
 /* proto_ops for ipv4 and ipv6 use the same {recv,send}msg function */
 #if IS_ENABLED(CONFIG_INET)
@@ -243,6 +244,7 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 	struct socket_alloc *ei;
 	struct socket_wq *wq;
 	struct net *net;
+	struct mm_struct *active_mm;
 
 	if (current && current->nsproxy && current->nsproxy->net_ns) {
 		net = current->nsproxy->net_ns;
@@ -251,6 +253,11 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 	}
 	else
 		net =  &init_net;
+
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	if (active_mm != net->mm)
+		printk("BUG!! %s active_mm %px != net->mm %px\n", __FUNCTION__, active_mm, net->mm);
+
 	ei = kmem_cache_alloc(net->sock_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
@@ -278,6 +285,7 @@ static void sock_destroy_inode(struct inode *inode)
 	struct socket_alloc *ei;
 	struct net *net;
 
+	printk("%s\n", __FUNCTION__);
 	ei = container_of(inode, struct socket_alloc, vfs_inode);
 	net = inode->i_private;
 	kfree_rcu(ei->socket.wq, rcu);
@@ -556,6 +564,12 @@ struct socket *sock_alloc(struct net *netns)
 {
 	struct inode *inode;
 	struct socket *sock;
+	struct mm_struct *active_mm;
+
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+
+	if (active_mm != netns->mm)
+		printk("BUG!! %s net=%px active_mm=%px\n", __FUNCTION__, netns, active_mm);
 
 	inode = new_inode_pseudo(sock_mnt->mnt_sb);
 	if (!inode)
@@ -1211,6 +1225,10 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 	if (err)
 		goto out;
 
+	/* switch to address space of the network namespace */
+	printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
+	net_ns_use(current->nsproxy->net_ns);
+
 	sock = sock_alloc(current->nsproxy->net_ns);
 	if (!sock) {
 		err = -ENOMEM;
@@ -1223,6 +1241,7 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 		goto out_release;
 
 out:
+	net_ns_unuse(current->nsproxy->net_ns);
 	*res = sock;
 	return err;
 out_release:
@@ -1373,7 +1392,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 		return err;
 
 	/* switch to address space of the network namespace */
-	//printk("%s using net %px\n", __FUNCTION__, net);
+	printk("%s using net %px\n", __FUNCTION__, net);
 	net_ns_use(net);
 
 	/*
@@ -1388,7 +1407,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 				   closest posix thing */
 	}
 
-	printk("%s %px using net %px\n", __FUNCTION__, sock, net);
+	//printk("%s %px using net %px\n", __FUNCTION__, sock, net);
 	sock->type = type;
 
 #ifdef CONFIG_MODULES
@@ -1726,6 +1745,11 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 		goto out;
 
 	err = -ENFILE;
+
+	/* switch to address space of the network namespace */
+	printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
+	net_ns_use(current->nsproxy->net_ns);
+
 	newsock = sock_alloc(current->nsproxy->net_ns);
 	if (!newsock)
 		goto out_put;
@@ -1781,6 +1805,7 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 out_put:
 	fput_light(sock->file, fput_needed);
 out:
+	net_ns_unuse(current->nsproxy->net_ns);
 	return err;
 out_fd:
 	fput(newfile);

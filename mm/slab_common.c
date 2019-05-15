@@ -364,6 +364,7 @@ static struct kmem_cache *create_cache(const char *name,
 		unsigned int object_size, unsigned int align,
 		slab_flags_t flags, unsigned int useroffset,
 		unsigned int usersize, void (*ctor)(void *),
+		struct kmem_cache_owner *owner,
 		struct mem_cgroup *memcg, struct kmem_cache *root_cache)
 {
 	struct kmem_cache *s;
@@ -381,6 +382,7 @@ static struct kmem_cache *create_cache(const char *name,
 	s->size = s->object_size = object_size;
 	s->align = align;
 	s->ctor = ctor;
+	s->owner = owner;
 	s->useroffset = useroffset;
 	s->usersize = usersize;
 
@@ -435,11 +437,12 @@ out_free_cache:
  * Return: a pointer to the cache on success, NULL on failure.
  */
 struct kmem_cache *
-kmem_cache_create_usercopy(const char *name,
+kmem_cache_create_usercopy_ex(const char *name,
 		  unsigned int size, unsigned int align,
 		  slab_flags_t flags,
 		  unsigned int useroffset, unsigned int usersize,
-		  void (*ctor)(void *))
+		  void (*ctor)(void *),
+		  struct kmem_cache_owner *owner)
 {
 	struct kmem_cache *s = NULL;
 	const char *cache_name;
@@ -488,7 +491,7 @@ kmem_cache_create_usercopy(const char *name,
 
 	s = create_cache(cache_name, size,
 			 calculate_alignment(flags, align, size),
-			 flags, useroffset, usersize, ctor, NULL, NULL);
+			 flags, useroffset, usersize, ctor, owner, NULL, NULL);
 	if (IS_ERR(s)) {
 		err = PTR_ERR(s);
 		kfree_const(cache_name);
@@ -513,6 +516,18 @@ out_unlock:
 		return NULL;
 	}
 	return s;
+}
+EXPORT_SYMBOL(kmem_cache_create_usercopy_ex);
+
+struct kmem_cache *
+kmem_cache_create_usercopy(const char *name,
+		  unsigned int size, unsigned int align,
+		  slab_flags_t flags,
+		  unsigned int useroffset, unsigned int usersize,
+		  void (*ctor)(void *))
+{
+	return kmem_cache_create_usercopy_ex(name, size, align,
+		flags, useroffset, usersize, ctor, NULL);
 }
 EXPORT_SYMBOL(kmem_cache_create_usercopy);
 
@@ -549,6 +564,33 @@ kmem_cache_create(const char *name, unsigned int size, unsigned int align,
 					  ctor);
 }
 EXPORT_SYMBOL(kmem_cache_create);
+
+struct kmem_cache *
+kmem_cache_create_ex(const char *name, unsigned int size, unsigned int align,
+		slab_flags_t flags, void (*ctor)(void *), struct kmem_cache_owner *owner)
+{
+	return kmem_cache_create_usercopy_ex(name, size, align, flags, 0, 0,
+					  ctor, owner);
+}
+EXPORT_SYMBOL(kmem_cache_create_ex);
+
+/**
+ * kmem_cache_unmap - unmap all virtual addresses owned by this kmem_cache
+ * 						 in the specified kernel memory address space
+ */
+void kmem_cache_unmap(struct mm_struct *mm, struct kmem_cache *cache)
+{
+	unsigned long addr;
+	printk("%s\n", __FUNCTION__);
+
+	addr = (unsigned long)cache;
+	if (addr & 0xFFF) {
+		printk("cache is not page aligned\n");
+		addr &= ~(0xFFF);
+	}
+	kunmap_page_range(mm, addr, addr + PAGE_SIZE);
+}
+EXPORT_SYMBOL(kmem_cache_unmap);
 
 static void slab_caches_to_rcu_destroy_workfn(struct work_struct *work)
 {
@@ -665,7 +707,8 @@ void memcg_create_kmem_cache(struct mem_cgroup *memcg,
 			 root_cache->align,
 			 root_cache->flags & CACHE_CREATE_MASK,
 			 root_cache->useroffset, root_cache->usersize,
-			 root_cache->ctor, memcg, root_cache);
+			 root_cache->ctor, root_cache->owner,
+			 memcg, root_cache);
 	/*
 	 * If we could not create a memcg cache, do not complain, because
 	 * that's not critical at all as we can always proceed with the root

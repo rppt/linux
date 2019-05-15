@@ -20,4 +20,7 @@ int unregister_die_notifier(struct notifier_block *nb);
 int notify_die(enum die_val val, const char *str,
 	       struct pt_regs *regs, long err, int trap, int sig);
 
+void dump_pagetable(unsigned long address);
+void dump_pgd(pgd_t *base, unsigned long address);
+
 #endif /* _LINUX_KDEBUG_H */
