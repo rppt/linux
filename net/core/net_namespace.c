@@ -1207,9 +1207,9 @@ static int __init net_ns_init(void)
 
 	printk("init_mm=%px init_mm.pgd=%px\n", &init_mm, init_mm.pgd);
 
+	init_net.mm = mm_alloc_k(&init_mm);
+
 	down_write(&pernet_ops_rwsem);
-	init_net.mm = &init_netns_mm;
-	pgd_alloc_k(&init_netns_mm);
 
 	printk("NETNS: init_net=%px has mm=%px pgd=%px\n", &init_net, init_net.mm, init_net.mm->pgd);
 
