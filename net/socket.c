@@ -283,7 +283,7 @@ static void sock_destroy_inode(struct inode *inode)
 	struct socket_alloc *ei;
 	struct net *net;
 
-	printk("%s\n", __FUNCTION__);
+	//printk("%s\n", __FUNCTION__);
 	ei = container_of(inode, struct socket_alloc, vfs_inode);
 	net = inode->i_private;
 	kfree_rcu(ei->socket.wq, rcu);
@@ -1095,8 +1095,9 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 	/* switch to address space of the network namespace */
 	printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
 	net_ns_use(current->nsproxy->net_ns);
-
 	sock = sock_alloc(current->nsproxy->net_ns);
+	net_ns_unuse(current->nsproxy->net_ns);
+
 	if (!sock) {
 		err = -ENOMEM;
 		goto out;
@@ -1108,7 +1109,6 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 		goto out_release;
 
 out:
-	net_ns_unuse(current->nsproxy->net_ns);
 	*res = sock;
 	return err;
 out_release:
@@ -1244,7 +1244,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 		return err;
 
 	/* switch to address space of the network namespace */
-	printk("%s using net %px\n", __FUNCTION__, net);
+	//printk("%s using net %px\n", __FUNCTION__, net);
 	net_ns_use(net);
 
 	/*
@@ -2769,7 +2769,10 @@ static int __init sock_init(void)
 	err = register_filesystem(&sock_fs_type);
 	if (err)
 		goto out_fs;
+	net_ns_use(&init_net);
 	sock_mnt = kern_mount(&sock_fs_type);
+	net_ns_unuse(&init_net);
+
 	if (IS_ERR(sock_mnt)) {
 		err = PTR_ERR(sock_mnt);
 		goto out_mount;
