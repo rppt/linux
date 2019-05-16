@@ -38,19 +38,3 @@ struct mm_struct init_mm = {
 	.cpu_bitmap	= { [BITS_TO_LONGS(NR_CPUS)] = 0},
 	INIT_MM_CONTEXT(init_mm)
 };
-
-/* JKN: duplicate this for now, because calling allocate_mm() too early
-is crashing everything (during creation of init_net) */
-struct mm_struct init_netns_mm = {
-	.mm_rb		= RB_ROOT,
-	.pgd		= swapper_pg_dir,
-	.mm_users	= ATOMIC_INIT(2),
-	.mm_count	= ATOMIC_INIT(1),
-	.mmap_sem	= __RWSEM_INITIALIZER(init_netns_mm.mmap_sem),
-	.page_table_lock =  __SPIN_LOCK_UNLOCKED(init_netns_mm.page_table_lock),
-	.arg_lock	=  __SPIN_LOCK_UNLOCKED(init_netns_mm.arg_lock),
-	.mmlist		= LIST_HEAD_INIT(init_netns_mm.mmlist),
-	.user_ns	= &init_user_ns,
-	.cpu_bitmap	= { [BITS_TO_LONGS(NR_CPUS)] = 0},
-	INIT_MM_CONTEXT(init_netns_mm)
-};
