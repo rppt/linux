@@ -1525,6 +1525,7 @@ struct super_block {
 
 	spinlock_t		s_inode_wblist_lock;
 	struct list_head	s_inodes_wb;	/* writeback inodes */
+	struct kmem_cache *inode_cachep; /* where to allocate inodes from */
 } __randomize_layout;
 
 /* Helper functions so that in most cases filesystems will
@@ -2190,6 +2191,7 @@ struct file_system_type {
 	struct dentry *(*mount) (struct file_system_type *, int,
 		       const char *, void *);
 	void (*kill_sb) (struct super_block *);
+	struct super_block *(*alloc_super)(int flags, struct user_namespace *user_ns, void *data);
 	struct module *owner;
 	struct file_system_type * next;
 	struct hlist_head fs_supers;
@@ -2237,6 +2239,9 @@ static inline void kill_block_super(struct super_block *sb)
 	BUG();
 }
 #endif
+struct super_block *alloc_super(struct file_system_type *type, int flags,
+				       struct user_namespace *user_ns);
+void put_super(struct super_block *sb);
 void kill_anon_super(struct super_block *sb);
 void kill_litter_super(struct super_block *sb);
 void deactivate_super(struct super_block *sb);
@@ -2261,14 +2266,22 @@ extern struct dentry *mount_pseudo_xattr(struct file_system_type *, char *,
 					 const struct super_operations *ops,
 					 const struct xattr_handler **xattr,
 					 const struct dentry_operations *dops,
-					 unsigned long);
+					 unsigned long, void *);
 
 static inline struct dentry *
 mount_pseudo(struct file_system_type *fs_type, char *name,
 	     const struct super_operations *ops,
 	     const struct dentry_operations *dops, unsigned long magic)
 {
-	return mount_pseudo_xattr(fs_type, name, ops, NULL, dops, magic);
+	return mount_pseudo_xattr(fs_type, name, ops, NULL, dops, magic, NULL);
+}
+
+static inline struct dentry *
+mount_pseudo_ex(struct file_system_type *fs_type, char *name,
+	     const struct super_operations *ops,
+	     const struct dentry_operations *dops, unsigned long magic, void *data)
+{
+	return mount_pseudo_xattr(fs_type, name, ops, NULL, dops, magic, data);
 }
 
 /* Alas, no aliases. Too much hassle with bringing module.h everywhere */

@@ -196,7 +196,7 @@ static void destroy_unused_super(struct super_block *s)
  *	Allocates and initializes a new &struct super_block.  alloc_super()
  *	returns a pointer new superblock or %NULL if allocation had failed.
  */
-static struct super_block *alloc_super(struct file_system_type *type, int flags,
+struct super_block *alloc_super(struct file_system_type *type, int flags,
 				       struct user_namespace *user_ns)
 {
 	struct super_block *s = kzalloc(sizeof(struct super_block),  GFP_USER);
@@ -276,6 +276,7 @@ fail:
 	destroy_unused_super(s);
 	return NULL;
 }
+EXPORT_SYMBOL(alloc_super);
 
 /* Superblock refcounting  */
 
@@ -303,12 +304,13 @@ static void __put_super(struct super_block *s)
  *	Drops a temporary reference, frees superblock if there's no
  *	references left.
  */
-static void put_super(struct super_block *sb)
+void put_super(struct super_block *sb)
 {
 	spin_lock(&sb_lock);
 	__put_super(sb);
 	spin_unlock(&sb_lock);
 }
+EXPORT_SYMBOL(put_super);
 
 
 /**
@@ -606,7 +608,10 @@ retry:
 	}
 	if (!s) {
 		spin_unlock(&sb_lock);
-		s = alloc_super(type, (flags & ~SB_SUBMOUNT), user_ns);
+		if (type->alloc_super)
+			s = type->alloc_super((flags & ~SB_SUBMOUNT), user_ns, data);
+		else
+			s = alloc_super(type, (flags & ~SB_SUBMOUNT), user_ns);
 		if (!s)
 			return ERR_PTR(-ENOMEM);
 		goto retry;

@@ -317,24 +317,14 @@ static void cmp_pagedir(unsigned long *pgd1, unsigned long *pgd2)
 }
 */
 
-static void init_once(void *foo)
-{
-	struct socket_alloc *ei = (struct socket_alloc *)foo;
-
-	inode_init_once(&ei->vfs_inode);
-}
-
 static void net_on_page_alloc(struct kmem_cache *cache, struct page *p, int oo, void *data)
 {
 	struct net *tmp_ns;
 	struct net *current_ns = (struct net*)data;
 	unsigned long addr = (unsigned long)page_to_virt(p);
 	struct mm_struct *active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	//pgd_t *base = __va(read_cr3_pa());
 
-	printk("allocated page 0x%lx for netns=%px\n", addr, current_ns);
-	//printk("active mm=%px pgd=%px pa_pgd=%px\n", active_mm, active_mm->pgd, base);
-	printk("active mm=%px\n", active_mm);
+	printk("allocated page 0x%lx for netns=%px using mm=%px\n", addr, current_ns, active_mm);
 	if (current_ns->mm != active_mm)
 		printk("BUG: current_ns->mm != active_mm\n");
 
@@ -354,15 +344,14 @@ static void net_on_page_alloc(struct kmem_cache *cache, struct page *p, int oo, 
  */
 static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 {
-	struct mm_struct *active_mm;
+	//struct mm_struct *active_mm;
 
 	/* Must be called with pernet_ops_rwsem held */
 	const struct pernet_operations *ops, *saved_ops;
 	int error = 0;
-	char cache_name[24];
 	LIST_HEAD(net_exit_list);
 
-	printk("%s\n", __FUNCTION__);
+	printk("%s net=%px\n", __FUNCTION__, net);
 	refcount_set(&net->count, 1);
 	refcount_set(&net->passive, 1);
 	get_random_bytes(&net->hash_mix, sizeof(u32));
@@ -377,24 +366,13 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	net->cache_owner.data = net;
 
 	/* use the new net right away to finish initializing the objects */
-	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	printk("Switching to mm=%px\n", net->mm);
-	switch_mm(NULL, net->mm, NULL);
+	//active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	//printk("Switching to mm=%px\n", net->mm);
+	//switch_mm(NULL, net->mm, NULL);
 
-	sprintf(cache_name, "sock_cache_%08lx", ((long)net & 0xFFFFFFFF));
-	printk("NETNS: %s (%s)\n", __FUNCTION__, cache_name);
-	net->sock_inode_cachep = kmem_cache_create_ex(cache_name,
-					      sizeof(struct socket_alloc),
-					      0,
-					      (SLAB_HWCACHE_ALIGN |
-					       SLAB_RECLAIM_ACCOUNT |
-					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
-					      init_once, &net->cache_owner);
-
-	BUG_ON(net->sock_inode_cachep == NULL);
-
-	printk("Switching back to mm=%px\n", active_mm);
-	switch_mm(NULL, active_mm, NULL);
+	//BUG_ON(net->sb == NULL);
+	//printk("Switching back to mm=%px\n", active_mm);
+	//switch_mm(NULL, active_mm, NULL);
 
 	list_for_each_entry(ops, &pernet_list, list) {
 		error = ops_init(ops, net);
@@ -618,6 +596,12 @@ struct net *copy_net_ns(unsigned long flags,
 	}
 
 	printk("Created a new mm %px for netns %px pgd=%px\n", net->mm, net, net->mm->pgd);
+
+   net->sb = sock_alloc_super(0, &init_user_ns, net);
+   if (!net->sb) {
+		printk("Can't allocate superblock for init ns\n");
+			goto put_userns;
+   }
 
 	rv = down_read_killable(&pernet_ops_rwsem);
 	if (rv < 0)
@@ -1247,10 +1231,13 @@ static int __init net_ns_init(void)
 	printk("init_mm=%px init_mm.pgd=%px\n", &init_mm, init_mm.pgd);
 
 	init_net.mm = mm_alloc_k(&init_mm);
+	printk("NETNS: init_net=%px has mm=%px pgd=%px\n", &init_net, init_net.mm, init_net.mm->pgd);
 
 	down_write(&pernet_ops_rwsem);
 
-	printk("NETNS: init_net=%px has mm=%px pgd=%px\n", &init_net, init_net.mm, init_net.mm->pgd);
+	//init_net.sb = sock_alloc_super(0, &init_user_ns);
+	//if (!init_net.sb)
+	//	panic("Can't allocate superblock for init ns\n");
 
 	if (setup_net(&init_net, &init_user_ns))
 		panic("Could not setup the initial network namespace");

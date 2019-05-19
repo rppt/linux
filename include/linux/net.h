@@ -224,6 +224,8 @@ enum {
 	SOCK_WAKE_URG,
 };
 
+/* allocate a superblock suitable for inodes that will be used by sockets */
+struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data);
 int sock_wake_async(struct socket_wq *sk_wq, int how, int band);
 int sock_register(const struct net_proto_family *fam);
 void sock_unregister(int family);
@@ -232,7 +234,7 @@ int __sock_create(struct net *net, int family, int type, int proto,
 		  struct socket **res, int kern);
 int sock_create(int family, int type, int proto, struct socket **res);
 int sock_create_kern(struct net *net, int family, int type, int proto, struct socket **res);
-int sock_create_lite(int family, int type, int proto, struct socket **res);
+int sock_create_lite(struct net *net, int family, int type, int proto, struct socket **res);
 struct socket *sock_alloc(struct net *netns);
 void sock_release(struct socket *sock);
 int sock_sendmsg(struct socket *sock, struct msghdr *msg);

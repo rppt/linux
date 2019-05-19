@@ -2058,7 +2058,7 @@ __netlink_kernel_create(struct net *net, int unit, struct module *module,
 	if (unit < 0 || unit >= MAX_LINKS)
 		return NULL;
 
-	if (sock_create_lite(PF_NETLINK, SOCK_DGRAM, unit, &sock))
+	if (sock_create_lite(net, PF_NETLINK, SOCK_DGRAM, unit, &sock))
 		return NULL;
 
 	if (__netlink_create(net, sock, cb_mutex, unit, 1) < 0)
