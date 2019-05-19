@@ -241,27 +241,20 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 {
 	struct socket_alloc *ei;
 	struct socket_wq *wq;
-	struct net *net;
-	struct mm_struct *active_mm;
+	//struct net *net;
+	//struct mm_struct *active_mm;
 
-	if (current && current->nsproxy && current->nsproxy->net_ns) {
-		net = current->nsproxy->net_ns;
-		if (!net->sock_inode_cachep)
-			net = &init_net;
-	}
-	else
-		net =  &init_net;
+	//active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	//if (active_mm != net->mm)
+	if (!sb->inode_cachep)
+		printk("BUG!! %s no inode cache in sb=%px\n", __FUNCTION__, sb);
 
-	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	if (active_mm != net->mm)
-		printk("BUG!! %s active_mm %px != net->mm %px\n", __FUNCTION__, active_mm, net->mm);
-
-	ei = kmem_cache_alloc(net->sock_inode_cachep, GFP_KERNEL);
+	ei = kmem_cache_alloc(sb->inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
 	wq = kmalloc(sizeof(*wq), GFP_KERNEL);
 	if (!wq) {
-		kmem_cache_free(net->sock_inode_cachep, ei);
+		kmem_cache_free(sb->inode_cachep, ei);
 		return NULL;
 	}
 	init_waitqueue_head(&wq->wait);
@@ -287,7 +280,10 @@ static void sock_destroy_inode(struct inode *inode)
 	ei = container_of(inode, struct socket_alloc, vfs_inode);
 	net = inode->i_private;
 	kfree_rcu(ei->socket.wq, rcu);
-	kmem_cache_free(net->sock_inode_cachep, ei);
+
+	//printk("freeing sock inode %px from net %px cache %px\n", ei, net, net->sb->inode_cachep);
+	kmem_cache_free(net->sb->inode_cachep, ei);
+	//printk("%s done\n", __FUNCTION__);
 }
 
 static const struct super_operations sockfs_ops = {
@@ -355,7 +351,14 @@ static struct dentry *sockfs_mount(struct file_system_type *fs_type,
 {
 	return mount_pseudo_xattr(fs_type, "socket:", &sockfs_ops,
 				  sockfs_xattr_handlers,
-				  &sockfs_dentry_operations, SOCKFS_MAGIC);
+				  &sockfs_dentry_operations, SOCKFS_MAGIC, data);
+}
+
+static void init_once(void *foo)
+{
+	struct socket_alloc *ei = (struct socket_alloc *)foo;
+
+	inode_init_once(&ei->vfs_inode);
 }
 
 static struct vfsmount *sock_mnt __read_mostly;
@@ -364,7 +367,33 @@ static struct file_system_type sock_fs_type = {
 	.name =		"sockfs",
 	.mount =	sockfs_mount,
 	.kill_sb =	kill_anon_super,
+	.alloc_super = sock_alloc_super,
 };
+
+struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data)
+{
+	char cache_name[24];
+	struct super_block *sb;
+	struct net *net;
+
+	net = (struct net*)data;
+	sb = alloc_super(&sock_fs_type, (flags & ~SB_SUBMOUNT), user_ns);
+
+	// add a new cache for this superblock
+	sprintf(cache_name, "sock_cache_%08lx", ((long)data & 0xFFFFFFFF));
+	printk("%s (%s) sb=%px\n", __FUNCTION__, cache_name, sb);
+	sb->inode_cachep = kmem_cache_create_ex(cache_name,
+					      sizeof(struct socket_alloc),
+					      0,
+					      (SLAB_HWCACHE_ALIGN |
+					       SLAB_RECLAIM_ACCOUNT |
+					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
+					      init_once, &net->cache_owner);
+
+	BUG_ON(sb->inode_cachep == NULL);
+
+	return sb;
+}
 
 /*
  *	Obtains the first available file descriptor and sets it up for use.
@@ -549,7 +578,8 @@ struct socket *sock_alloc(struct net *netns)
 	if (active_mm != netns->mm)
 		printk("BUG!! %s net=%px active_mm=%px\n", __FUNCTION__, netns, active_mm);
 
-	inode = new_inode_pseudo(sock_mnt->mnt_sb);
+	printk("allocating socket from sb=%px\n", netns->sb);
+	inode = new_inode_pseudo(netns->sb);
 	if (!inode)
 		return NULL;
 
@@ -577,6 +607,7 @@ EXPORT_SYMBOL(sock_alloc);
 
 static void __sock_release(struct socket *sock, struct inode *inode)
 {
+	printk("%s socket=%px inode=%px\n", __FUNCTION__, sock, inode);
 	if (sock->ops) {
 		struct module *owner = sock->ops->owner;
 
@@ -1083,7 +1114,7 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	return err;
 }
 
-int sock_create_lite(int family, int type, int protocol, struct socket **res)
+int sock_create_lite(struct net *net_ns, int family, int type, int protocol, struct socket **res)
 {
 	int err;
 	struct socket *sock = NULL;
@@ -1093,10 +1124,11 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 		goto out;
 
 	/* switch to address space of the network namespace */
-	printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
-	net_ns_use(current->nsproxy->net_ns);
-	sock = sock_alloc(current->nsproxy->net_ns);
-	net_ns_unuse(current->nsproxy->net_ns);
+	printk("%s using net %px\n", __FUNCTION__, net_ns);
+//current->nsproxy->net_ns
+	net_ns_use(net_ns);
+	sock = sock_alloc(net_ns);
+	net_ns_unuse(net_ns);
 
 	if (!sock) {
 		err = -ENOMEM;
@@ -2770,7 +2802,8 @@ static int __init sock_init(void)
 	if (err)
 		goto out_fs;
 	net_ns_use(&init_net);
-	sock_mnt = kern_mount(&sock_fs_type);
+	sock_mnt = kern_mount_data(&sock_fs_type, &init_net);
+	init_net.sb = sock_mnt->mnt_sb; // point to the init netns superblock created by mount
 	net_ns_unuse(&init_net);
 
 	if (IS_ERR(sock_mnt)) {
@@ -3355,7 +3388,7 @@ int kernel_accept(struct socket *sock, struct socket **newsock, int flags)
 	struct sock *sk = sock->sk;
 	int err;
 
-	err = sock_create_lite(sk->sk_family, sk->sk_type, sk->sk_protocol,
+	err = sock_create_lite(sock_net(sk), sk->sk_family, sk->sk_type, sk->sk_protocol,
 			       newsock);
 	if (err < 0)
 		goto done;

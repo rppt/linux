@@ -239,7 +239,7 @@ static const struct super_operations simple_super_operations = {
  */
 struct dentry *mount_pseudo_xattr(struct file_system_type *fs_type, char *name,
 	const struct super_operations *ops, const struct xattr_handler **xattr,
-	const struct dentry_operations *dops, unsigned long magic)
+	const struct dentry_operations *dops, unsigned long magic, void *data)
 {
 	struct super_block *s;
 	struct dentry *dentry;
@@ -247,7 +247,7 @@ struct dentry *mount_pseudo_xattr(struct file_system_type *fs_type, char *name,
 	struct qstr d_name = QSTR_INIT(name, strlen(name));
 
 	s = sget_userns(fs_type, NULL, set_anon_super, SB_KERNMOUNT|SB_NOUSER,
-			&init_user_ns, NULL);
+			&init_user_ns, data);
 	if (IS_ERR(s))
 		return ERR_CAST(s);
 

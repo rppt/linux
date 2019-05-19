@@ -19,7 +19,7 @@
 
 
 typedef void (*page_alloc_cb)(struct kmem_cache *, struct page *, int, void*);
-typedef void (*page_free_cb)(struct kmem_cache *, struct page *, int, void*);
+typedef void (*page_free_cb)(struct kmem_cache *, struct page *, void*);
 
 struct kmem_cache_owner {
 	void *data;

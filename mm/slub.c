@@ -2992,6 +2992,11 @@ redo:
 			note_cmpxchg_failure("slab_free", s, tid);
 			goto redo;
 		}
+
+		// notify cache owner that a page was freed
+		if (s->owner && s->owner->on_page_free)
+			s->owner->on_page_free(s, page, s->owner->data);
+
 		stat(s, FREE_FASTPATH);
 	} else
 		__slab_free(s, page, head, tail_obj, cnt, addr);
