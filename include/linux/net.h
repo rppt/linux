@@ -225,7 +225,7 @@ enum {
 };
 
 /* allocate a superblock suitable for inodes that will be used by sockets */
-struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data);
+struct super_block *sock_new_super(int flags, struct net *net);
 int sock_wake_async(struct socket_wq *sk_wq, int how, int band);
 int sock_register(const struct net_proto_family *fam);
 void sock_unregister(int family);

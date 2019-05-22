@@ -171,7 +171,6 @@ struct net {
 	atomic_t		fnhe_genid;
 	struct mm_struct *mm;
 	struct super_block *sb;
-	//struct kmem_cache *sock_inode_cachep;
 	struct kmem_cache_owner cache_owner;
 } __randomize_layout;
 

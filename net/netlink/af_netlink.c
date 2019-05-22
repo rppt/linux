@@ -664,6 +664,7 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	void (*unbind)(struct net *net, int group);
 	int err = 0;
 
+	printk("%s net=%px socket=%px\n", __FUNCTION__, net, sock);
 	sock->state = SS_UNCONNECTED;
 
 	if (sock->type != SOCK_RAW && sock->type != SOCK_DGRAM)
@@ -694,7 +695,9 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	if (err < 0)
 		goto out;
 
+	net_ns_use(net);
 	err = __netlink_create(net, sock, cb_mutex, protocol, kern);
+	net_ns_unuse(net);
 	if (err < 0)
 		goto out_module;
 
@@ -2059,7 +2062,7 @@ __netlink_kernel_create(struct net *net, int unit, struct module *module,
 		return NULL;
 
 	if (sock_create_lite(net, PF_NETLINK, SOCK_DGRAM, unit, &sock))
-		return NULL;
+		goto out_netns;
 
 	if (__netlink_create(net, sock, cb_mutex, unit, 1) < 0)
 		goto out_sock_release_nosk;
@@ -2113,6 +2116,8 @@ out_sock_release:
 
 out_sock_release_nosk:
 	sock_release(sock);
+
+out_netns:
 	return NULL;
 }
 EXPORT_SYMBOL(__netlink_kernel_create);

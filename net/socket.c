@@ -135,6 +135,7 @@ static ssize_t sock_splice_read(struct file *file, loff_t *ppos,
 				struct pipe_inode_info *pipe, size_t len,
 				unsigned int flags);
 
+static struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data);
 /*
  *	Socket files have a set of 'special' operations as well as the generic file ones. These don't appear
  *	in the operation structures but are done directly via the socketcall() multiplexor.
@@ -243,13 +244,11 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 {
 	struct socket_alloc *ei;
 	struct socket_wq *wq;
-	//struct net *net;
-	//struct mm_struct *active_mm;
+	struct mm_struct *active_mm;
 
-	//active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	//if (active_mm != net->mm)
-	if (!sb->inode_cachep)
-		printk("BUG!! %s no inode cache in sb=%px\n", __FUNCTION__, sb);
+	//printk("[%i] %s\n", current->pid, __FUNCTION__);
+
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 
 	ei = kmem_cache_alloc(sb->inode_cachep, GFP_KERNEL);
 	if (!ei)
@@ -259,6 +258,7 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 		kmem_cache_free(sb->inode_cachep, ei);
 		return NULL;
 	}
+	//printk("%s from active_mm=%px wq=%px\n", __FUNCTION__, active_mm, wq);
 	init_waitqueue_head(&wq->wait);
 	wq->fasync_list = NULL;
 	wq->flags = 0;
@@ -372,7 +372,28 @@ static struct file_system_type sock_fs_type = {
 	.alloc_super = sock_alloc_super,
 };
 
-struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data)
+/* Used to create a new sockets superblock without mounting it */
+/* This is used when a new network namespace is created */
+struct super_block *sock_new_super(int flags, struct net *net)
+{
+	struct super_block *s = sock_alloc_super(0, &init_user_ns, net);
+	if (!s) {
+		printk("%s cant alloc\n", __FUNCTION__);
+		return NULL;
+	}
+
+	s->s_maxbytes = MAX_LFS_FILESIZE;
+	s->s_blocksize = PAGE_SIZE;
+	s->s_blocksize_bits = PAGE_SHIFT;
+	s->s_magic = SOCKFS_MAGIC;
+	s->s_op = &sockfs_ops;
+	s->s_xattr = sockfs_xattr_handlers;
+	s->s_time_gran = 1;
+
+	return s;
+}
+
+static struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, void *data)
 {
 	char cache_name[24];
 	struct super_block *sb;
@@ -383,7 +404,7 @@ struct super_block *sock_alloc_super(int flags, struct user_namespace *user_ns, 
 
 	// add a new cache for this superblock
 	sprintf(cache_name, "sock_cache_%08lx", ((long)data & 0xFFFFFFFF));
-	printk("%s (%s) sb=%px\n", __FUNCTION__, cache_name, sb);
+	//printk("%s (%s) sb=%px\n", __FUNCTION__, cache_name, sb);
 	sb->inode_cachep = kmem_cache_create_ex(cache_name,
 					      sizeof(struct socket_alloc),
 					      0,
@@ -595,17 +616,20 @@ struct socket *sock_alloc(struct net *netns)
 	struct socket *sock;
 	struct mm_struct *active_mm;
 
-	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-
-	if (active_mm != netns->mm)
-		printk("BUG!! %s net=%px active_mm=%px\n", __FUNCTION__, netns, active_mm);
-
-	printk("allocating socket from sb=%px\n", netns->sb);
+	//printk("[%i] %s from ns=%px\n", current->pid, __FUNCTION__, netns);
+	//printk("sb=%px\n", netns->sb);
+	if (!netns->sb->s_op || !netns->sb->s_op->alloc_inode) {
+		printk("We've got ops problems\n");
+	}
 	inode = new_inode_pseudo(netns->sb);
-	if (!inode)
+	if (!inode) {
+		printk("inode creation failed\n");
 		return NULL;
+	}
 
 	sock = SOCKET_I(inode);
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	//printk("%s sock=%px from net=%px active_mm=%px\n", __FUNCTION__, sock, netns, active_mm);
 
 	inode->i_ino = get_next_ino();
 	inode->i_mode = S_IFSOCK | S_IRWXUGO;
@@ -629,7 +653,7 @@ EXPORT_SYMBOL(sock_alloc);
 
 static void __sock_release(struct socket *sock, struct inode *inode)
 {
-	printk("%s socket=%px inode=%px\n", __FUNCTION__, sock, inode);
+	//printk("%s socket=%px inode=%px\n", __FUNCTION__, sock, inode);
 	if (sock->ops) {
 		struct module *owner = sock->ops->owner;
 
@@ -1256,12 +1280,7 @@ int sock_create_lite(struct net *net_ns, int family, int type, int protocol, str
 	if (err)
 		goto out;
 
-	/* switch to address space of the network namespace */
-	printk("%s using net %px\n", __FUNCTION__, net_ns);
-//current->nsproxy->net_ns
-	net_ns_use(net_ns);
 	sock = sock_alloc(net_ns);
-	net_ns_unuse(net_ns);
 
 	if (!sock) {
 		err = -ENOMEM;
@@ -1424,7 +1443,6 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 		return err;
 
 	/* switch to address space of the network namespace */
-	//printk("%s using net %px\n", __FUNCTION__, net);
 	net_ns_use(net);
 
 	/*
@@ -1439,7 +1457,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 				   closest posix thing */
 	}
 
-	//printk("%s %px using net %px\n", __FUNCTION__, sock, net);
+	printk("[%i] %s created %px using net %px\n", current->pid, __FUNCTION__, sock, net);
 	sock->type = type;
 
 #ifdef CONFIG_MODULES
@@ -1779,7 +1797,7 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 	err = -ENFILE;
 
 	/* switch to address space of the network namespace */
-	printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
+	//printk("%s using net %px\n", __FUNCTION__, current->nsproxy->net_ns);
 	net_ns_use(current->nsproxy->net_ns);
 
 	newsock = sock_alloc(current->nsproxy->net_ns);
@@ -2003,8 +2021,10 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 	task_ns = current->nsproxy->net_ns;
 	sk_ns = sock_net(sock->sk);
 	if (sk_ns != task_ns) {
-		printk("** ERROR %s ** pid=%i netns=%px socket=%px netns=%px\n",
-			__FUNCTION__, current->pid, task_ns, sock, sk_ns);
+		printk("[%i] ** ERROR %s ** netns=%px socket=%px netns=%px\n",
+			current->pid, __FUNCTION__, task_ns, sock, sk_ns);
+		dump_pgd(task_ns->mm->pgd, sock);
+		dump_pgd(sk_ns->mm->pgd, sock);
 	}
 	net_ns_use(task_ns);
 	msg.msg_name = NULL;
@@ -2120,12 +2140,22 @@ static int __sys_setsockopt(int fd, int level, int optname,
 {
 	int err, fput_needed;
 	struct socket *sock;
+	struct net *sk_ns, *task_ns;
 
 	if (optlen < 0)
 		return -EINVAL;
 
+	task_ns = current->nsproxy->net_ns;
+
 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
 	if (sock != NULL) {
+		sk_ns = sock_net(sock->sk);
+		if (sk_ns != task_ns) {
+			printk("** ERROR %s ** pid=%i netns=%px socket=%px netns=%px\n",
+				__FUNCTION__, current->pid, task_ns, sock, sk_ns);
+		}
+		//printk("%s socket=%px net=%px\n", __FUNCTION__, sock, task_ns);
+		net_ns_use(task_ns);
 		err = security_socket_setsockopt(sock, level, optname);
 		if (err)
 			goto out_put;
@@ -2141,6 +2171,8 @@ static int __sys_setsockopt(int fd, int level, int optname,
 out_put:
 		fput_light(sock->file, fput_needed);
 	}
+	net_ns_unuse(task_ns);
+
 	return err;
 }
 

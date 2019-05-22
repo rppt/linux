@@ -597,6 +597,7 @@ static void slab_caches_to_rcu_destroy_workfn(struct work_struct *work)
 	LIST_HEAD(to_destroy);
 	struct kmem_cache *s, *s2;
 
+	printk("%s\n", __FUNCTION__);
 	/*
 	 * On destruction, SLAB_TYPESAFE_BY_RCU kmem_caches are put on the
 	 * @slab_caches_to_rcu_destroy list.  The slab pages are freed
@@ -908,6 +909,7 @@ static void flush_memcg_workqueue(struct kmem_cache *s)
 	s->memcg_params.dying = true;
 	mutex_unlock(&slab_mutex);
 
+	printk("%s - %px\n", __FUNCTION, s);
 	/*
 	 * SLUB deactivates the kmem_caches through call_rcu. Make
 	 * sure all registered rcu callbacks have been invoked.
