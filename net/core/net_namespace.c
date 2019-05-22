@@ -295,47 +295,34 @@ struct net *get_net_ns_by_id(struct net *net, int id)
 	return peer;
 }
 
-/*
-static void dump_pagedir(pgd_t *base)
-{
-	int i;
-	printk("Page Directory @ %lx\n", __pa(base));
-	for (i=0; i < PTRS_PER_PGD; i++)
-		printk("%lx%c", base[i], (i % 4 == 3) ? '\n' : '\t');
-}
-
-static void cmp_pagedir(unsigned long *pgd1, unsigned long *pgd2)
-{
-	int i;
-	for (i=0; i < PTRS_PER_PGD; i++) {
-		if (pgd1[i] != pgd2[i]) {
-			printk("index=%i %lx != %lx\n", i, pgd1[i], pgd2[i]);
-			//pgd2[i] = pgd1[i];
-		}
-	}
-}
-*/
-
 static void net_on_page_alloc(struct kmem_cache *cache, struct page *p, int oo, void *data)
 {
 	struct net *tmp_ns;
 	struct net *current_ns = (struct net*)data;
 	unsigned long addr = (unsigned long)page_to_virt(p);
-	struct mm_struct *active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 
-	printk("allocated page 0x%lx for netns=%px using mm=%px\n", addr, current_ns, active_mm);
-	if (current_ns->mm != active_mm)
-		printk("BUG: current_ns->mm != active_mm\n");
+	// if we are in one address space, but allocating objects for another address space
+	// (which could be the case during setup of a new namespace) then don't unmap anything
+	if (current->nsproxy->net_ns != current_ns) {
+		printk("%s - problem with the current ns %px %px\n", __FUNCTION__,
+			current->nsproxy->net_ns, current_ns);
+		//return;
+	}
 
-	dump_pgd(active_mm->pgd, addr);
+	printk("Unmapping from 0x%lx to 0x%lx\n", addr, addr + (PAGE_SIZE << oo)-1);
 	for_each_net(tmp_ns) {
 		if (tmp_ns != current_ns) {
-			printk("Unmapping from 0x%lx to 0x%lx nets=%px\n",
-				addr, addr + (PAGE_SIZE << oo), tmp_ns);
-			dump_pgd(tmp_ns->mm->pgd, addr);
-			kunmap_page_range(tmp_ns->mm, addr, addr + (PAGE_SIZE << oo));
+			printk("  - ns=%px mm=%px pgd=%px\n", tmp_ns, tmp_ns->mm, tmp_ns->mm->pgd);
+
+			kunmap_page_range(tmp_ns->mm, addr, addr + (PAGE_SIZE << oo)-1);
 		}
 	}
+}
+
+static void net_on_page_free(struct kmem_cache *cache, struct page *p, void *data)
+{
+	unsigned long addr = (unsigned long)page_to_virt(p);
+	printk("page %lx was freed\n", addr);
 }
 
 /*
@@ -343,7 +330,7 @@ static void net_on_page_alloc(struct kmem_cache *cache, struct page *p, int oo, 
  */
 static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 {
-	//struct mm_struct *active_mm;
+	struct mm_struct *active_mm;
 
 	/* Must be called with pernet_ops_rwsem held */
 	const struct pernet_operations *ops, *saved_ops;
@@ -360,28 +347,27 @@ static __net_init int setup_net(struct net *net, struct user_namespace *user_ns)
 	mutex_init(&net->ipv4.ra_mutex);
 
 	net->cache_owner.on_page_alloc = net_on_page_alloc;
-	net->cache_owner.on_page_free = NULL;
+	net->cache_owner.on_page_free = net_on_page_free;
 	net->cache_owner.data = net;
 
 	/* use the new net right away to finish initializing the objects */
-	//active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	//printk("Switching to mm=%px\n", net->mm);
-	//switch_mm(NULL, net->mm, NULL);
-
-	//BUG_ON(net->sb == NULL);
-	//printk("Switching back to mm=%px\n", active_mm);
-	//switch_mm(NULL, active_mm, NULL);
+	active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	switch_mm(NULL, net->mm, NULL);
 
 	list_for_each_entry(ops, &pernet_list, list) {
 		error = ops_init(ops, net);
-		if (error < 0)
+		if (error < 0) {
 			goto out_undo;
+		}
 	}
+
 	down_write(&net_rwsem);
 	list_add_tail_rcu(&net->list, &net_namespace_list);
 	up_write(&net_rwsem);
 
 out:
+	printk("%s - done; switching back to mm=%px\n", __FUNCTION__, active_mm);
+	switch_mm(NULL, active_mm, NULL);
 	return error;
 
 out_undo:
@@ -448,7 +434,7 @@ static struct net *net_alloc(void)
 	if (!net)
 		goto out_free;
 
-	printk("%s %px\n", __FUNCTION__, net);
+	//printk("%s %px\n", __FUNCTION__, net);
 	rcu_assign_pointer(net->gen, ng);
 out:
 	return net;
@@ -474,81 +460,41 @@ void net_drop_ns(void *p)
 		net_free(ns);
 }
 
-/* allow access to all data owned by this ns */
+/* allow access to all data owned by this ns
+   There are two entities which may call this function - kernel or user.
+	If the kernel calls, it may be during system initialization (i.e.
+	creation of the default net namespace) during which there is no
+	'current' task. In the normal case, a user program calls this, in
+	which case there is a 'current' task. */
 void net_ns_use(struct net *net)
 {
-	struct mm_struct *active_mm;
-	if (!net) {
-		printk("net_ns_use empty ns\n");
-		return;
+	if (current && current->mm) {
+		printk("[%i] %s net=%px\n", current->pid, __FUNCTION__, net);
+		/* prepare the task's mm by overwriting the kernel
+			mappings with the values from the netns */
+			clone_pgd_range_k(current->mm->pgd + KERNEL_PGD_BOUNDARY,
+				net->mm->pgd + KERNEL_PGD_BOUNDARY,
+				KERNEL_PGD_PTRS);
+			switch_mm(current->mm, current->mm, NULL);
+	}  else {
+		/* otherwise, just use the netns mm directly */
+		switch_mm(NULL, net->mm, NULL);
 	}
-
-	if (!net->mm) {
-		printk("pid=%i net_ns_use empty ns mm (%px)\n", current->pid, net);
-		return;
-	}
-
-	if (!net || !net->mm)
-		return;
-
-	if (current && current->mm && current->mm->pgd) {
-		current->netns_refcount++; // should be atomic inc
-		//printk("NETNS: pid=%i use ns=%px (%i)\n", current->pid, net, current->netns_refcount);
-
-		if (current->netns_refcount == 1) {
-			// save the currently active mm for restoring later
-			current->netns_mm = net->mm;
-
-			/* prepare the net mm by overwriting the user
-				mappings with the values from the currently
-				running userspace program */
-			clone_pgd_range_k(net->mm->pgd,
-				current->mm->pgd,
-				USER_PGD_PTRS);
-			active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-			//if (((unsigned long )net & 0xFFF) == 0) {
-				//cmp_pagedir((unsigned long*)active_mm->pgd, (unsigned long*)net->mm->pgd);
-			//}
-			//printk("%s switching to %px\n", __FUNCTION__, net->mm);
-			//switch_mm(active_mm, net->mm, NULL);
-		}
-	} else {
-		active_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	}
-	//printk("NETNS: switching to mm %px\n", net->mm);
-	switch_mm(NULL, net->mm, NULL);
 }
-
+	
 void net_ns_unuse(struct net *net)
 {
-	//struct mm_struct *target_mm;
-
-	if (current && current->mm && current->mm->pgd) {
-		current->netns_refcount--; // should be atomic dec
-		//printk("NETNS: pid=%i unuse ns=%px (%i)\n", current->pid, net, current->netns_refcount);
-
-		if (current->netns_refcount == 0) {
-			// current process is leaving the netns
-			current->netns_mm = NULL;
-			//printk("switching back to %px\n", current->mm);
-			switch_mm(NULL, current->mm, NULL);
-		}
+	if (current && current->mm) {
+		printk("[%i] %s net=%px\n", current->pid, __FUNCTION__, net);
+		/* reverse the process by getting the init_mm kernel entries back */
+			clone_pgd_range_k(current->mm->pgd + KERNEL_PGD_BOUNDARY,
+				init_mm.pgd + KERNEL_PGD_BOUNDARY,
+				KERNEL_PGD_PTRS);
+			switch_mm(current->mm, current->mm, NULL);
+	}  else {
+		/* otherwise, just use the init mm directly */
+		switch_mm(NULL, &init_mm, NULL);
 	}
-/*
-	if (net->active_pid != current->pid) {
-		printk("WARNING: pid=%i is using netns, but pid=%i is trying to unuse it!\n",
-			net->active_pid, current->pid);
-	}
-	if (net->active_mm && net->active_mm != net->mm) {
-		target_mm = net->active_mm;
-		net->active_mm = NULL;
-		printk("NETNS: pid %i switching back from mm %px to mm %px\n",
-			current?current->pid:-1, net->mm, target_mm);
-		switch_mm(net->mm, target_mm, NULL);
-	}
-*/
-	//printk("switching back to %px\n", &init_mm);
-	switch_mm(NULL, &init_mm, NULL);
 }
 
 struct net *copy_net_ns(unsigned long flags,
@@ -560,7 +506,6 @@ struct net *copy_net_ns(unsigned long flags,
 
 	printk("copy_net_ns from %px\n", old_net);
 	if (!(flags & CLONE_NEWNET)) {
-		printk("reusing existing netns\n");
 		return get_net(old_net);
 	}
 
@@ -573,29 +518,26 @@ struct net *copy_net_ns(unsigned long flags,
 		rv = -ENOMEM;
 		goto dec_ucounts;
 	}
-	printk("Allocated netns %px\n", net);
 	refcount_set(&net->passive, 1);
 	net->ucounts = ucounts;
 	get_user_ns(user_ns);
 
-	/* create a new address space to protect netns data */
-	/* JKN: this should be percpu eventually, since we need
-		to support multiple processes (i.e. userland mappings)
-		from the same namespace on different CPUs simultaneously.
-
+	/* create a new address space to protect netns data
 		The mm must be created before calling the pernet init
 		functions, since they will use the netns and rely on it
 		being available.
 	*/
-	net->mm = mm_alloc_k(&init_mm); // maybe this should be old_net->mm ?
-	if (!net->mm) {
-		printk("Error allocating mm\n");
+	net->mm = mm_alloc_k(&init_mm);
+	if (!net->mm)
 		rv = -ENOMEM;
-	}
 
-	printk("Created a new mm %px for netns %px pgd=%px\n", net->mm, net, net->mm->pgd);
+	//printk("Created a new mm %px for netns %px pgd=%px\n", net->mm, net, net->mm->pgd);
 
-   net->sb = sock_alloc_super(0, &init_user_ns, net);
+	/* Create a sockets superblock which will tie the kmem_cache to
+		the namespace. When new inodes are allocated during socket
+		creation, they will come from the cache associated with this
+		superblock */
+   net->sb = sock_new_super(0, net);
    if (!net->sb) {
 		printk("Can't allocate superblock for init ns\n");
 			goto put_userns;
@@ -605,6 +547,7 @@ struct net *copy_net_ns(unsigned long flags,
 	if (rv < 0)
 		goto put_userns;
 
+	/* Now we can continue to set up the rest of the namespace */
 	rv = setup_net(net, user_ns);
 
 	up_read(&pernet_ops_rwsem);
@@ -730,6 +673,7 @@ static void cleanup_net(struct work_struct *work)
 	/* Ensure there are no outstanding rcu callbacks using this
 	 * network namespace.
 	 */
+	printk("%s\n", __FUNCTION__);
 	rcu_barrier();
 
 	/* Finally it is safe to free my network namespace structure */
@@ -852,7 +796,6 @@ static int rtnl_net_newid(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct net *peer;
 	int nsid, err;
 
-	printk("%s\n", __FUNCTION__);
 	err = nlmsg_parse(nlh, sizeof(struct rtgenmsg), tb, NETNSA_MAX,
 			  rtnl_net_policy, extack);
 	if (err < 0)
@@ -1189,16 +1132,12 @@ static int __init net_ns_init(void)
 
 	rcu_assign_pointer(init_net.gen, ng);
 
-	printk("init_mm=%px init_mm.pgd=%px\n", &init_mm, init_mm.pgd);
+	//printk("init_mm=%px init_mm.pgd=%px\n", &init_mm, init_mm.pgd);
 
 	init_net.mm = mm_alloc_k(&init_mm);
 	printk("NETNS: init_net=%px has mm=%px pgd=%px\n", &init_net, init_net.mm, init_net.mm->pgd);
 
 	down_write(&pernet_ops_rwsem);
-
-	//init_net.sb = sock_alloc_super(0, &init_user_ns);
-	//if (!init_net.sb)
-	//	panic("Can't allocate superblock for init ns\n");
 
 	if (setup_net(&init_net, &init_user_ns))
 		panic("Could not setup the initial network namespace");
@@ -1306,6 +1245,7 @@ static int register_pernet_operations(struct list_head *list,
 	}
 	error = __register_pernet_operations(list, ops);
 	if (error) {
+	printk("%s\n", __FUNCTION__);
 		rcu_barrier();
 		if (ops->id)
 			ida_free(&net_generic_ids, *ops->id);
@@ -1317,6 +1257,7 @@ static int register_pernet_operations(struct list_head *list,
 static void unregister_pernet_operations(struct pernet_operations *ops)
 {
 	__unregister_pernet_operations(ops);
+	printk("%s\n", __FUNCTION__);
 	rcu_barrier();
 	if (ops->id)
 		ida_free(&net_generic_ids, *ops->id);

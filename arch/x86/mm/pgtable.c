@@ -542,7 +542,6 @@ static int clone_pgtable_k(pgd_t *new_pgd, pgd_t *parent_pgd)
 	memcpy((void*)new_pgd, (void*)parent_pgd, PAGE_SIZE);
 
 	// fix up kernel entries
-	//for (idx = KERNEL_PGD_BOUNDARY; idx < PTRS_PER_PGD; idx++) {
 	for (idx = KERNEL_PGD_BOUNDARY; idx < pgd_index(0xffffc88000000000); idx++) {
 		if (parent_pgd[idx].pgd & _PAGE_PRESENT) {
 			unsigned long new_pud_page = get_zeroed_page(GFP_KERNEL);
@@ -550,7 +549,6 @@ static int clone_pgtable_k(pgd_t *new_pgd, pgd_t *parent_pgd)
 				printk("Can't allocate PUD\n");
 				return -1;
 			}
-			//memcpy((void*)new_p4d_page, (void*)pgd_page_vaddr(parent_pgd[idx]), PAGE_SIZE);
 			flags = pgd_flags(parent_pgd[idx]);
 			set_pgd(&new_pgd[idx].pgd, __pgd(flags | __pa(new_pud_page)));
 			printk("PGD[%i] %lx -> %lx\n", idx, parent_pgd[idx].pgd, new_pgd[idx].pgd);

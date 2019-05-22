@@ -271,6 +271,7 @@
 #include <linux/slab.h>
 #include <linux/errqueue.h>
 #include <linux/static_key.h>
+#include <linux/kdebug.h>
 
 #include <net/icmp.h>
 #include <net/inet_common.h>
@@ -1444,8 +1445,10 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	task_ns = current->nsproxy->net_ns;
 	sk_ns = sock_net(sk);
 	if (sk_ns != task_ns) {
-		printk("** NS ERROR ** pid=%i netns=%px socket=%px netns=%px\n",
-			current->pid, task_ns, sk->sk_socket, sk_ns);
+		printk("[%i] ** ERROR: %s netns=%px socket=%px netns=%px\n",
+			current->pid, __FUNCTION__, task_ns, sk->sk_socket, sk_ns);
+		dump_pgd(task_ns->mm->pgd, sk->sk_socket);
+		dump_pgd(sk_ns->mm->pgd, sk->sk_socket);
 	}
 
 	net_ns_use(task_ns);

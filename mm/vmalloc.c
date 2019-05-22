@@ -125,8 +125,10 @@ void kunmap_page_range(struct mm_struct *mm, unsigned long addr, unsigned long e
 
 	BUG_ON(addr >= end);
 	pgd = pgd_offset(mm, addr);
-	//printk("Unmapping 0x%lx @ mm=%px pgd=%px\n", addr, mm, mm->pgd);
+	printk("Unmapping 0x%lx @ mm=%px pgd=%px\n", addr, mm, mm->pgd);
 	//dump_pgd(mm->pgd, addr);
+	// test to see if we have to break up a PMD (2MB page) into smaller pieces
+
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
