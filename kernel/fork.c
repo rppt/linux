@@ -94,6 +94,7 @@
 #include <linux/livepatch.h>
 #include <linux/thread_info.h>
 #include <linux/stackleak.h>
+#include <linux/proclocal.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -1059,6 +1060,11 @@ static inline void __mmput(struct mm_struct *mm)
 	exit_mmap(mm);
 	mm_put_huge_zero_page(mm);
 	set_mm_exe_file(mm, NULL);
+	/*
+	 * No real users of this address space left, dropping process-local
+	 * mappings.
+	 */
+	proclocal_mm_exit(mm);
 	if (!list_empty(&mm->mmlist)) {
 		spin_lock(&mmlist_lock);
 		list_del(&mm->mmlist);

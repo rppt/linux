@@ -164,6 +164,15 @@ struct page {
 
 		/** @rcu_head: You can use this to free a page by RCU. */
 		struct rcu_head rcu_head;
+
+#ifdef CONFIG_PROCLOCAL
+		struct {	/* PROCLOCAL pages */
+			struct list_head proclocal_next; /* track pages in one allocation */
+			unsigned long _proclocal_pad_1; /* mapping */
+			/* head page of an allocation stores its length */
+			size_t proclocal_nr_pages;
+		};
+#endif
 	};
 
 	union {		/* This union is 4 bytes in size. */
