@@ -1226,6 +1226,15 @@ static bool fault_in_user_exclusive_page(unsigned long address)
 	return page_is_user_exclusive(page);
 }
 
+static int fault_in_exclusive_mapping(unsigned long address)
+{
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	return address >= EXCLUSIVE_START && address < (EXCLUSIVE_START + EXCLUSIVE_SIZE);
+#else
+	return false;
+#endif
+}
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1272,6 +1281,16 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	/* FIXME: warn and handle gracefully */
 	if (unlikely(fault_in_user_exclusive_page(address))) {
 		pr_err("page fault in user exclusive page at %lx", address);
+		force_sig_fault(SIGSEGV, SEGV_MAPERR, (void __user *)address);
+	}
+
+	/*
+	 * Faults in process-local memory may be caused by process-local
+	 * addresses leaking into other contexts.
+	 * tbd: warn and handle gracefully.
+	 */
+	if (unlikely(fault_in_exclusive_mapping(address))) {
+		pr_err("page fault in EXCLUSIVE at %lx", address);
 		force_sig_fault(SIGSEGV, SEGV_MAPERR, (void __user *)address);
 	}
 

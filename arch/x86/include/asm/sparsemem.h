@@ -27,8 +27,13 @@
 # endif
 #else /* CONFIG_X86_32 */
 # define SECTION_SIZE_BITS	27 /* matt - 128 is convenient right now */
+# ifdef CONFIG_EXCLUSIVE_MAPPINGS
+#  define __MAX_PHYSMEM_BITS 45
+# else
+#  define __MAX_PHYSMEM_BITS 46
+# endif
 # define MAX_PHYSADDR_BITS	(pgtable_l5_enabled() ? 52 : 44)
-# define MAX_PHYSMEM_BITS	(pgtable_l5_enabled() ? 52 : 46)
+# define MAX_PHYSMEM_BITS	(pgtable_l5_enabled() ? 52 : __MAX_PHYSMEM_BITS)
 #endif
 
 #endif /* CONFIG_SPARSEMEM */
