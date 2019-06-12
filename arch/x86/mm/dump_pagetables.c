@@ -57,6 +57,9 @@ enum address_markers_idx {
 	LDT_NR,
 #endif
 	LOW_KERNEL_NR,
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	EXCLUSIVE_START_NR,
+#endif
 	VMALLOC_START_NR,
 	VMEMMAP_START_NR,
 #ifdef CONFIG_KASAN
@@ -81,6 +84,9 @@ static struct addr_marker address_markers[] = {
 	[USER_SPACE_NR]		= { 0,			"User Space" },
 	[KERNEL_SPACE_NR]	= { (1UL << 63),	"Kernel Space" },
 	[LOW_KERNEL_NR]		= { 0UL,		"Low Kernel Mapping" },
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	[EXCLUSIVE_START_NR]    = { 0UL,                "Exclusive" },
+#endif
 	[VMALLOC_START_NR]	= { 0UL,		"vmalloc() Area" },
 	[VMEMMAP_START_NR]	= { 0UL,		"Vmemmap" },
 #ifdef CONFIG_KASAN
@@ -452,6 +458,9 @@ static int __init pt_dump_init(void)
 #ifdef CONFIG_KASAN
 	address_markers[KASAN_SHADOW_START_NR].start_address = KASAN_SHADOW_START;
 	address_markers[KASAN_SHADOW_END_NR].start_address = KASAN_SHADOW_END;
+#endif
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	address_markers[EXCLUSIVE_START_NR].start_address = EXCLUSIVE_START;
 #endif
 #endif
 #ifdef CONFIG_X86_32

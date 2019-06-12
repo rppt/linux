@@ -63,6 +63,12 @@ unsigned long vmalloc_base __ro_after_init = __VMALLOC_BASE_L4;
 EXPORT_SYMBOL(vmalloc_base);
 unsigned long vmemmap_base __ro_after_init = __VMEMMAP_BASE_L4;
 EXPORT_SYMBOL(vmemmap_base);
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+unsigned long exclusive_base __ro_after_init = __EXCLUSIVE_BASE_L4;
+EXPORT_SYMBOL(exclusive_base);
+unsigned long exclusive_offset;
+EXPORT_SYMBOL(exclusive_offset);
+#endif
 #endif
 
 /*
@@ -116,6 +122,10 @@ static bool __head check_la57_support(unsigned long physaddr)
 	*fixup_long(&page_offset_base, physaddr) = __PAGE_OFFSET_BASE_L5;
 	*fixup_long(&vmalloc_base, physaddr) = __VMALLOC_BASE_L5;
 	*fixup_long(&vmemmap_base, physaddr) = __VMEMMAP_BASE_L5;
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+#warning "Process-local memory with 5-level page tables is compile-tested only."
+	*fixup_long(&exclusive_base, physaddr) = __EXCLUSIVE_BASE_L5;
+#endif
 
 	return true;
 }

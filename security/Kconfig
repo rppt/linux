@@ -7,6 +7,24 @@ menu "Security options"
 
 source "security/keys/Kconfig"
 
+config ARCH_SUPPORTS_EXCLUSIVE_MAPPINGS
+	bool
+	default n
+
+config EXCLUSIVE_MAPPINGS
+	bool "Support exlusive mappings in the kernel"
+	depends on ARCH_SUPPORTS_EXCLUSIVE_MAPPINGS
+	default n
+	help
+	  This feature allows subsystems in the kernel to allocate
+	  memory that is only visible in the context of a specific
+	  process or a specific namespace. This hardens the kernel
+	  against information leak vulnerabilities.
+
+	  There is a slight performance impact when this option is enabled.
+
+	  If you are unsure how to answer this question, answer N.
+
 config SECURITY_DMESG_RESTRICT
 	bool "Restrict unprivileged access to the kernel syslog"
 	default n
