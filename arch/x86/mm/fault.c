@@ -1131,6 +1131,15 @@ bool fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
+static int fault_in_exclusive_mapping(unsigned long address)
+{
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	return address >= EXCLUSIVE_START && address < (EXCLUSIVE_START + EXCLUSIVE_SIZE);
+#else
+	return false;
+#endif
+}
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1184,6 +1193,16 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	/* Was the fault spurious, caused by lazy TLB invalidation? */
 	if (spurious_kernel_fault(hw_error_code, address))
 		return;
+
+	/*
+	 * Faults in process-local memory may be caused by process-local
+	 * addresses leaking into other contexts.
+	 * tbd: warn and handle gracefully.
+	 */
+	if (unlikely(fault_in_exclusive_mapping(address))) {
+		pr_err("page fault in EXCLUSIVE at %lx", address);
+		force_sig_fault(SIGSEGV, SEGV_MAPERR, (void __user *)address);
+	}
 
 	/* kprobes don't want to hook the spurious faults: */
 	if (kprobe_page_fault(regs, X86_TRAP_PF))

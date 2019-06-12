@@ -42,6 +42,9 @@ static const unsigned long vaddr_end = CPU_ENTRY_AREA_BASE;
 
 enum {
 	PHYSMAP,
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	EXCLUSIVE,
+#endif
 	VMALLOC,
 	VMEMMAP,
 };
@@ -56,6 +59,9 @@ static __initdata struct kaslr_memory_region {
 	unsigned long size_tb;
 } kaslr_regions[] = {
 	[PHYSMAP] = { &page_offset_base, 0 },
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	[EXCLUSIVE] = { &exclusive_base, 0 },
+#endif
 	[VMALLOC] = { &vmalloc_base, 0 },
 	[VMEMMAP] = { &vmemmap_base, 0 },
 };
@@ -94,6 +100,16 @@ void __init kernel_randomize_memory(void)
 	kaslr_regions[PHYSMAP].size_tb = 1 << (MAX_PHYSMEM_BITS - TB_SHIFT);
 	kaslr_regions[VMALLOC].size_tb = VMALLOC_SIZE_TB;
 
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	/*
+	 * Note that the process-local memory area must use a non-overlapping
+	 * pgd. Thus, round up the size to 2 pgd entries and adjust the base
+	 * address into the dedicated pgd below. With 4-level page tables, that
+	 * keeps the size at the minium of 1 TiB used by the kernel.
+	 */
+	kaslr_regions[EXCLUSIVE].size_tb = 1 << (MAX_PHYSMEM_BITS - TB_SHIFT);
+#endif
+
 	/*
 	 * Update Physical memory mapping to available and
 	 * add padding if needed (especially for memory hotplug support).
@@ -103,16 +119,20 @@ void __init kernel_randomize_memory(void)
 		CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING;
 
 	/* Adapt phyiscal memory region size based on available memory */
-	if (memory_tb < kaslr_regions[PHYSMAP].size_tb)
+	if (memory_tb < kaslr_regions[PHYSMAP].size_tb) {
 		kaslr_regions[PHYSMAP].size_tb = memory_tb;
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+		kaslr_regions[EXCLUSIVE].size_tb = memory_tb;
+#endif
+	}
 
 	/*
 	 * Calculate the vmemmap region size in TBs, aligned to a TB
 	 * boundary.
 	 */
-	vmemmap_size = (kaslr_regions[0].size_tb << (TB_SHIFT - PAGE_SHIFT)) *
+	vmemmap_size = (kaslr_regions[PHYSMAP].size_tb << (TB_SHIFT - PAGE_SHIFT)) *
 			sizeof(struct page);
-	kaslr_regions[2].size_tb = DIV_ROUND_UP(vmemmap_size, 1UL << TB_SHIFT);
+	kaslr_regions[VMEMMAP].size_tb = DIV_ROUND_UP(vmemmap_size, 1UL << TB_SHIFT);
 
 	/* Calculate entropy available between regions */
 	remain_entropy = vaddr_end - vaddr_start;
@@ -142,6 +162,10 @@ void __init kernel_randomize_memory(void)
 		vaddr = round_up(vaddr + 1, PUD_SIZE);
 		remain_entropy -= entropy;
 	}
+
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+	exclusive_offset = *kaslr_regions[EXCLUSIVE].base - *kaslr_regions[PHYSMAP].base;
+#endif
 }
 
 void __meminit init_trampoline_kaslr(void)
