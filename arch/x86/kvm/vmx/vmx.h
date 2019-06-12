@@ -176,8 +176,19 @@ struct nested_vmx {
 	struct hv_enlightened_vmcs *hv_evmcs;
 };
 
+#ifdef CONFIG_KVM_PROCLOCAL
+struct vcpu_vmx_hidden {
+	struct { /* mimic topology in vcpu_svm: */
+		struct kvm_vcpu_arch_hidden arch;
+	} vcpu;
+};
+#endif
+
 struct vcpu_vmx {
 	struct kvm_vcpu       vcpu;
+#ifdef CONFIG_KVM_PROCLOCAL
+	struct vcpu_vmx_hidden *hidden;
+#endif
 	u8                    fail;
 	u8		      msr_bitmap_mode;
 	u32                   exit_intr_info;

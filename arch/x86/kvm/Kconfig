@@ -95,6 +95,16 @@ config KVM_MMU_AUDIT
 	 This option adds a R/W kVM module parameter 'mmu_audit', which allows
 	 auditing of KVM MMU events at runtime.
 
+config KVM_PROCLOCAL
+	bool "Use process-local allocation for KVM"
+	depends on KVM && PROCLOCAL
+	---help---
+	  Use process-local memory for storing vCPU state in KVM. This
+	  option removes assets from the kernel's global direct mapping
+	  of physical memory and stores them only in the address space
+	  of the process hosting a VM.
+
+
 # OK, it's a little counter-intuitive to do this, but it puts it neatly under
 # the virtualization menu.
 source "drivers/vhost/Kconfig"

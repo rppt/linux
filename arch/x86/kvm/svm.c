@@ -38,6 +38,7 @@
 #include <linux/file.h>
 #include <linux/pagemap.h>
 #include <linux/swap.h>
+#include <linux/proclocal.h>
 
 #include <asm/apic.h>
 #include <asm/perf_event.h>
@@ -186,9 +187,20 @@ static u32 msrpm_offsets[MSRPM_OFFSETS] __read_mostly;
  */
 static uint64_t osvw_len = 4, osvw_status;
 
+#ifdef CONFIG_KVM_PROCLOCAL
+struct vcpu_svm_hidden {
+	struct { /* mimic topology in vcpu_svm: */
+		struct kvm_vcpu_arch_hidden arch;
+	} vcpu;
+};
+#endif
+
 struct vcpu_svm {
 	struct kvm_vcpu vcpu;
 	struct vmcb *vmcb;
+#ifdef CONFIG_KVM_PROCLOCAL
+	struct vcpu_svm_hidden *hidden;
+#endif
 	unsigned long vmcb_pa;
 	struct svm_cpu_data *svm_data;
 	uint64_t asid_generation;
@@ -2142,9 +2154,18 @@ static struct kvm_vcpu *svm_create_vcpu(struct kvm *kvm, unsigned int id)
 		goto free_partial_svm;
 	}
 
+#ifdef CONFIG_KVM_PROCLOCAL
+	svm->hidden = kzalloc_proclocal(sizeof(struct vcpu_svm_hidden));
+	if (!svm->hidden) {
+		err = -ENOMEM;
+		goto free_svm;
+	}
+	svm->vcpu.arch.hidden = &svm->hidden->vcpu.arch;
+#endif
+
 	err = kvm_vcpu_init(&svm->vcpu, kvm, id);
 	if (err)
-		goto free_svm;
+		goto free_hidden;
 
 	err = -ENOMEM;
 	page = alloc_page(GFP_KERNEL_ACCOUNT);
@@ -2200,7 +2221,11 @@ free_page1:
 	__free_page(page);
 uninit:
 	kvm_vcpu_uninit(&svm->vcpu);
+free_hidden:
+#ifdef CONFIG_KVM_PROCLOCAL
+	kfree_proclocal(svm->hidden);
 free_svm:
+#endif
 	kmem_cache_free(x86_fpu_cache, svm->vcpu.arch.guest_fpu);
 free_partial_svm:
 	kmem_cache_free(kvm_vcpu_cache, svm);
@@ -2219,6 +2244,16 @@ static void svm_clear_current_vmcb(struct vmcb *vmcb)
 static void svm_free_vcpu(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
+
+#ifdef CONFIG_KVM_PROCLOCAL
+	/*
+	 * note that the hidden vCPU state in a process-local allocation is
+	 * already cleaned up, because a process's mm is torn down before files
+	 * are closed. make any access in the cleanup code very visible.
+	 */
+	svm->hidden = (struct vcpu_svm_hidden *)POISON_POINTER_DELTA;
+	svm->vcpu.arch.hidden = (struct kvm_vcpu_arch_hidden *)POISON_POINTER_DELTA;
+#endif
 
 	/*
 	 * The vmcb page can be recycled, causing a false negative in

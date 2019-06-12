@@ -27,6 +27,7 @@
 #include <linux/slab.h>
 #include <linux/tboot.h>
 #include <linux/trace_events.h>
+#include <linux/proclocal.h>
 
 #include <asm/apic.h>
 #include <asm/asm.h>
@@ -6561,6 +6562,16 @@ static void vmx_free_vcpu(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
+#ifdef CONFIG_KVM_PROCLOCAL
+	/*
+	 * note that the hidden vCPU state in a process-local allocation is
+	 * already cleaned up, because a process's mm is torn down before files
+	 * are closed. make any access in the cleanup code very visible.
+	 */
+	vmx->hidden = (struct vcpu_vmx_hidden *)POISON_POINTER_DELTA;
+	vmx->vcpu.arch.hidden = (struct kvm_vcpu_arch_hidden *)POISON_POINTER_DELTA;
+#endif
+
 	if (enable_pml)
 		vmx_destroy_pml_buffer(vmx);
 	free_vpid(vmx->vpid);
@@ -6591,11 +6602,20 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 		goto free_partial_vcpu;
 	}
 
+#ifdef CONFIG_KVM_PROCLOCAL
+	vmx->hidden = kzalloc_proclocal(sizeof(struct vcpu_vmx_hidden));
+	if (!vmx->hidden) {
+		err = -ENOMEM;
+		goto free_vcpu;
+	}
+	vmx->vcpu.arch.hidden = &vmx->hidden->vcpu.arch;
+#endif
+
 	vmx->vpid = allocate_vpid();
 
 	err = kvm_vcpu_init(&vmx->vcpu, kvm, id);
 	if (err)
-		goto free_vcpu;
+		goto free_hidden;
 
 	err = -ENOMEM;
 
@@ -6682,7 +6702,11 @@ free_pml:
 	vmx_destroy_pml_buffer(vmx);
 uninit_vcpu:
 	kvm_vcpu_uninit(&vmx->vcpu);
+free_hidden:
+#ifdef CONFIG_KVM_PROCLOCAL
+	kfree_proclocal(vmx->hidden);
 free_vcpu:
+#endif
 	free_vpid(vmx->vpid);
 	kmem_cache_free(x86_fpu_cache, vmx->vcpu.arch.guest_fpu);
 free_partial_vcpu:

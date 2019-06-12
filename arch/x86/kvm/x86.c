@@ -9215,6 +9215,11 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 	free_page((unsigned long)vcpu->arch.pio_data);
 	if (!lapic_in_kernel(vcpu))
 		static_key_slow_dec(&kvm_no_apic_vcpu);
+	/*
+	 * note that the hidden vCPU state in a process-local allocation is
+	 * already cleaned up at this point, because a process's mm is torn down
+	 * before files are closed.
+	 */
 }
 
 void kvm_arch_sched_in(struct kvm_vcpu *vcpu, int cpu)

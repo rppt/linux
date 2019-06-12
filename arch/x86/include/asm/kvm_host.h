@@ -535,7 +535,16 @@ struct kvm_vcpu_hv {
 	cpumask_t tlb_flush;
 };
 
+#ifdef CONFIG_KVM_PROCLOCAL
+struct kvm_vcpu_arch_hidden {
+	u64 placeholder;
+};
+#endif
+
 struct kvm_vcpu_arch {
+#ifdef CONFIG_KVM_PROCLOCAL
+	struct kvm_vcpu_arch_hidden *hidden;
+#endif
 	/*
 	 * rip and regs accesses must go through
 	 * kvm_{register,rip}_{read,write} functions.
