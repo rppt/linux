@@ -514,6 +514,10 @@ struct mm_struct {
 		/* HMM needs to track a few things per mm */
 		struct hmm *hmm;
 #endif
+
+#ifdef CONFIG_PROCLOCAL
+		size_t proclocal_nr_pages;
+#endif
 	} __randomize_layout;
 
 	/*

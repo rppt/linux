@@ -10,6 +10,8 @@
 #include <linux/set_memory.h>
 #include <asm/tlb.h>
 
+extern void handle_proclocal_page(struct mm_struct *mm, struct page *page,
+				  unsigned long addr);
 
 static void unmap_leftover_pages_pte(struct mm_struct *mm, pmd_t *pmd,
 				     unsigned long addr, unsigned long end,
@@ -27,6 +29,8 @@ static void unmap_leftover_pages_pte(struct mm_struct *mm, pmd_t *pmd,
 		pte_clear(mm, addr, pte);
 		set_direct_map_default_noflush(page);
 
+		/* callback to non-arch allocator */
+		handle_proclocal_page(mm, page, addr);
 		/*
 		 * scrub page contents. since mm teardown happens from a
 		 * different mm, we cannot just use the process-local virtual
@@ -126,6 +130,7 @@ static void arch_proclocal_teardown_pt(struct mm_struct *mm)
 
 void arch_proclocal_teardown_pages_and_pt(struct mm_struct *mm)
 {
-	unmap_free_leftover_proclocal_pages(mm);
+	if (mm->proclocal_nr_pages)
+		unmap_free_leftover_proclocal_pages(mm);
 	arch_proclocal_teardown_pt(mm);
 }
