@@ -41,6 +41,12 @@
  */
 static const unsigned long vaddr_end = CPU_ENTRY_AREA_BASE;
 
+enum {
+	PHYSMAP,
+	VMALLOC,
+	VMMEMMAP,
+};
+
 /*
  * Memory regions randomized by KASLR (except modules that use a separate logic
  * earlier during boot). The list is ordered based on virtual addresses. This
@@ -50,9 +56,9 @@ static __initdata struct kaslr_memory_region {
 	unsigned long *base;
 	unsigned long size_tb;
 } kaslr_regions[] = {
-	{ &page_offset_base, 0 },
-	{ &vmalloc_base, 0 },
-	{ &vmemmap_base, 0 },
+	[PHYSMAP] = { &page_offset_base, 0 },
+	[VMALLOC] = { &vmalloc_base, 0 },
+	[VMEMMAP] = { &vmemmap_base, 0 },
 };
 
 /* Get size in bytes used by the memory region */
@@ -95,20 +101,20 @@ void __init kernel_randomize_memory(void)
 	if (!kaslr_memory_enabled())
 		return;
 
-	kaslr_regions[0].size_tb = 1 << (MAX_PHYSMEM_BITS - TB_SHIFT);
-	kaslr_regions[1].size_tb = VMALLOC_SIZE_TB;
+	kaslr_regions[PHYSMAP].size_tb = 1 << (MAX_PHYSMEM_BITS - TB_SHIFT);
+	kaslr_regions[VMALLOC].size_tb = VMALLOC_SIZE_TB;
 
 	/*
 	 * Update Physical memory mapping to available and
 	 * add padding if needed (especially for memory hotplug support).
 	 */
-	BUG_ON(kaslr_regions[0].base != &page_offset_base);
+	BUG_ON(kaslr_regions[PHYSMAP].base != &page_offset_base);
 	memory_tb = DIV_ROUND_UP(max_pfn << PAGE_SHIFT, 1UL << TB_SHIFT) +
 		CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING;
 
 	/* Adapt phyiscal memory region size based on available memory */
-	if (memory_tb < kaslr_regions[0].size_tb)
-		kaslr_regions[0].size_tb = memory_tb;
+	if (memory_tb < kaslr_regions[PHYSMAP].size_tb)
+		kaslr_regions[PHYSMAP].size_tb = memory_tb;
 
 	/*
 	 * Calculate the vmemmap region size in TBs, aligned to a TB
