@@ -141,6 +141,18 @@ extern unsigned int ptrs_per_p4d;
 
 #define VMALLOC_END		(VMALLOC_START + (VMALLOC_SIZE_TB << 40) - 1)
 
+#ifdef CONFIG_PROCLOCAL
+# define __PROCLOCAL_BASE_L4	0xffffeb8000000000UL
+# define __PROCLOCAL_BASE_L5	0xffd8000000000000UL
+# define PROCLOCAL_SIZE	(64UL * 1024 * 1024 * 1024)
+
+# ifdef CONFIG_DYNAMIC_MEMORY_LAYOUT
+#  define PROCLOCAL_START	proclocal_base
+# else /* CONFIG_DYNAMIC_MEMORY_LAYOUT */
+#  define PROCLOCAL_START	__PROCLOCAL_BASE_L4
+# endif /* CONFIG_DYNAMIC_MEMORY_LAYOUT */
+#endif /* CONFIG_PROCLOCAL */
+
 #define MODULES_VADDR		(__START_KERNEL_map + KERNEL_IMAGE_SIZE)
 /* The module sections ends with the start of the fixmap */
 #define MODULES_END		_AC(0xffffffffff000000, UL)

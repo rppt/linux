@@ -47,7 +47,9 @@ Complete virtual memory map with 4-level page tables
    ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base)
    ffffe90000000000 |  -23    TB | ffffe9ffffffffff |    1 TB | ... unused hole
    ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base)
-   ffffeb0000000000 |  -21    TB | ffffebffffffffff |    1 TB | ... unused hole
+   ffffeb8000000000 |  -20.5  TB | ffffebffffffffff |  512 GB | process-local kernel memory (layout shared but mappings
+                    |            |                  |         | exclusive to processes, needs an exclusive entry in the
+                    |            |                  |         | top-level page table)
    ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
                                                               |
@@ -106,7 +108,11 @@ Complete virtual memory map with 5-level page tables
    ffa0000000000000 |  -24    PB | ffd1ffffffffffff | 12.5 PB | vmalloc/ioremap space (vmalloc_base)
    ffd2000000000000 |  -11.5  PB | ffd3ffffffffffff |  0.5 PB | ... unused hole
    ffd4000000000000 |  -11    PB | ffd5ffffffffffff |  0.5 PB | virtual memory map (vmemmap_base)
-   ffd6000000000000 |  -10.5  PB | ffdeffffffffffff | 2.25 PB | ... unused hole
+   ffd6000000000000 |  -10.5  PB | ffd7ffffffffffff |  0.5 PB | ... unused hole
+   ffd8000000000000 |  -10    PB | ffd8ffffffffffff |  256 TB | process-local kernel memory (layout shared but mappings
+                    |            |                  |         | exclusive to processes, needs an exclusive entry in the
+                    |            |                  |         | top-level page table)
+   ffd9000000000000 |   -9.75 PB | ffdeffffffffffff |  1.5 PB | ... unused hole
    ffdf000000000000 |   -8.25 PB | fffffbffffffffff |   ~8 PB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
                                                               |

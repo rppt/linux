@@ -45,6 +45,9 @@ enum {
 	PHYSMAP,
 	VMALLOC,
 	VMMEMMAP,
+#ifdef CONFIG_PROCLOCAL
+	PROCLOCAL,
+#endif
 };
 
 /*
@@ -59,6 +62,9 @@ static __initdata struct kaslr_memory_region {
 	[PHYSMAP] = { &page_offset_base, 0 },
 	[VMALLOC] = { &vmalloc_base, 0 },
 	[VMEMMAP] = { &vmemmap_base, 0 },
+#ifdef CONFIG_PROCLOCAL
+	[PROCLOCAL] = { &proclocal_base, 0 },
+#endif
 };
 
 /* Get size in bytes used by the memory region */
@@ -75,6 +81,26 @@ static inline bool kaslr_memory_enabled(void)
 {
 	return kaslr_enabled() && !IS_ENABLED(CONFIG_KASAN);
 }
+
+#ifdef CONFIG_PROCLOCAL
+/*
+ * The process-local memory area must use an exclusive pgd entry. The area is
+ * allocated as 2x PGDIR_SIZE such that it contains at least one exclusive pgd
+ * entry. Shift the base address into that exclusive pgd. Keep the offset from
+ * randomization but make sure the whole actual process-local memory region fits
+ * into the pgd.
+ */
+static void adjust_proclocal_base(void)
+{
+	unsigned long size_tb = kaslr_regions[PROCLOCAL].size_tb;
+	proclocal_base += ((size_tb << TB_SHIFT) / 2);
+	if ((proclocal_base % PGDIR_SIZE) > (PGDIR_SIZE - PROCLOCAL_SIZE))
+		proclocal_base -= PROCLOCAL_SIZE;
+
+	BUILD_BUG_ON(2 * PROCLOCAL_SIZE >= PGDIR_SIZE);
+	BUG_ON(((proclocal_base % PGDIR_SIZE) + PROCLOCAL_SIZE) > PGDIR_SIZE);
+}
+#endif
 
 /* Initialize base and padding for each memory region randomized with KASLR */
 void __init kernel_randomize_memory(void)
@@ -103,6 +129,17 @@ void __init kernel_randomize_memory(void)
 
 	kaslr_regions[PHYSMAP].size_tb = 1 << (MAX_PHYSMEM_BITS - TB_SHIFT);
 	kaslr_regions[VMALLOC].size_tb = VMALLOC_SIZE_TB;
+
+#ifdef CONFIG_PROCLOCAL
+	/*
+	 * Note that the process-local memory area must use a non-overlapping
+	 * pgd. Thus, round up the size to 2 pgd entries and adjust the base
+	 * address into the dedicated pgd below. With 4-level page tables, that
+	 * keeps the size at the minium of 1 TiB used by the kernel.
+	 */
+	kaslr_regions[PROCLOCAL].size_tb = round_up(round_up(PROCLOCAL_SIZE, 2ULL<<PGDIR_SHIFT),
+						    1ULL<<TB_SHIFT) / (1ULL<<TB_SHIFT);
+#endif
 
 	/*
 	 * Update Physical memory mapping to available and
@@ -152,6 +189,10 @@ void __init kernel_randomize_memory(void)
 		vaddr = round_up(vaddr + 1, PUD_SIZE);
 		remain_entropy -= entropy;
 	}
+
+#ifdef CONFIG_PROCLOCAL
+	adjust_proclocal_base();
+#endif
 }
 
 static void __meminit init_trampoline_pud(void)

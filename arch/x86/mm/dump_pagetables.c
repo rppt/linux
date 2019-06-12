@@ -57,6 +57,9 @@ enum address_markers_idx {
 	LOW_KERNEL_NR,
 	VMALLOC_START_NR,
 	VMEMMAP_START_NR,
+#ifdef CONFIG_PROCLOCAL
+	PROCLOCAL_START_NR,
+#endif
 #ifdef CONFIG_KASAN
 	KASAN_SHADOW_START_NR,
 	KASAN_SHADOW_END_NR,
@@ -81,6 +84,9 @@ static struct addr_marker address_markers[] = {
 	[LOW_KERNEL_NR]		= { 0UL,		"Low Kernel Mapping" },
 	[VMALLOC_START_NR]	= { 0UL,		"vmalloc() Area" },
 	[VMEMMAP_START_NR]	= { 0UL,		"Vmemmap" },
+#ifdef CONFIG_PROCLOCAL
+	[PROCLOCAL_START_NR]    = { 0UL,                "Process local" },
+#endif
 #ifdef CONFIG_KASAN
 	/*
 	 * These fields get initialized with the (dynamic)
@@ -617,6 +623,9 @@ static int __init pt_dump_init(void)
 #ifdef CONFIG_KASAN
 	address_markers[KASAN_SHADOW_START_NR].start_address = KASAN_SHADOW_START;
 	address_markers[KASAN_SHADOW_END_NR].start_address = KASAN_SHADOW_END;
+#endif
+#ifdef CONFIG_PROCLOCAL
+	address_markers[PROCLOCAL_START_NR].start_address = PROCLOCAL_START;
 #endif
 #endif
 #ifdef CONFIG_X86_32

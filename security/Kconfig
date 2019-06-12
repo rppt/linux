@@ -7,6 +7,24 @@ menu "Security options"
 
 source "security/keys/Kconfig"
 
+config ARCH_SUPPORTS_PROCLOCAL
+	bool
+	default n
+
+config PROCLOCAL
+	bool "Support process-local allocations in the kernel"
+	depends on ARCH_SUPPORTS_PROCLOCAL
+	select GENERIC_ALLOCATOR
+	default n
+	help
+	  This feature allows subsystems in the kernel to allocate memory that
+	  is only visible in the context of a specific process. This hardens the
+	  kernel against information leak vulnerabilities.
+
+	  There is a slight performance impact when this option is enabled.
+
+	  If you are unsure how to answer this question, answer N.
+
 config SECURITY_DMESG_RESTRICT
 	bool "Restrict unprivileged access to the kernel syslog"
 	default n
