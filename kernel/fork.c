@@ -1731,6 +1731,8 @@ static __always_inline void delayed_free_task(struct task_struct *tsk)
 		free_task(tsk);
 }
 
+extern void switch_net_ns_ctx(struct task_struct *p);
+
 /*
  * This creates a new process as a copy of the old one,
  * but does not actually start it yet.
@@ -2001,6 +2003,9 @@ static __latent_entropy struct task_struct *copy_process(
 	if (retval)
 		goto bad_fork_cleanup_signal;
 	retval = copy_namespaces(clone_flags, p);
+
+	switch_net_ns_ctx(p);
+
 	if (retval)
 		goto bad_fork_cleanup_mm;
 	retval = copy_io(clone_flags, p);

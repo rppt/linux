@@ -168,6 +168,9 @@ struct net {
 #endif
 	struct sock		*diag_nlsk;
 	atomic_t		fnhe_genid;
+#ifdef CONFIG_NET_NS_MM
+	struct mm_struct	*mm;
+#endif
 } __randomize_layout;
 
 #include <linux/seq_file_net.h>

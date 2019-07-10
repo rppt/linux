@@ -1015,6 +1015,14 @@ static int exec_mmap(struct mm_struct *mm)
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
 	old_mm = current->mm;
+
+#ifdef CONFIG_NET_NS_MM
+	if (old_mm)
+		clone_pgd_range(mm->pgd + KERNEL_PGD_BOUNDARY,
+				old_mm->pgd + KERNEL_PGD_BOUNDARY,
+				KERNEL_PGD_PTRS);
+#endif
+
 	mm_release(tsk, old_mm);
 
 	if (old_mm) {

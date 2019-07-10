@@ -19,6 +19,7 @@
 #include <linux/net_namespace.h>
 #include <linux/sched/task.h>
 #include <linux/uidgid.h>
+#include <linux/ass.h>
 
 #include <net/sock.h>
 #include <net/netlink.h>
@@ -42,6 +43,9 @@ EXPORT_SYMBOL_GPL(net_rwsem);
 struct net init_net = {
 	.count		= REFCOUNT_INIT(1),
 	.dev_base_head	= LIST_HEAD_INIT(init_net.dev_base_head),
+#ifdef CONFIG_NET_NS_MM
+	.mm		= &init_mm,
+#endif
 };
 EXPORT_SYMBOL(init_net);
 
@@ -374,6 +378,17 @@ static void dec_net_namespaces(struct ucounts *ucounts)
 static struct kmem_cache *net_cachep __ro_after_init;
 static struct workqueue_struct *netns_wq;
 
+static void dump_pgd(struct mm_struct *mm, const char *name)
+{
+	pgd_t *pgdp = mm->pgd;
+	int i;
+
+	pr_info("===> %s: %px\n", name, pgdp);
+	for (i = 0; i < 512; i++, pgdp++)
+		if (pgd_val(*pgdp) != 0)
+			pr_info("%d: %lx\n", i, pgd_val(*pgdp));
+}
+
 static struct net *net_alloc(void)
 {
 	struct net *net = NULL;
@@ -385,13 +400,38 @@ static struct net *net_alloc(void)
 
 	net = kmem_cache_zalloc(net_cachep, GFP_KERNEL);
 	if (!net)
-		goto out_free;
+		goto out_free_ng;
+
+#ifdef CONFIG_NET_NS_MM
+	net->mm = copy_init_mm();
+	if (!net->mm)
+		goto out_free_net;
+
+	{
+		pgd_t *pgd = pgd_offset_pgd(net->mm->pgd, PAGE_OFFSET);
+		p4d_t *p4d = p4d_offset(pgd, PAGE_OFFSET);
+
+		p4d_clear(p4d);
+		pgd_clear(pgd);
+	}
+
+	ass_clone_range(net->mm, init_mm.pgd, net->mm->pgd, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+
+	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+
+	dump_pgd(&init_mm, "init mm");
+	dump_pgd(net->mm, "net mm");
+#endif
 
 	rcu_assign_pointer(net->gen, ng);
 out:
 	return net;
 
-out_free:
+#ifdef CONFIG_NET_NS_MM
+out_free_net:
+	kmem_cache_free(net_cachep, net);
+#endif
+out_free_ng:
 	kfree(ng);
 	goto out;
 }
@@ -399,6 +439,9 @@ out_free:
 static void net_free(struct net *net)
 {
 	kfree(rcu_access_pointer(net->gen));
+#ifdef CONFIG_NETNS_MM
+	mmput(net->mm);
+#endif
 	kmem_cache_free(net_cachep, net);
 }
 
@@ -1310,6 +1353,12 @@ static int netns_install(struct nsproxy *nsproxy, struct ns_common *ns)
 
 	put_net(nsproxy->net_ns);
 	nsproxy->net_ns = get_net(net);
+#ifdef CONFIG_NET_NS_MM
+	clone_pgd_range(current->active_mm->pgd + KERNEL_PGD_BOUNDARY,
+			net->mm->pgd + KERNEL_PGD_BOUNDARY,
+			KERNEL_PGD_PTRS);
+	/* memcpy(current->active_mm->pgd + 256, net->mm->pgd + 256, 256 * sizeof(pgd_t)); */
+#endif
 	return 0;
 }
 
@@ -1326,4 +1375,68 @@ const struct proc_ns_operations netns_operations = {
 	.install	= netns_install,
 	.owner		= netns_owner,
 };
+
+#include <linux/debugfs.h>
+
+static struct dentry *netns_debugfs;
+
+static int mm_ctx_show(struct seq_file *m, void *v)
+{
+	pgd_t *pgdp = current->mm->pgd;
+	int i;
+
+	seq_printf(m, "===> %d %px\n", current->pid, pgdp);
+	for (i = 0; i < 512; i++, pgdp++)
+		if (pgd_val(*pgdp) != 0)
+			seq_printf(m, "%d: %lx\n", i, pgd_val(*pgdp));
+
+	pgdp = current->nsproxy->net_ns->mm->pgd;
+	seq_printf(m, "===> %px\n", pgdp);
+	for (i = 0; i < 512; i++, pgdp++)
+		if (pgd_val(*pgdp) != 0)
+			seq_printf(m, "%d: %lx\n", i, pgd_val(*pgdp));
+	return 0;
+}
+
+DEFINE_SHOW_ATTRIBUTE(mm_ctx);
+
+static int netns_debugfs_init(void)
+{
+	struct dentry *ctx;
+
+	netns_debugfs = debugfs_create_dir("netns-ass", NULL);
+
+	ctx = debugfs_create_file("ctx", 0400, netns_debugfs, NULL,
+				  &mm_ctx_fops);
+
+	return 0;
+}
+late_initcall(netns_debugfs_init);
+
+void switch_net_ns_ctx(struct task_struct *p)
+{
+#ifdef CONFIG_NET_NS_MM
+	struct net *new_net;
+
+	if (!p->nsproxy)
+		return;
+
+	new_net = p->nsproxy->net_ns;
+	if (!new_net)
+		return;
+
+	if (new_net == &init_net)
+		return;
+
+	/* if (old_net == new_net) */
+	/* 	return; */
+
+	pr_info("%s: %d: net mm: %px\n", __func__, p->pid, new_net->mm->pgd);
+	pr_info("%s: p->pgd: %px\n", __func__, p->mm->pgd);
+	clone_pgd_range(p->mm->pgd + KERNEL_PGD_BOUNDARY,
+			new_net->mm->pgd + KERNEL_PGD_BOUNDARY,
+			KERNEL_PGD_PTRS);
+#endif
+}
+
 #endif

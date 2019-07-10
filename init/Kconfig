@@ -1029,6 +1029,13 @@ config NET_NS
 	  Allow user space to create what appear to be multiple instances
 	  of the network stack.
 
+config NET_NS_MM
+	bool "Network namespace address space"
+	depends on NET_NS
+	default y
+	help
+	  Use dedicated address space for each network namespace
+
 endif # NAMESPACES
 
 config CHECKPOINT_RESTORE
