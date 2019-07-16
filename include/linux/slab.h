@@ -128,6 +128,9 @@
 #define ZERO_OR_NULL_PTR(x) ((unsigned long)(x) <= \
 				(unsigned long)ZERO_SIZE_PTR)
 
+/* cache objects are visible only in one address space */
+#define SLAB_ASS		((slab_flags_t __force)0x10000000U)
+
 #include <linux/kasan.h>
 
 struct mem_cgroup;

@@ -170,6 +170,7 @@ struct net {
 	atomic_t		fnhe_genid;
 #ifdef CONFIG_NET_NS_MM
 	struct mm_struct	*mm;
+	struct kmem_cache	*ass_test_cache;
 #endif
 } __randomize_layout;
 
