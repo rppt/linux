@@ -119,24 +119,19 @@ static void vunmap_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end)
 	} while (p4d++, addr = next, addr != end);
 }
 
-static void vunmap_pgd_range(pgd_t *pgdp, unsigned long addr, unsigned long end)
+static void vunmap_page_range(unsigned long addr, unsigned long end)
 {
 	pgd_t *pgd;
 	unsigned long next;
 
 	BUG_ON(addr >= end);
-	pgd = pgd_offset_pgd(pgdp, addr);
+	pgd = pgd_offset_k(addr);
 	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
 			continue;
 		vunmap_p4d_range(pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
-}
-
-static void vunmap_page_range(unsigned long addr, unsigned long end)
-{
-	vunmap_pgd_range(init_mm.pgd, addr, end);
 }
 
 static int vmap_pte_range(pmd_t *pmd, unsigned long addr,

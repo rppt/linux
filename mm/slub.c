@@ -1495,11 +1495,6 @@ static inline struct page *alloc_slab_page(struct kmem_cache *s,
 		page = NULL;
 	}
 
-	if (s->flags & SLAB_ASS) {
-		pr_info("unmap %d pages: %px(%px)\n", (1 << order), page, page_address(page));
-		__kernel_map_pages(page, (1 << order), 0);
-	}
-
 	return page;
 }
 
@@ -1739,11 +1734,6 @@ static void __free_slab(struct kmem_cache *s, struct page *page)
 		current->reclaim_state->reclaimed_slab += pages;
 	memcg_uncharge_slab(page, order, s);
 	__free_pages(page, order);
-
-	if (s->flags & SLAB_ASS) {
-		pr_info("map %d pages: %px(%px)\n", pages, page, page_address(page));
-		__kernel_map_pages(page, pages, 1);
-	}
 }
 
 static void rcu_free_slab(struct rcu_head *h)

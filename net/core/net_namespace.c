@@ -18,10 +18,8 @@
 #include <linux/user_namespace.h>
 #include <linux/net_namespace.h>
 #include <linux/sched/task.h>
-#include <linux/sched/mm.h>
 #include <linux/uidgid.h>
 #include <linux/ass.h>
-#include <linux/syscalls.h>
 
 #include <net/sock.h>
 #include <net/netlink.h>
@@ -419,16 +417,10 @@ static struct net *net_alloc(void)
 
 	ass_clone_range(net->mm, init_mm.pgd, net->mm->pgd, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 
-	pr_info("%s: init_net: %px, new_net: %px\n", __func__, &init_net, net);
+	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 
 	dump_pgd(&init_mm, "init mm");
 	dump_pgd(net->mm, "net mm");
-
-	net->ass_test_cache = kmem_cache_create("netns-ass", sizeof(struct net),
-						SMP_CACHE_BYTES,
-						SLAB_ASS, NULL);
-	if (!net->ass_test_cache)
-		goto out_free_mm;
 #endif
 
 	rcu_assign_pointer(net->gen, ng);
@@ -436,8 +428,6 @@ out:
 	return net;
 
 #ifdef CONFIG_NET_NS_MM
-out_free_mm:
-	mmput(net->mm);	/* FIXME: mmdrop? */
 out_free_net:
 	kmem_cache_free(net_cachep, net);
 #endif
@@ -449,9 +439,8 @@ out_free_ng:
 static void net_free(struct net *net)
 {
 	kfree(rcu_access_pointer(net->gen));
-#ifdef CONFIG_NET_NS_MM
-	kmem_cache_destroy(net->ass_test_cache);
-	mmput(net->mm);	/* FIXME: mmdrop? */
+#ifdef CONFIG_NETNS_MM
+	mmput(net->mm);
 #endif
 	kmem_cache_free(net_cachep, net);
 }
@@ -1439,112 +1428,15 @@ void switch_net_ns_ctx(struct task_struct *p)
 	if (new_net == &init_net)
 		return;
 
+	/* if (old_net == new_net) */
+	/* 	return; */
+
+	pr_info("%s: %d: net mm: %px\n", __func__, p->pid, new_net->mm->pgd);
+	pr_info("%s: p->pgd: %px\n", __func__, p->mm->pgd);
 	clone_pgd_range(p->mm->pgd + KERNEL_PGD_BOUNDARY,
 			new_net->mm->pgd + KERNEL_PGD_BOUNDARY,
 			KERNEL_PGD_PTRS);
 #endif
 }
 
-#define MAX_ASS_TEST_OBJS	1024
-#define TEST_ALLOC	150
-#define TEST_FREE	151
-#define TEST_PRINT	200
-
-static int nr_test_objects;
-static struct net *test_objects[MAX_ASS_TEST_OBJS];
-
-static int noinline netns_ass_test_alloc(struct net *net, struct kmem_cache *slab)
-{
-	struct net *new;
-
-	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
-		return -ENOSPC;
-
-	new = kmem_cache_alloc(slab, GFP_KERNEL);
-	if (!new)
-		return -ENOMEM;
-
-	memset(new, 0xa5, sizeof(*new));
-
-	test_objects[nr_test_objects] = new;
-	nr_test_objects++;
-
-	pr_info("==> ALLOC: %d: %px (%px)\n", nr_test_objects, new, test_objects[nr_test_objects - 1]);
-
-	return 0;
-}
-
-static int noinline netns_ass_test_free(struct net *net, struct kmem_cache *slab)
-{
-	struct net *old;
-
-	if (nr_test_objects < 1)
-		return -EINVAL;
-
-	nr_test_objects--;
-
-	old = test_objects[nr_test_objects];
-	pr_info("==> FREE: %d: %px (%px)\n", nr_test_objects, old, test_objects[nr_test_objects]);
-
-	kmem_cache_free(slab, old);
-
-	return 0;
-}
-
-static int noinline netns_ass_test_print(unsigned long pid)
-{
-	struct net *net = get_net_ns_by_pid(pid);
-	struct net *obj;
-
-	dump_pgd(net->mm, "test");
-	put_net(net);
-
-	if (nr_test_objects < 1)
-		return -EINVAL;
-
-	obj = test_objects[nr_test_objects - 1];
-
-	pr_info("==> PR: obj: %px\n", obj);
-	pr_info("==> PR: hash_mix: %x, ifindex: %d\n", obj->hash_mix, obj->ifindex);
-
-	return 0;
-}
-
-static int noinline __netns_ass_test(unsigned int cmd, unsigned long arg)
-{
-	struct kmem_cache *slab;
-	struct net *net;
-	pid_t pid = arg;
-	int ret = -EINVAL;
-
-	if (!current->nsproxy) {
-		pr_err("==> TST: %d: no proxy\n", current->pid);
-		return ret;
-	}
-
-	/* net = current->nsproxy->net_ns; */
-	net = get_net_ns_by_pid(pid);
-	slab = net->ass_test_cache;
-
-	switch (cmd) {
-	case TEST_ALLOC:
-		ret = netns_ass_test_alloc(net, slab);
-		break;
-	case TEST_FREE:
-		ret = netns_ass_test_free(net, slab);
-		break;
-	case TEST_PRINT:
-		ret = netns_ass_test_print(arg);
-		break;
-	default:
-		break;
-	}
-
-	return ret;
-}
-
-SYSCALL_DEFINE2(netns_ass_test, unsigned int, cmd, unsigned long, arg)
-{
-	return __netns_ass_test(cmd, arg);
-}
 #endif
