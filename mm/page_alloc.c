@@ -69,6 +69,7 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
+#include <linux/ass.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1125,6 +1126,10 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageKmemcg(page))
 		__memcg_kmem_uncharge(page, order);
+#ifdef CONFIG_NET_NS_MM
+	if (PageExclusive(page))
+		ass_make_page_exclusive(page, order);
+#endif
 	if (check_free)
 		bad += free_pages_check(page);
 	if (bad)
@@ -4684,6 +4689,13 @@ out:
 		page = NULL;
 	}
 
+#ifdef CONFIG_NET_NS_MM
+	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
+	    ass_make_page_exclusive(page, order) != 0) {
+		__free_pages(page, order);
+		page = NULL;
+	}
+#endif
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
 
 	return page;

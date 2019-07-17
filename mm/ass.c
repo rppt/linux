@@ -12,6 +12,7 @@
 #include <linux/debugfs.h>
 #include <linux/sizes.h>
 #include <linux/random.h>
+#include <linux/ass.h>
 
 #include <asm/pgalloc.h>
 
@@ -280,3 +281,85 @@ int ass_free_pagetable(struct task_struct *tsk, pgd_t *ass_pgd)
 
 	return 0;
 }
+
+int ass_make_page_exclusive(struct page *page, unsigned int order)
+{
+	__SetPageExclusive(page);
+	return 0;
+}
+
+void ass_unmake_page_exclusive(struct page *page, unsigned int order)
+{
+	__ClearPageExclusive(page);
+	return;
+}
+
+static LIST_HEAD(asses);
+
+int ass_create_ns_pgd(pgd_t *pgd)
+{
+	struct ns_pgd *ns_pgd;
+
+	ns_pgd = kzalloc(sizeof(*ns_pgd), GFP_KERNEL);
+	if (!ns_pgd)
+		return -ENOMEM;
+
+	ns_pgd->pgd = pgd;
+	INIT_LIST_HEAD(&ns_pgd->l);
+
+	/* FIXME: locking */
+	list_add_tail(&ns_pgd->l, &asses);
+
+	current->mm->ns_pgd = ns_pgd;
+
+	return 0;
+}
+
+struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
+{
+	return cachep;
+}
+
+struct page_excl {
+	struct ns_pgd *owner;
+};
+
+static bool page_excl_need(void)
+{
+	return true;
+}
+
+static void page_excl_init(void)
+{
+}
+
+struct page_ext_operations page_excl_ops = {
+	.size = sizeof(struct page_excl),
+	.need = page_excl_need,
+	.init = page_excl_init,
+};
+
+static int ass_pgds_show(struct seq_file *m, void *unused)
+{
+	struct ns_pgd *ns_pgd;
+
+	list_for_each_entry(ns_pgd, &asses, l)
+		seq_printf(m, "%px: %px\n", ns_pgd, ns_pgd->pgd);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(ass_pgds);
+
+static int ass_debugfs_init(void)
+{
+	struct dentry *ass_debugfs = debugfs_create_dir("ass", NULL);
+
+	if (!ass_debugfs)
+		return -ENOMEM;
+
+	debugfs_create_file("all_pgds", 0400, ass_debugfs, NULL,
+			    &ass_pgds_fops);
+
+	return 0;
+}
+late_initcall(ass_debugfs_init);

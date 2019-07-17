@@ -419,6 +419,8 @@ static struct net *net_alloc(void)
 
 	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 
+	ass_create_ns_pgd(net->mm->pgd); /* FIXME: may fail, handle errors */
+
 	dump_pgd(&init_mm, "init mm");
 	dump_pgd(net->mm, "net mm");
 #endif
