@@ -2210,11 +2210,11 @@ int set_pages_rw(struct page *page, int numpages)
 	return set_memory_rw(addr, numpages);
 }
 
-static int __set_pages_p(struct page *page, int numpages)
+static int __set_pages_p(pgd_t *pgd, struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
+				.pgd = pgd,
 				.numpages = numpages,
 				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
 				.mask_clr = __pgprot(0),
@@ -2229,11 +2229,11 @@ static int __set_pages_p(struct page *page, int numpages)
 	return __change_page_attr_set_clr(&cpa, 0);
 }
 
-static int __set_pages_np(struct page *page, int numpages)
+static int __set_pages_np(pgd_t *pgd, struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
 	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
+				.pgd = pgd,
 				.numpages = numpages,
 				.mask_set = __pgprot(0),
 				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
@@ -2250,15 +2250,16 @@ static int __set_pages_np(struct page *page, int numpages)
 
 int set_direct_map_invalid_noflush(struct page *page)
 {
-	return __set_pages_np(page, 1);
+	return __set_pages_np(NULL, page, 1);
 }
 
 int set_direct_map_default_noflush(struct page *page)
 {
-	return __set_pages_p(page, 1);
+	return __set_pages_p(NULL, page, 1);
 }
 
-void __kernel_map_pages(struct page *page, int numpages, int enable)
+static void __kernel_map_pages_pgd(pgd_t *pgd, struct page *page,
+				   int numpages, int enable)
 {
 	if (PageHighMem(page))
 		return;
@@ -2273,9 +2274,9 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 	 * and hence no memory allocations during large page split.
 	 */
 	if (enable)
-		__set_pages_p(page, numpages);
+		__set_pages_p(pgd, page, numpages);
 	else
-		__set_pages_np(page, numpages);
+		__set_pages_np(pgd, page, numpages);
 
 	/*
 	 * We should perform an IPI and flush all tlbs,
@@ -2288,6 +2289,17 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 	preempt_enable();
 
 	arch_flush_lazy_mmu_mode();
+}
+
+void __kernel_map_pages(struct page *page, int numpages, int enable)
+{
+	__kernel_map_pages_pgd(NULL, page, numpages, enable);
+}
+
+void kernel_map_pages_pgd(pgd_t *pgd, struct page *page,
+			  int numpages, int enable)
+{
+	__kernel_map_pages_pgd(pgd, page, numpages, enable);
 }
 
 #ifdef CONFIG_HIBERNATION
