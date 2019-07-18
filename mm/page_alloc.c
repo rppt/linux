@@ -1128,7 +1128,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		__memcg_kmem_uncharge(page, order);
 #ifdef CONFIG_NET_NS_MM
 	if (PageExclusive(page))
-		ass_make_page_exclusive(page, order);
+		ass_unmake_page_exclusive(page, order);
 #endif
 	if (check_free)
 		bad += free_pages_check(page);
