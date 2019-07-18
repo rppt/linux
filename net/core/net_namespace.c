@@ -409,20 +409,9 @@ static struct net *net_alloc(void)
 	if (!net->mm)
 		goto out_free_net;
 
-	{
-		pgd_t *pgd = pgd_offset_pgd(net->mm->pgd, PAGE_OFFSET);
-		p4d_t *p4d = p4d_offset(pgd, PAGE_OFFSET);
-
-		p4d_clear(p4d);
-		pgd_clear(pgd);
-	}
-
-	ass_clone_range(net->mm, init_mm.pgd, net->mm->pgd, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
-
-	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 	pr_info("%s: init_net: %px, new_net: %px\n", __func__, &init_net, net);
 
-	net->ns_pgd = ass_create_ns_pgd(net->mm->pgd); /* FIXME: may fail, handle errors */
+	net->ns_pgd = ass_create_ns_pgd(net->mm); /* FIXME: may fail, handle errors */
 
 	dump_pgd(&init_mm, "init mm");
 	dump_pgd(net->mm, "net mm");

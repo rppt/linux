@@ -311,16 +311,38 @@ static inline struct page_excl *get_page_excl(struct page_ext *page_ext)
 }
 
 static LIST_HEAD(asses);
+static pgd_t ass_pgd_shadow[PTRS_PER_PGD] __page_aligned_bss;
 
-struct ns_pgd *ass_create_ns_pgd(pgd_t *pgd)
+static void dump_pgd(pgd_t *pgdp, const char *name)
+{
+	int i;
+
+	pr_info("===> %s: %px\n", name, pgdp);
+	for (i = 0; i < 512; i++, pgdp++)
+		if (pgd_val(*pgdp) != 0)
+			pr_info("%d: %lx\n", i, pgd_val(*pgdp));
+}
+
+struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm)
 {
 	struct ns_pgd *ns_pgd;
+	pgd_t *pgd;
+	p4d_t *p4d;
+
+	pgd = pgd_offset_pgd(mm->pgd, PAGE_OFFSET);
+	p4d = p4d_offset(pgd, PAGE_OFFSET);
+
+	p4d_clear(p4d);
+	pgd_clear(pgd);
+
+	ass_clone_range(mm, ass_pgd_shadow, mm->pgd,
+			PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 
 	ns_pgd = kzalloc(sizeof(*ns_pgd), GFP_KERNEL);
 	if (!ns_pgd)
 		return NULL;
 
-	ns_pgd->pgd = pgd;
+	ns_pgd->pgd = mm->pgd;
 	INIT_LIST_HEAD(&ns_pgd->l);
 
 	/* FIXME: locking */
@@ -328,6 +350,36 @@ struct ns_pgd *ass_create_ns_pgd(pgd_t *pgd)
 
 	return ns_pgd;
 }
+
+static int ass_init_pgd_shadow(void)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	int err;
+
+	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+
+	clone_pgd_range(ass_pgd_shadow + KERNEL_PGD_BOUNDARY,
+			swapper_pg_dir + KERNEL_PGD_BOUNDARY,
+			KERNEL_PGD_PTRS);
+
+	pgd = pgd_offset_pgd(ass_pgd_shadow, PAGE_OFFSET);
+	p4d = p4d_offset(pgd, PAGE_OFFSET);
+
+	p4d_clear(p4d);
+	pgd_clear(pgd);
+
+	err = ass_clone_range(&init_mm, init_mm.pgd,
+			      ass_pgd_shadow, PAGE_OFFSET,
+			      PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+	if (err)
+		return err;
+
+	dump_pgd(ass_pgd_shadow, "ass shadow");
+
+	return 0;
+}
+late_initcall(ass_init_pgd_shadow);
 
 static int bad_address(void *p)
 {
@@ -418,12 +470,17 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 
 	list_for_each_entry(p, &asses, l) {
 		if (p != ns_pgd) {
-			pr_info("==> make_EX: unmapping in %px\n", p);
+			pr_info("==> make_EX: unmapping in %px\n", p->pgd);
 			kernel_map_pages_pgd(p->pgd, page, (1 << order), 0);
 			dump_pagetable(p->pgd, (unsigned long)page_address(page));
 		}
 	}
 
+	pr_info("---> shadow PGD\n");
+	kernel_map_pages_pgd(ass_pgd_shadow, page, (1 << order), 0);
+	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
+
+	pr_info("---> owner PGD\n");
 	dump_pagetable(ns_pgd->pgd, (unsigned long)page_address(page));
 
 	return 0;
@@ -442,11 +499,14 @@ void ass_unmake_page_exclusive(struct page *page, unsigned int order)
 		return;
 
 	owner = page_excl->owner;
-
-	__ClearPageExclusive(page);
 	list_for_each_entry(p, &asses, l)
 		if (p != owner)
 			kernel_map_pages_pgd(p->pgd, page, (1 << order), 1);
+
+	kernel_map_pages_pgd(ass_pgd_shadow, page, (1 << order), 1);
+
+	__ClearPageExclusive(page);
+	page_excl->owner = NULL;
 
 	return;
 }
