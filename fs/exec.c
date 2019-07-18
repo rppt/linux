@@ -1017,10 +1017,12 @@ static int exec_mmap(struct mm_struct *mm)
 	old_mm = current->mm;
 
 #ifdef CONFIG_NET_NS_MM
-	if (old_mm)
+	if (old_mm) {
 		clone_pgd_range(mm->pgd + KERNEL_PGD_BOUNDARY,
 				old_mm->pgd + KERNEL_PGD_BOUNDARY,
 				KERNEL_PGD_PTRS);
+		mm->ns_pgd = old_mm->ns_pgd;
+	}
 #endif
 
 	mm_release(tsk, old_mm);
