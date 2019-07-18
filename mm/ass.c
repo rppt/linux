@@ -282,43 +282,9 @@ int ass_free_pagetable(struct task_struct *tsk, pgd_t *ass_pgd)
 	return 0;
 }
 
-int ass_make_page_exclusive(struct page *page, unsigned int order)
-{
-	__SetPageExclusive(page);
-	return 0;
-}
+extern void kernel_map_pages_pgd(pgd_t *pgd, struct page *page,
+				 int numpages, int enable);
 
-void ass_unmake_page_exclusive(struct page *page, unsigned int order)
-{
-	__ClearPageExclusive(page);
-	return;
-}
-
-static LIST_HEAD(asses);
-
-int ass_create_ns_pgd(pgd_t *pgd)
-{
-	struct ns_pgd *ns_pgd;
-
-	ns_pgd = kzalloc(sizeof(*ns_pgd), GFP_KERNEL);
-	if (!ns_pgd)
-		return -ENOMEM;
-
-	ns_pgd->pgd = pgd;
-	INIT_LIST_HEAD(&ns_pgd->l);
-
-	/* FIXME: locking */
-	list_add_tail(&ns_pgd->l, &asses);
-
-	current->mm->ns_pgd = ns_pgd;
-
-	return 0;
-}
-
-struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
-{
-	return cachep;
-}
 
 struct page_excl {
 	struct ns_pgd *owner;
@@ -338,6 +304,157 @@ struct page_ext_operations page_excl_ops = {
 	.need = page_excl_need,
 	.init = page_excl_init,
 };
+
+static inline struct page_excl *get_page_excl(struct page_ext *page_ext)
+{
+	return (void *)page_ext + page_excl_ops.offset;
+}
+
+static LIST_HEAD(asses);
+
+struct ns_pgd *ass_create_ns_pgd(pgd_t *pgd)
+{
+	struct ns_pgd *ns_pgd;
+
+	ns_pgd = kzalloc(sizeof(*ns_pgd), GFP_KERNEL);
+	if (!ns_pgd)
+		return NULL;
+
+	ns_pgd->pgd = pgd;
+	INIT_LIST_HEAD(&ns_pgd->l);
+
+	/* FIXME: locking */
+	list_add_tail(&ns_pgd->l, &asses);
+
+	return ns_pgd;
+}
+
+static int bad_address(void *p)
+{
+	unsigned long dummy;
+
+	return probe_kernel_address((unsigned long *)p, dummy);
+}
+
+static void dump_pagetable(pgd_t *base, unsigned long address)
+{
+	pgd_t *pgd = base + pgd_index(address);
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	if (bad_address(pgd))
+		goto bad;
+
+	pr_info("PGD %lx ", pgd_val(*pgd));
+
+	if (!pgd_present(*pgd))
+		goto out;
+
+	p4d = p4d_offset(pgd, address);
+	if (bad_address(p4d))
+		goto bad;
+
+	pr_cont("P4D %lx ", p4d_val(*p4d));
+	if (!p4d_present(*p4d) || p4d_large(*p4d))
+		goto out;
+
+	pud = pud_offset(p4d, address);
+	if (bad_address(pud))
+		goto bad;
+
+	pr_cont("PUD %lx ", pud_val(*pud));
+	if (!pud_present(*pud) || pud_large(*pud))
+		goto out;
+
+	pmd = pmd_offset(pud, address);
+	if (bad_address(pmd))
+		goto bad;
+
+	pr_cont("PMD %lx ", pmd_val(*pmd));
+	if (!pmd_present(*pmd) || pmd_large(*pmd))
+		goto out;
+
+	pte = pte_offset_kernel(pmd, address);
+	if (bad_address(pte))
+		goto bad;
+
+	pr_cont("PTE %lx", pte_val(*pte));
+out:
+	pr_cont("\n");
+	return;
+bad:
+	pr_info("BAD\n");
+}
+
+int ass_make_page_exclusive(struct page *page, unsigned int order)
+{
+	struct mm_struct *mm;
+	struct ns_pgd *ns_pgd, *p;
+	struct page_ext *page_ext;
+	struct page_excl *page_excl;
+
+	pr_info("==> make_EX: %px(%px), %d\n", page, page_address(page), order);
+
+	if (!current->mm || (current->flags & PF_KTHREAD)) {
+		pr_info("==> make_EX: kthread?\n");
+		return 0;
+	}
+
+	mm = current->mm;
+	ns_pgd = mm->ns_pgd;
+
+	if (!ns_pgd) {
+		pr_info("==> make_EX: no ns_pgd\n");
+		return 0;
+	}
+
+	page_ext = lookup_page_ext(page);
+	page_excl = get_page_excl(page_ext);
+
+	__SetPageExclusive(page);
+	page_excl->owner = ns_pgd;
+
+	list_for_each_entry(p, &asses, l) {
+		if (p != ns_pgd) {
+			pr_info("==> make_EX: unmapping in %px\n", p);
+			kernel_map_pages_pgd(p->pgd, page, (1 << order), 0);
+			dump_pagetable(p->pgd, (unsigned long)page_address(page));
+		}
+	}
+
+	dump_pagetable(ns_pgd->pgd, (unsigned long)page_address(page));
+
+	return 0;
+}
+
+void ass_unmake_page_exclusive(struct page *page, unsigned int order)
+{
+	struct page_ext *page_ext;
+	struct page_excl *page_excl;
+	struct ns_pgd *owner, *p;
+
+	page_ext = lookup_page_ext(page);
+	page_excl = get_page_excl(page_ext);
+
+	if (!page_excl->owner)
+		return;
+
+	owner = page_excl->owner;
+
+	__ClearPageExclusive(page);
+	list_for_each_entry(p, &asses, l)
+		if (p != owner)
+			kernel_map_pages_pgd(p->pgd, page, (1 << order), 1);
+
+	return;
+}
+
+struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
+{
+	return cachep;
+}
 
 static int ass_pgds_show(struct seq_file *m, void *unused)
 {

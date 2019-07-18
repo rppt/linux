@@ -13,7 +13,7 @@ int ass_free_pagetable(struct task_struct *tsk, pgd_t *ass_pgd);
 int ass_make_page_exclusive(struct page *page, unsigned int order);
 void ass_unmake_page_exclusive(struct page *page, unsigned int order);
 
-int ass_create_ns_pgd(pgd_t *pgd);
+struct ns_pgd *ass_create_ns_pgd(pgd_t *pgd);
 
 struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep);
 
