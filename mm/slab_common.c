@@ -406,6 +406,16 @@ out_free_cache:
 	goto out;
 }
 
+struct kmem_cache *slab_create_cache(const char *name,
+		unsigned int object_size, unsigned int align,
+		slab_flags_t flags, unsigned int useroffset,
+		unsigned int usersize, void (*ctor)(void *),
+		struct mem_cgroup *memcg, struct kmem_cache *root_cache)
+{
+	return create_cache(name, object_size, align, flags, useroffset,
+			    usersize, ctor, memcg, root_cache);
+}
+
 /**
  * kmem_cache_create_usercopy - Create a cache with a region suitable
  * for copying to userspace

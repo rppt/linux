@@ -407,9 +407,17 @@ static inline size_t slab_ksize(const struct kmem_cache *s)
 #endif
 }
 
+extern struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep);
+
 static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 						     gfp_t flags)
 {
+	struct kmem_cache *cachep = s;
+
+	if (flags & __GFP_EXCLUSIVE)
+		pr_info("==> PRE: cache: %s, flags: %x, masked: %x\n",
+			cachep->name, flags, flags & gfp_allowed_mask);
+
 	flags &= gfp_allowed_mask;
 
 	fs_reclaim_acquire(flags);
@@ -420,14 +428,14 @@ static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 	if (should_failslab(s, flags))
 		return NULL;
 
-/* #ifdef CONFIG_NET_NS_MM */
-/* 	if (flags & __GFP_EXCLUSIVE) */
-/* 		return ass_kmem_get_cache(s); */
-/* #endif */
+#ifdef CONFIG_NET_NS_MM
+	if ((flags & __GFP_EXCLUSIVE) /* || (s->flags & SLAB_EXCLUSIVE) */)
+		return ass_kmem_get_cache(s);
+#endif
 
 	if (memcg_kmem_enabled() &&
-	    ((flags & __GFP_ACCOUNT) || (s->flags & SLAB_ACCOUNT)))
-		return memcg_kmem_get_cache(s);
+	    ((flags & __GFP_ACCOUNT) || (cachep->flags & SLAB_ACCOUNT)))
+		return memcg_kmem_get_cache(cachep);
 
 	return s;
 }

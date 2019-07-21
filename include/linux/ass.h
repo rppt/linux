@@ -17,9 +17,17 @@ struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm);
 
 struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep);
 
-struct ns_pgd {
+struct ass_kmem_cache {
 	struct list_head l;
+	struct kmem_cache *normal;
+	struct kmem_cache *exclusive;
+};
+
+struct ns_pgd {
+	struct list_head l; /* for list of all ns_pgd's */
+	struct list_head caches; /* list of ns_pgd specific caches */
 	pgd_t *pgd;
+	int id;
 };
 
 extern struct page_ext_operations page_excl_ops;

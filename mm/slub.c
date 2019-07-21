@@ -1704,7 +1704,7 @@ static struct page *new_slab(struct kmem_cache *s, gfp_t flags, int node)
 	}
 
 	return allocate_slab(s,
-		flags & (GFP_RECLAIM_MASK | GFP_CONSTRAINT_MASK), node);
+		flags & (GFP_RECLAIM_MASK | GFP_CONSTRAINT_MASK | __GFP_EXCLUSIVE), node);
 }
 
 static void __free_slab(struct kmem_cache *s, struct page *page)
@@ -2674,6 +2674,11 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 	s = slab_pre_alloc_hook(s, gfpflags);
 	if (!s)
 		return NULL;
+
+	if (gfpflags & __GFP_EXCLUSIVE)
+		pr_info("==> after PRE: cache: %s, flags: %x, masked: %x\n",
+			s->name, gfpflags, gfpflags & gfp_allowed_mask);
+
 redo:
 	/*
 	 * Must read kmem_cache cpu data via this cpu ptr. Preemption is
@@ -2716,6 +2721,8 @@ redo:
 	} else {
 		void *next_object = get_freepointer_safe(s, object);
 
+		if (gfpflags & __GFP_EXCLUSIVE)
+			pr_info("==> fast: p_excl: %x\n", PageExclusive(page));
 		/*
 		 * The cmpxchg will only match if there was no additional
 		 * operation and if we are on the right processor.
@@ -3132,6 +3139,7 @@ int kmem_cache_alloc_bulk(struct kmem_cache *s, gfp_t flags, size_t size,
 	s = slab_pre_alloc_hook(s, flags);
 	if (unlikely(!s))
 		return false;
+
 	/*
 	 * Drain objects in the per cpu slab, while disabling local
 	 * IRQs, which protects against PREEMPT and interrupts

@@ -1441,6 +1441,8 @@ void switch_net_ns_ctx(struct task_struct *p)
 #define MAX_ASS_TEST_OBJS	1024
 #define TEST_ALLOC	150
 #define TEST_FREE	151
+#define TEST_KMALLOC	152
+#define TEST_KFREE	153
 #define TEST_PRINT	200
 #define TEST_PRINT_ADDR	201
 
@@ -1497,6 +1499,45 @@ static int noinline netns_ass_test_free(struct net *net, struct kmem_cache *slab
 	return 0;
 }
 
+static int noinline netns_ass_test_kmalloc(struct net *net, struct kmem_cache *slab)
+{
+	const unsigned int size = sizeof(struct net);
+	struct net *new;
+
+	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
+		return -ENOSPC;
+
+	new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE);
+	if (!new)
+		return -ENOMEM;
+
+	memset(new, 0xa5, size);
+
+	test_objects[nr_test_objects] = new;
+	nr_test_objects++;
+
+	pr_info("==> KMALLOC: %d: %d: %px (%px)\n", size, nr_test_objects, new, test_objects[nr_test_objects - 1]);
+
+	return 0;
+}
+
+static int noinline netns_ass_test_kfree(struct net *net, struct kmem_cache *slab)
+{
+	struct net *old;
+
+	if (nr_test_objects < 1)
+		return -EINVAL;
+
+	nr_test_objects--;
+
+	old = test_objects[nr_test_objects];
+	pr_info("==> FREE: %d: %px (%px)\n", nr_test_objects, old, test_objects[nr_test_objects]);
+
+	kmem_cache_free(slab, old);
+
+	return 0;
+}
+
 static int noinline netns_ass_test_print_addr(unsigned long addr)
 {
 	struct net *obj = (struct net *)addr;
@@ -1539,8 +1580,10 @@ static int noinline __netns_ass_test(unsigned int cmd, unsigned long arg)
 	}
 
 	/* net = current->nsproxy->net_ns; */
-	net = get_net_ns_by_pid(pid);
-	slab = net->ass_test_cache;
+	if (cmd != TEST_PRINT_ADDR) {
+		net = get_net_ns_by_pid(pid);
+		slab = net->ass_test_cache;
+	}
 
 	switch (cmd) {
 	case TEST_ALLOC:
@@ -1548,6 +1591,12 @@ static int noinline __netns_ass_test(unsigned int cmd, unsigned long arg)
 		break;
 	case TEST_FREE:
 		ret = netns_ass_test_free(net, slab);
+		break;
+	case TEST_KMALLOC:
+		ret = netns_ass_test_kmalloc(net, slab);
+		break;
+	case TEST_KFREE:
+		ret = netns_ass_test_kfree(net, slab);
 		break;
 	case TEST_PRINT:
 		ret = netns_ass_test_print(arg);

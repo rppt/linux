@@ -12,9 +12,12 @@
 #include <linux/debugfs.h>
 #include <linux/sizes.h>
 #include <linux/random.h>
+#include <linux/cpu.h>
 #include <linux/ass.h>
 
 #include <asm/pgalloc.h>
+
+#include "slab.h"
 
 /*
  * Walk the shadow copy of the page tables to PMD level (optionally)
@@ -344,6 +347,7 @@ struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm)
 
 	ns_pgd->pgd = mm->pgd;
 	INIT_LIST_HEAD(&ns_pgd->l);
+	INIT_LIST_HEAD(&ns_pgd->caches);
 
 	/* FIXME: locking */
 	list_add_tail(&ns_pgd->l, &asses);
@@ -447,10 +451,10 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 	struct page_ext *page_ext;
 	struct page_excl *page_excl;
 
-	pr_info("==> make_EX: %px(%px), %d\n", page, page_address(page), order);
+	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
 
 	if (!current->mm || (current->flags & PF_KTHREAD)) {
-		pr_info("==> make_EX: kthread?\n");
+		pr_info("%s: kthread?\n", __func__);
 		return 0;
 	}
 
@@ -458,7 +462,7 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 	ns_pgd = mm->ns_pgd;
 
 	if (!ns_pgd) {
-		pr_info("==> make_EX: no ns_pgd\n");
+		pr_info("%s: no ns_pgd\n", __func__);
 		return 0;
 	}
 
@@ -511,9 +515,103 @@ void ass_unmake_page_exclusive(struct page *page, unsigned int order)
 	return;
 }
 
+extern struct kmem_cache *slab_create_cache(const char *name,
+		unsigned int object_size, unsigned int align,
+		slab_flags_t flags, unsigned int useroffset,
+		unsigned int usersize, void (*ctor)(void *),
+		struct mem_cgroup *memcg, struct kmem_cache *root_cache);
+
+static struct kmem_cache *ass_kmem_create_cache(struct ns_pgd *ns_pgd,
+						struct kmem_cache *cachep)
+{
+	struct kmem_cache *new = NULL;
+	struct ass_kmem_cache *ns_cache;
+	char *cache_name;
+
+	pr_info("%s: PGD: %px, cache: %s\n", __func__, ns_pgd->pgd, cachep->name);
+
+	get_online_cpus();
+	get_online_mems();
+
+	mutex_lock(&slab_mutex);
+
+	cache_name = kasprintf(GFP_KERNEL, "%s(%px)", cachep->name,
+			       ns_pgd->pgd);
+	if (!cache_name)
+		goto out_unlock;
+
+	ns_cache = kzalloc(sizeof(*ns_cache), GFP_KERNEL);
+	if (!ns_cache)
+		goto out_free_name;
+
+	new = slab_create_cache(cache_name, cachep->object_size,
+				cachep->align,
+				cachep->flags & CACHE_CREATE_MASK,
+				cachep->useroffset, cachep->usersize,
+				cachep->ctor, NULL, NULL);
+	if (IS_ERR(new)) {
+		new = NULL;
+		goto out_free_ns_cache;
+	}
+
+	INIT_LIST_HEAD(&ns_cache->l);
+	ns_cache->normal = cachep;
+	ns_cache->exclusive = new;
+	list_add_tail(&ns_cache->l, &ns_pgd->caches);
+
+	goto out_unlock;
+
+out_free_ns_cache:
+	kfree(ns_cache);
+out_free_name:
+	kfree_const(cache_name);
+
+out_unlock:
+	mutex_unlock(&slab_mutex);
+
+	put_online_mems();
+	put_online_cpus();
+
+	return new;
+}
+
+static struct kmem_cache *ass_find_ns_cache(struct ns_pgd *ns_pgd,
+					    struct kmem_cache *normal)
+{
+	struct ass_kmem_cache *c;
+
+	/* FIXME: locking */
+	list_for_each_entry(c, &ns_pgd->caches, l)
+		if (c->normal == normal)
+			return c->exclusive;
+
+	return NULL;
+}
+
 struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
 {
-	return cachep;
+	struct mm_struct *mm;
+	struct ns_pgd *ns_pgd;
+	struct kmem_cache *new;
+
+	if (!current->mm || (current->flags & PF_KTHREAD)) {
+		pr_info("%s: kthread?\n", __func__);
+		return cachep;
+	}
+
+	mm = current->mm;
+	ns_pgd = mm->ns_pgd;
+
+	if (!ns_pgd) {
+		pr_info("%s: no ns_pgd\n", __func__);
+		return cachep;
+	}
+
+	new = ass_find_ns_cache(ns_pgd, cachep);
+	if (!new)
+		new = ass_kmem_create_cache(ns_pgd, cachep);
+
+	return new;
 }
 
 static int ass_pgds_show(struct seq_file *m, void *unused)
