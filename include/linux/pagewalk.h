@@ -8,6 +8,8 @@ struct mm_walk;
 
 /**
  * mm_walk_ops - callbacks for walk_page_range
+ * @pgd_entry:		if set, called for each non-empty PGD (top-level) entry
+ * @p4d_entry:		if set, called for each non-empty P4D entry
  * @pud_entry:		if set, called for each non-empty PUD (2nd-level) entry
  *			this handler should only handle pud_trans_huge() puds.
  *			the pmd_entry or pte_entry callbacks will be used for
@@ -26,6 +28,10 @@ struct mm_walk;
  *			right now" and returning 1 means "skip the current vma"
  */
 struct mm_walk_ops {
+	int (*pgd_entry)(pgd_t *pgd, unsigned long addr,
+			 unsigned long next, struct mm_walk *walk);
+	int (*p4d_entry)(p4d_t *p4d, unsigned long addr,
+			 unsigned long next, struct mm_walk *walk);
 	int (*pud_entry)(pud_t *pud, unsigned long addr,
 			 unsigned long next, struct mm_walk *walk);
 	int (*pmd_entry)(pmd_t *pmd, unsigned long addr,
