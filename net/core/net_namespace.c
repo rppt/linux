@@ -1507,7 +1507,8 @@ static int noinline netns_ass_test_kmalloc(struct net *net, struct kmem_cache *s
 	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
 		return -ENOSPC;
 
-	new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE);
+	/* new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE); */
+	new = kmalloc(size, GFP_KERNEL | __GFP_EXCLUSIVE);
 	if (!new)
 		return -ENOMEM;
 
@@ -1533,7 +1534,8 @@ static int noinline netns_ass_test_kfree(struct net *net, struct kmem_cache *sla
 	old = test_objects[nr_test_objects];
 	pr_info("==> FREE: %d: %px (%px)\n", nr_test_objects, old, test_objects[nr_test_objects]);
 
-	kmem_cache_free(slab, old);
+	/* kmem_cache_free(slab, old); */
+	kfree(old);
 
 	return 0;
 }
