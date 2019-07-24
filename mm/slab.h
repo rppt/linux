@@ -414,9 +414,9 @@ static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 {
 	struct kmem_cache *cachep = s;
 
-	if (flags & __GFP_EXCLUSIVE)
-		pr_info("==> PRE: cache: %s, flags: %x, masked: %x\n",
-			cachep->name, flags, flags & gfp_allowed_mask);
+	/* if (flags & __GFP_EXCLUSIVE) */
+	/* 	pr_info("==> PRE: cache: %s, flags: %x, masked: %x\n", */
+	/* 		cachep->name, flags, flags & gfp_allowed_mask); */
 
 	flags &= gfp_allowed_mask;
 

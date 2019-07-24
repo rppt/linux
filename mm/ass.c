@@ -451,10 +451,8 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 	struct page_ext *page_ext;
 	struct page_excl *page_excl;
 
-	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
-
 	if (!current->mm || (current->flags & PF_KTHREAD)) {
-		pr_info("%s: kthread?\n", __func__);
+		/* pr_info("%s: kthread?\n", __func__); */
 		return 0;
 	}
 
@@ -462,9 +460,11 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 	ns_pgd = mm->ns_pgd;
 
 	if (!ns_pgd) {
-		pr_info("%s: no ns_pgd\n", __func__);
+		/* pr_info("%s: no ns_pgd\n", __func__); */
 		return 0;
 	}
+
+	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
 
 	page_ext = lookup_page_ext(page);
 	page_excl = get_page_excl(page_ext);
@@ -603,7 +603,7 @@ struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
 	ns_pgd = mm->ns_pgd;
 
 	if (!ns_pgd) {
-		pr_info("%s: no ns_pgd\n", __func__);
+		/* pr_info("%s: no ns_pgd\n", __func__); */
 		return cachep;
 	}
 

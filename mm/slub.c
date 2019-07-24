@@ -2675,9 +2675,9 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 	if (!s)
 		return NULL;
 
-	if (gfpflags & __GFP_EXCLUSIVE)
-		pr_info("==> after PRE: cache: %s, flags: %x, masked: %x\n",
-			s->name, gfpflags, gfpflags & gfp_allowed_mask);
+	/* if (gfpflags & __GFP_EXCLUSIVE) */
+	/* 	pr_info("==> after PRE: cache: %s, flags: %x, masked: %x\n", */
+	/* 		s->name, gfpflags, gfpflags & gfp_allowed_mask); */
 
 redo:
 	/*
@@ -2721,8 +2721,8 @@ redo:
 	} else {
 		void *next_object = get_freepointer_safe(s, object);
 
-		if (gfpflags & __GFP_EXCLUSIVE)
-			pr_info("==> fast: p_excl: %x\n", PageExclusive(page));
+		/* if (gfpflags & __GFP_EXCLUSIVE) */
+		/* 	pr_info("==> fast: p_excl: %x\n", PageExclusive(page)); */
 		/*
 		 * The cmpxchg will only match if there was no additional
 		 * operation and if we are on the right processor.
