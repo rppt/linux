@@ -1589,6 +1589,7 @@ static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 	struct kmem_cache *slab;
 
 	slab = prot->slab;
+	priority |= __GFP_EXCLUSIVE;
 	if (slab != NULL) {
 		sk = kmem_cache_alloc(slab, priority & ~__GFP_ZERO);
 		if (!sk)
