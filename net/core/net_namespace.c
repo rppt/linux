@@ -1508,7 +1508,7 @@ static int noinline netns_ass_test_kmalloc(struct net *net, struct kmem_cache *s
 		return -ENOSPC;
 
 	/* new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE); */
-	new = kmalloc(size, GFP_KERNEL | __GFP_EXCLUSIVE);
+	new = kmalloc(size, GFP_KERNEL_ACCOUNT | __GFP_EXCLUSIVE);
 	if (!new)
 		return -ENOMEM;
 
