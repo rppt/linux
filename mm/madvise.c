@@ -48,6 +48,13 @@ static int madvise_need_mmap_write(int behavior)
 	}
 }
 
+static int madvise_secret(struct vm_area_struct *vma, unsigned long start,
+			  unsigned long end, int behavior,
+			  unsigned long *vm_flags)
+{
+	return 0;
+}
+
 /*
  * We can potentially split a vm area into separate
  * areas, each area with its own behavior.
@@ -128,6 +135,18 @@ static long madvise_behavior(struct vm_area_struct *vma,
 			goto out;
 		}
 		break;
+	case MADV_SECRET:
+	case MADV_UNSECRET:
+		error = madvise_secret(vma, start, end, behavior, &new_flags);
+		if (error) {
+			/*
+			 * madvise() returns EAGAIN if kernel resources, such as
+			 * slab, are temporarily unavailable.
+			 */
+			if (error == -ENOMEM)
+				error = -EAGAIN;
+			goto out;
+		}
 	}
 
 	if (new_flags == vma->vm_flags) {
@@ -732,6 +751,8 @@ madvise_behavior_valid(int behavior)
 	case MADV_SOFT_OFFLINE:
 	case MADV_HWPOISON:
 #endif
+	case MADV_SECRET:
+	case MADV_UNSECRET:
 		return true;
 
 	default:
