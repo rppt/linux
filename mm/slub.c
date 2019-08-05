@@ -2675,6 +2675,9 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 	if (!s)
 		return NULL;
 
+	if (s->flags & SLAB_EXCLUSIVE)
+		gfpflags |= __GFP_EXCLUSIVE;
+
 	/* if (gfpflags & __GFP_EXCLUSIVE) */
 	/* 	pr_info("==> after PRE: cache: %s, flags: %x, masked: %x\n", */
 	/* 		s->name, gfpflags, gfpflags & gfp_allowed_mask); */

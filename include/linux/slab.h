@@ -115,6 +115,11 @@
 /* Objects are reclaimable */
 #define SLAB_RECLAIM_ACCOUNT	((slab_flags_t __force)0x00020000U)
 #define SLAB_TEMPORARY		SLAB_RECLAIM_ACCOUNT	/* Objects are short-lived */
+
+/* cache objects are visible only in one address space */
+#define SLAB_EXCLUSIVE		((slab_flags_t __force)0x10000000U)
+
+
 /*
  * ZERO_SIZE_PTR will be returned for zero sized kmalloc requests.
  *

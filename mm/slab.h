@@ -152,7 +152,7 @@ static inline slab_flags_t kmem_cache_flags(unsigned int object_size,
 #endif
 
 /* Common flags available with current configuration */
-#define CACHE_CREATE_MASK (SLAB_CORE_FLAGS | SLAB_DEBUG_FLAGS | SLAB_CACHE_FLAGS)
+#define CACHE_CREATE_MASK (SLAB_CORE_FLAGS | SLAB_DEBUG_FLAGS | SLAB_CACHE_FLAGS | SLAB_EXCLUSIVE)
 
 /* Common flags permitted for kmem_cache_create */
 #define SLAB_FLAGS_PERMITTED (SLAB_CORE_FLAGS | \
@@ -165,6 +165,7 @@ static inline slab_flags_t kmem_cache_flags(unsigned int object_size,
 			      SLAB_NOLEAKTRACE | \
 			      SLAB_RECLAIM_ACCOUNT | \
 			      SLAB_TEMPORARY | \
+			      SLAB_EXCLUSIVE | \
 			      SLAB_ACCOUNT)
 
 bool __kmem_cache_empty(struct kmem_cache *);
@@ -429,7 +430,7 @@ static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 		return NULL;
 
 #ifdef CONFIG_NET_NS_MM
-	if ((flags & __GFP_EXCLUSIVE) /* || (s->flags & SLAB_EXCLUSIVE) */)
+	if ((flags & __GFP_EXCLUSIVE) || (s->flags & SLAB_EXCLUSIVE))
 		cachep = ass_kmem_get_cache(s);
 #endif
 
