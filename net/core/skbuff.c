@@ -189,6 +189,8 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 
 	if (sk_memalloc_socks() && (flags & SKB_ALLOC_RX))
 		gfp_mask |= __GFP_MEMALLOC;
+	else
+		gfp_mask |= __GFP_EXCLUSIVE;
 
 	/* Get the HEAD */
 	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
@@ -1317,6 +1319,8 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 	} else {
 		if (skb_pfmemalloc(skb))
 			gfp_mask |= __GFP_MEMALLOC;
+		else
+			gfp_mask |= __GFP_EXCLUSIVE;
 
 		n = kmem_cache_alloc(skbuff_head_cache, gfp_mask);
 		if (!n)
