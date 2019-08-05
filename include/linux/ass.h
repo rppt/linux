@@ -27,6 +27,7 @@ struct ns_pgd {
 	struct list_head l; /* for list of all ns_pgd's */
 	struct list_head caches; /* list of ns_pgd specific caches */
 	pgd_t *pgd;
+	int inside_add_cache;	/* FIXME: synchronization */
 	int id;
 };
 

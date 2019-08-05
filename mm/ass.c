@@ -531,6 +531,8 @@ static struct kmem_cache *ass_kmem_create_cache(struct ns_pgd *ns_pgd,
 
 	mutex_lock(&slab_mutex);
 
+	ns_pgd->inside_add_cache = 1;
+
 	cache_name = kasprintf(GFP_KERNEL, "%s(%px)", cachep->name,
 			       ns_pgd->pgd);
 	if (!cache_name)
@@ -563,6 +565,8 @@ out_free_name:
 	kfree_const(cache_name);
 
 out_unlock:
+	ns_pgd->inside_add_cache = 0;
+
 	mutex_unlock(&slab_mutex);
 
 	put_online_mems();
@@ -597,6 +601,9 @@ struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
 	ns_pgd = mm->ns_pgd;
 
 	if (!ns_pgd)
+		return cachep;
+
+	if (ns_pgd->inside_add_cache)
 		return cachep;
 
 	new = ass_find_ns_cache(ns_pgd, cachep);
