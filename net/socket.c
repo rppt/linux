@@ -243,7 +243,7 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 	struct socket_alloc *ei;
 	struct socket_wq *wq;
 
-	ei = kmem_cache_alloc(sock_inode_cachep, GFP_KERNEL | __GFP_EXCLUSIVE);
+	ei = kmem_cache_alloc(sock_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
 	wq = kmalloc(sizeof(*wq), GFP_KERNEL);
@@ -288,6 +288,7 @@ static void init_inodecache(void)
 					      0,
 					      (SLAB_HWCACHE_ALIGN |
 					       SLAB_RECLAIM_ACCOUNT |
+					       SLAB_EXCLUSIVE |
 					       SLAB_MEM_SPREAD | SLAB_ACCOUNT),
 					      init_once);
 	BUG_ON(sock_inode_cachep == NULL);
