@@ -38,7 +38,7 @@ pte_t *huge_pte_offset(struct mm_struct *mm, unsigned long addr, unsigned long s
 	 * Only called for hugetlbfs pages, hence can ignore THP and the
 	 * irq disabled walk.
 	 */
-	return __find_linux_pte(mm->pgd, addr, NULL, NULL);
+	return __find_linux_pte(mm->pgt.pgd, addr, NULL, NULL);
 }
 
 static int __hugepte_alloc(struct mm_struct *mm, hugepd_t *hpdp,

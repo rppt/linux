@@ -187,7 +187,7 @@ static inline void pgd_set(pgd_t *pgdp, unsigned long val)
  */
 #define pgd_index(address) (((address) >> (PGDIR_SHIFT)) & (PTRS_PER_PGD - 1))
 
-#define pgd_offset(mm, address)	 ((mm)->pgd + pgd_index(address))
+#define pgd_offset(mm, address)	 ((mm)->pgt.pgd + pgd_index(address))
 
 #define pmd_offset(pudp,addr) \
   (((pmd_t *) pud_page_vaddr(*(pudp))) + (((addr) >> PMD_SHIFT) & (PTRS_PER_PMD - 1)))

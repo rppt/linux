@@ -7,7 +7,7 @@
  *
  * SMP scalability work:
  *    Copyright (C) 2001 Anton Blanchard <anton@au.ibm.com>, IBM
- * 
+ *
  *    Module name: htab.c
  *
  *    Description:
@@ -846,7 +846,7 @@ static void __init htab_initialize(void)
 	/*
 	 * Calculate the required size of the htab.  We want the number of
 	 * PTEGs to equal one half the number of real pages.
-	 */ 
+	 */
 	htab_size_bytes = htab_get_table_size();
 	pteg_count = htab_size_bytes >> 7;
 
@@ -856,7 +856,7 @@ static void __init htab_initialize(void)
 	    firmware_has_feature(FW_FEATURE_PS3_LV1)) {
 		/* Using a hypervisor which owns the htab */
 		htab_address = NULL;
-		_SDR1 = 0; 
+		_SDR1 = 0;
 		/*
 		 * On POWER9, we need to do a H_REGISTER_PROC_TBL hcall
 		 * to inform the hypervisor that we wish to use the HPT.
@@ -1289,7 +1289,7 @@ int hash_page_mm(struct mm_struct *mm, unsigned long ea,
 		rc = 1;
 		goto bail;
 	}
-	DBG_LOW(" mm=%p, mm->pgdir=%p, vsid=%016lx\n", mm, mm->pgd, vsid);
+	DBG_LOW(" mm=%p, mm->pgdir=%p, vsid=%016lx\n", mm, mm->pgt.pgd, vsid);
 
 	/* Bad address. */
 	if (!vsid) {
@@ -1298,7 +1298,7 @@ int hash_page_mm(struct mm_struct *mm, unsigned long ea,
 		goto bail;
 	}
 	/* Get pgdir */
-	pgdir = mm->pgd;
+	pgdir = mm->pgt.pgd;
 	if (pgdir == NULL) {
 		rc = 1;
 		goto bail;
@@ -1535,10 +1535,10 @@ void hash_preload(struct mm_struct *mm, unsigned long ea,
 		return;
 
 	DBG_LOW("hash_preload(mm=%p, mm->pgdir=%p, ea=%016lx, access=%lx,"
-		" trap=%lx\n", mm, mm->pgd, ea, access, trap);
+		" trap=%lx\n", mm, mm->pgt.pgd, ea, access, trap);
 
 	/* Get Linux PTE if available */
-	pgdir = mm->pgd;
+	pgdir = mm->pgt.pgd;
 	if (pgdir == NULL)
 		return;
 
@@ -1610,11 +1610,11 @@ u16 get_mm_addr_key(struct mm_struct *mm, unsigned long address)
 	u16 pkey = 0;
 	unsigned long flags;
 
-	if (!mm || !mm->pgd)
+	if (!mm || !mm->pgt.pgd)
 		return 0;
 
 	local_irq_save(flags);
-	ptep = find_linux_pte(mm->pgd, address, NULL, NULL);
+	ptep = find_linux_pte(mm->pgt.pgd, address, NULL, NULL);
 	if (ptep)
 		pkey = pte_to_pkey_bits(pte_val(READ_ONCE(*ptep)));
 	local_irq_restore(flags);

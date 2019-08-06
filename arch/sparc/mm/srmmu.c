@@ -499,7 +499,7 @@ void switch_mm(struct mm_struct *old_mm, struct mm_struct *mm,
 		spin_lock_irqsave(&srmmu_context_spinlock, flags);
 		alloc_context(old_mm, mm);
 		spin_unlock_irqrestore(&srmmu_context_spinlock, flags);
-		srmmu_ctxd_set(&srmmu_context_table[mm->context], mm->pgd);
+		srmmu_ctxd_set(&srmmu_context_table[mm->context], mm->pgt.pgd);
 	}
 
 	if (sparc_cpu_model == sparc_leon)

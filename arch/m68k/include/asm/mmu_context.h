@@ -76,7 +76,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	struct task_struct *tsk)
 {
 	get_mmu_context(tsk->mm);
-	set_context(tsk->mm->context, next->pgd);
+	set_context(tsk->mm->context, next->pgt.pgd);
 }
 
 /*
@@ -87,7 +87,7 @@ static inline void activate_mm(struct mm_struct *active_mm,
 	struct mm_struct *mm)
 {
 	get_mmu_context(mm);
-	set_context(mm->context, mm->pgd);
+	set_context(mm->context, mm->pgt.pgd);
 }
 
 #define deactivate_mm(tsk, mm) do { } while (0)
@@ -217,7 +217,7 @@ static inline void activate_mm(struct mm_struct *prev_mm,
 static inline int init_new_context(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
-	mm->context = virt_to_phys(mm->pgd);
+	mm->context = virt_to_phys(mm->pgt.pgd);
 	return 0;
 }
 
@@ -295,7 +295,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next, str
 static inline void activate_mm(struct mm_struct *prev_mm,
 			       struct mm_struct *next_mm)
 {
-	next_mm->context = virt_to_phys(next_mm->pgd);
+	next_mm->context = virt_to_phys(next_mm->pgt.pgd);
 
 	if (CPU_IS_020_OR_030)
 		switch_mm_0230(next_mm);

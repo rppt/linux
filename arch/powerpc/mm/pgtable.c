@@ -270,7 +270,7 @@ void assert_pte_locked(struct mm_struct *mm, unsigned long addr)
 
 	if (mm == &init_mm)
 		return;
-	pgd = mm->pgd + pgd_index(addr);
+	pgd = mm->pgt.pgd + pgd_index(addr);
 	BUG_ON(pgd_none(*pgd));
 	pud = pud_offset(pgd, addr);
 	BUG_ON(pud_none(*pud));

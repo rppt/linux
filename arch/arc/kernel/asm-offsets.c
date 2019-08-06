@@ -38,7 +38,7 @@ int main(void)
 	DEFINE(TASK_COMM, offsetof(struct task_struct, comm));
 
 	DEFINE(MM_CTXT, offsetof(struct mm_struct, context));
-	DEFINE(MM_PGD, offsetof(struct mm_struct, pgd));
+	DEFINE(MM_PGD, offsetof(struct mm_struct, pgt.pgd));
 
 	DEFINE(MM_CTXT_ASID, offsetof(mm_context_t, asid));
 

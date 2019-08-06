@@ -358,7 +358,7 @@ static inline void __ptep_set_access_flags(struct vm_area_struct *vma,
 
 /* to find an entry in a page-table-directory */
 #define pgd_index(address)	 ((address) >> PGDIR_SHIFT)
-#define pgd_offset(mm, address)	 ((mm)->pgd + pgd_index(address))
+#define pgd_offset(mm, address)	 ((mm)->pgt.pgd + pgd_index(address))
 
 /* Find an entry in the third-level page table.. */
 #define pte_index(address)		\

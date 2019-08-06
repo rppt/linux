@@ -277,7 +277,7 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 /* to find an entry in a page-table-directory */
 static inline pgd_t *pgd_offset(struct mm_struct *mm, unsigned long address)
 {
-	return mm->pgd + pgd_index(address);
+	return mm->pgt.pgd + pgd_index(address);
 }
 
 /* Find an entry in the third-level page table.. */

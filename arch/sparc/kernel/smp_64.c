@@ -81,7 +81,7 @@ static bool cpu_poke;
 void smp_info(struct seq_file *m)
 {
 	int i;
-	
+
 	seq_printf(m, "State:\n");
 	for_each_online_cpu(i)
 		seq_printf(m, "CPU%d:\t\tonline\n", i);
@@ -90,7 +90,7 @@ void smp_info(struct seq_file *m)
 void smp_bogo(struct seq_file *m)
 {
 	int i;
-	
+
 	for_each_online_cpu(i)
 		seq_printf(m,
 			   "Cpu%dClkTck\t: %016lx\n",
@@ -898,7 +898,7 @@ static void tsb_sync(void *info)
 	 * switch_mm().  But that's OK, we just need to check the
 	 * current cpu's trap block PGD physical address.
 	 */
-	if (tp->pgd_paddr == __pa(mm->pgd))
+	if (tp->pgd_paddr == __pa(mm->pgt.pgd))
 		tsb_context_switch(mm);
 }
 

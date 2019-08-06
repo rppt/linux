@@ -53,9 +53,9 @@ static void __kprobes unhandled_fault(unsigned long address,
 	       (tsk->mm ?
 		CTX_HWBITS(tsk->mm->context) :
 		CTX_HWBITS(tsk->active_mm->context)));
-	printk(KERN_ALERT "tsk->{mm,active_mm}->pgd = %016lx\n",
-	       (tsk->mm ? (unsigned long) tsk->mm->pgd :
-		          (unsigned long) tsk->active_mm->pgd));
+	printk(KERN_ALERT "tsk->{mm,active_mm}->pgt.pgd = %016lx\n",
+	       (tsk->mm ? (unsigned long) tsk->mm->pgt.pgd :
+		          (unsigned long) tsk->active_mm->pgt.pgd));
 	die_if_kernel("Oops", regs);
 }
 
@@ -71,7 +71,7 @@ static void __kprobes bad_kernel_pc(struct pt_regs *regs, unsigned long vaddr)
 }
 
 /*
- * We now make sure that mmap_sem is held in all paths that call 
+ * We now make sure that mmap_sem is held in all paths that call
  * this. Additionally, to prevent kswapd from ripping ptes from
  * under us, raise interrupts around the time that we look at the
  * pte, kswapd will have to wait to get his smp ipi response from
@@ -195,7 +195,7 @@ static void __kprobes do_kernel_fault(struct pt_regs *regs, int si_code,
 				      unsigned long address)
 {
 	unsigned char asi = ASI_P;
- 
+
 	if ((!insn) && (regs->tstate & TSTATE_PRIV))
 		goto cannot_handle;
 
@@ -223,7 +223,7 @@ static void __kprobes do_kernel_fault(struct pt_regs *regs, int si_code,
 			return;
 		}
 	}
-		
+
 	/* Is this in ex_table? */
 	if (regs->tstate & TSTATE_PRIV) {
 		const struct exception_table_entry *entry;

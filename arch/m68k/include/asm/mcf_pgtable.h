@@ -332,7 +332,7 @@ extern pgd_t kernel_pg_dir[PTRS_PER_PGD];
  * Find an entry in a pagetable directory.
  */
 #define pgd_index(address)	((address) >> PGDIR_SHIFT)
-#define pgd_offset(mm, address)	((mm)->pgd + pgd_index(address))
+#define pgd_offset(mm, address)	((mm)->pgt.pgd + pgd_index(address))
 
 /*
  * Find an entry in a kernel pagetable directory.

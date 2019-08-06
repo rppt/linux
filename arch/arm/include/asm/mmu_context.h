@@ -63,7 +63,7 @@ static inline void check_and_switch_context(struct mm_struct *mm,
 		 */
 		mm->context.switch_pending = 1;
 	else
-		cpu_switch_mm(mm->pgd, mm);
+		cpu_switch_mm(mm->pgt.pgd, mm);
 }
 
 #ifndef MODULE
@@ -83,7 +83,7 @@ static inline void finish_arch_post_lock_switch(void)
 		preempt_disable();
 		if (mm->context.switch_pending) {
 			mm->context.switch_pending = 0;
-			cpu_switch_mm(mm->pgd, mm);
+			cpu_switch_mm(mm->pgt.pgd, mm);
 		}
 		preempt_enable_no_resched();
 	}

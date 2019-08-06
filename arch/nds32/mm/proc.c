@@ -529,5 +529,5 @@ void cpu_switch_mm(struct mm_struct *mm)
 	cid = __nds32__mfsr(NDS32_SR_TLB_MISC);
 	cid = (cid & ~TLB_MISC_mskCID) | mm->context.id;
 	__nds32__mtsr_dsb(cid, NDS32_SR_TLB_MISC);
-	__nds32__mtsr_isb(__pa(mm->pgd), NDS32_SR_L1_PPTB);
+	__nds32__mtsr_isb(__pa(mm->pgt.pgd), NDS32_SR_L1_PPTB);
 }

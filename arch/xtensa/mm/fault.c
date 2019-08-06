@@ -203,7 +203,7 @@ vmalloc_fault:
 		if (act_mm == NULL)
 			goto bad_page_fault;
 
-		pgd = act_mm->pgd + index;
+		pgd = act_mm->pgt.pgd + index;
 		pgd_k = init_mm.pgt.pgd + index;
 
 		if (!pgd_present(*pgd_k))

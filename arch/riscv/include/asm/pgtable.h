@@ -130,7 +130,7 @@ static inline unsigned long _pgd_pfn(pgd_t pgd)
 /* Locate an entry in the page global directory */
 static inline pgd_t *pgd_offset(const struct mm_struct *mm, unsigned long addr)
 {
-	return mm->pgd + pgd_index(addr);
+	return mm->pgt.pgd + pgd_index(addr);
 }
 /* Locate an entry in the kernel page global directory */
 #define pgd_offset_k(addr)      pgd_offset(&init_mm, (addr))

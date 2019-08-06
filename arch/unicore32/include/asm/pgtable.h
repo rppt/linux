@@ -230,7 +230,7 @@ static inline pte_t pte_mkspecial(pte_t pte) { return pte; }
 /* to find an entry in a page-table-directory */
 #define pgd_index(addr)		((addr) >> PGDIR_SHIFT)
 
-#define pgd_offset(mm, addr)	((mm)->pgd+pgd_index(addr))
+#define pgd_offset(mm, addr)	((mm)->pgt.pgd+pgd_index(addr))
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)

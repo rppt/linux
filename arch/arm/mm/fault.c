@@ -38,7 +38,7 @@ void show_pte(const char *lvl, struct mm_struct *mm, unsigned long addr)
 	if (!mm)
 		mm = &init_mm;
 
-	printk("%spgd = %p\n", lvl, mm->pgd);
+	printk("%spgd = %p\n", lvl, mm->pgt.pgd);
 	pgd = pgd_offset(mm, addr);
 	printk("%s[%08lx] *pgd=%08llx", lvl, addr, (long long)pgd_val(*pgd));
 

@@ -368,7 +368,7 @@ int mmu_emu_handle_fault (unsigned long vaddr, int read_flag, int kernel_fault)
 		if(kernel_fault)
 			crp = swapper_pg_dir;
 		else
-			crp = current->mm->pgd;
+			crp = current->mm->pgt.pgd;
 	}
 
 #ifdef DEBUG_MMU_EMU

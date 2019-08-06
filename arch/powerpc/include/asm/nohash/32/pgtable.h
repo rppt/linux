@@ -363,7 +363,7 @@ static inline int pte_young(pte_t pte)
 
 /* to find an entry in a page-table-directory */
 #define pgd_index(address)	 ((address) >> PGDIR_SHIFT)
-#define pgd_offset(mm, address)	 ((mm)->pgd + pgd_index(address))
+#define pgd_offset(mm, address)	 ((mm)->pgt.pgd + pgd_index(address))
 
 /* Find an entry in the third-level page table.. */
 #define pte_index(address)		\

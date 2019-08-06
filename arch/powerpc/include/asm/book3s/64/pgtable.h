@@ -1006,7 +1006,7 @@ extern struct page *pgd_page(pgd_t pgd);
  * (the high order N bits) and the pgd portion of the address.
  */
 
-#define pgd_offset(mm, address)	 ((mm)->pgd + pgd_index(address))
+#define pgd_offset(mm, address)	 ((mm)->pgt.pgd + pgd_index(address))
 
 #define pud_offset(pgdp, addr)	\
 	(((pud_t *) pgd_page_vaddr(*(pgdp))) + pud_index(addr))

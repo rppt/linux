@@ -234,7 +234,7 @@ switch_mm_fastpath:
 	 * emulating PAN.
 	 */
 	if (!system_uses_ttbr0_pan())
-		cpu_switch_mm(mm->pgd, mm);
+		cpu_switch_mm(mm->pgt.pgd, mm);
 }
 
 /* Errata workaround post TTBRx_EL1 update. */

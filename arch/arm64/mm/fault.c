@@ -141,7 +141,7 @@ static void show_pte(unsigned long addr)
 	pr_alert("%s pgtable: %luk pages, %u-bit VAs, pgdp=%016lx\n",
 		 mm == &init_mm ? "swapper" : "user", PAGE_SIZE / SZ_1K,
 		 mm == &init_mm ? VA_BITS : (int)vabits_user,
-		 (unsigned long)virt_to_phys(mm->pgd));
+		 (unsigned long)virt_to_phys(mm->pgt.pgd));
 	pgdp = pgd_offset(mm, addr);
 	pgd = READ_ONCE(*pgdp);
 	pr_alert("[%016lx] pgd=%016llx", addr, pgd_val(pgd));

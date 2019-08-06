@@ -91,21 +91,21 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 			break;
 		}
 		spin_lock_bh(&mm->pgt.page_table_lock);
-		pgd = (unsigned long *) mm->pgd;
+		pgd = (unsigned long *) mm->pgt.pgd;
 		if (mm->context.asce_limit == _REGION2_SIZE) {
 			crst_table_init(table, _REGION2_ENTRY_EMPTY);
 			p4d_populate(mm, (p4d_t *) table, (pud_t *) pgd);
-			mm->pgd = (pgd_t *) table;
+			mm->pgt.pgd = (pgd_t *) table;
 			mm->context.asce_limit = _REGION1_SIZE;
-			mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+			mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 				_ASCE_USER_BITS | _ASCE_TYPE_REGION2;
 			mm_inc_nr_puds(mm);
 		} else {
 			crst_table_init(table, _REGION1_ENTRY_EMPTY);
 			pgd_populate(mm, (pgd_t *) table, (p4d_t *) pgd);
-			mm->pgd = (pgd_t *) table;
+			mm->pgt.pgd = (pgd_t *) table;
 			mm->context.asce_limit = -PAGE_SIZE;
-			mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+			mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 				_ASCE_USER_BITS | _ASCE_TYPE_REGION1;
 		}
 		notify = 1;
@@ -128,11 +128,11 @@ void crst_table_downgrade(struct mm_struct *mm)
 		__tlb_flush_mm(mm);
 	}
 
-	pgd = mm->pgd;
+	pgd = mm->pgt.pgd;
 	mm_dec_nr_pmds(mm);
-	mm->pgd = (pgd_t *) (pgd_val(*pgd) & _REGION_ENTRY_ORIGIN);
+	mm->pgt.pgd = (pgd_t *) (pgd_val(*pgd) & _REGION_ENTRY_ORIGIN);
 	mm->context.asce_limit = _REGION3_SIZE;
-	mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+	mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 			   _ASCE_USER_BITS | _ASCE_TYPE_SEGMENT;
 	crst_table_free(mm, (unsigned long *) pgd);
 

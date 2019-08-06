@@ -196,7 +196,7 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 static inline pgd_t *pgd_offset(const struct mm_struct *mm,
 				unsigned long address)
 {
-	return mm->pgd + pgd_index(address);
+	return mm->pgt.pgd + pgd_index(address);
 }
 
 #define swapper_pg_dir kernel_pg_dir

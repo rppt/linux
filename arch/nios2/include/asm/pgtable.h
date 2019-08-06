@@ -105,7 +105,7 @@ static inline void set_pmd(pmd_t *pmdptr, pmd_t pmdval)
 
 /* to find an entry in a page-table-directory */
 #define pgd_index(addr)		(((addr) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
-#define pgd_offset(mm, addr)	((mm)->pgd + pgd_index(addr))
+#define pgd_offset(mm, addr)	((mm)->pgt.pgd + pgd_index(addr))
 
 static inline int pte_write(pte_t pte)		\
 	{ return pte_val(pte) & _PAGE_WRITE; }

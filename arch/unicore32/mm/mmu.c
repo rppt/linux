@@ -457,7 +457,7 @@ void setup_mm_for_reboot(void)
 	 * we don't have any user-mode mappings so we use the context that we
 	 * "borrowed".
 	 */
-	pgd = current->active_mm->pgd;
+	pgd = current->active_mm->pgt.pgd;
 
 	base_pmdval = PMD_SECT_WRITE | PMD_SECT_READ | PMD_TYPE_SECT;
 

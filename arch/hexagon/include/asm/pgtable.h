@@ -229,7 +229,7 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr,
 /*
  * pgd_offset - find an offset in a page-table-directory
  */
-#define pgd_offset(mm, addr) ((mm)->pgd + pgd_index(addr))
+#define pgd_offset(mm, addr) ((mm)->pgt.pgd + pgd_index(addr))
 
 /*
  * pgd_offset_k - get kernel (init_mm) pgd entry pointer for addr

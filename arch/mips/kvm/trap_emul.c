@@ -546,13 +546,13 @@ static int kvm_trap_emul_vcpu_init(struct kvm_vcpu *vcpu)
 	 * Allocate GVA -> HPA page tables.
 	 * MIPS doesn't use the mm_struct pointer argument.
 	 */
-	kern_mm->pgd = pgd_alloc(kern_mm);
-	if (!kern_mm->pgd)
+	kern_mm->pgt.pgd = pgd_alloc(kern_mm);
+	if (!kern_mm->pgt.pgd)
 		return -ENOMEM;
 
-	user_mm->pgd = pgd_alloc(user_mm);
-	if (!user_mm->pgd) {
-		pgd_free(kern_mm, kern_mm->pgd);
+	user_mm->pgt.pgd = pgd_alloc(user_mm);
+	if (!user_mm->pgt.pgd) {
+		pgd_free(kern_mm, kern_mm->pgt.pgd);
 		return -ENOMEM;
 	}
 
@@ -1095,8 +1095,8 @@ static void kvm_trap_emul_check_requests(struct kvm_vcpu *vcpu, int cpu,
 		 * caller is just about to check whether the ASID is stale
 		 * anyway so no need to reload it here.
 		 */
-		kvm_mips_flush_gva_pt(kern_mm->pgd, KMF_GPA | KMF_KERN);
-		kvm_mips_flush_gva_pt(user_mm->pgd, KMF_GPA | KMF_USER);
+		kvm_mips_flush_gva_pt(kern_mm->pgt.pgd, KMF_GPA | KMF_KERN);
+		kvm_mips_flush_gva_pt(user_mm->pgt.pgd, KMF_GPA | KMF_USER);
 		for_each_possible_cpu(i) {
 			set_cpu_context(i, kern_mm, 0);
 			set_cpu_context(i, user_mm, 0);
@@ -1108,7 +1108,7 @@ static void kvm_trap_emul_check_requests(struct kvm_vcpu *vcpu, int cpu,
 			get_new_mmu_context(mm);
 			htw_stop();
 			write_c0_entryhi(cpu_asid(cpu, mm));
-			TLBMISS_HANDLER_SETUP_PGD(mm->pgd);
+			TLBMISS_HANDLER_SETUP_PGD(mm->pgt.pgd);
 			htw_start();
 		}
 	}
@@ -1209,7 +1209,7 @@ static void kvm_trap_emul_vcpu_reenter(struct kvm_run *run,
 		 */
 		gasid = kvm_read_c0_guest_entryhi(cop0) & KVM_ENTRYHI_ASID;
 		if (gasid != vcpu->arch.last_user_gasid) {
-			kvm_mips_flush_gva_pt(user_mm->pgd, KMF_USER);
+			kvm_mips_flush_gva_pt(user_mm->pgt.pgd, KMF_USER);
 			for_each_possible_cpu(i)
 				set_cpu_context(i, user_mm, 0);
 			vcpu->arch.last_user_gasid = gasid;

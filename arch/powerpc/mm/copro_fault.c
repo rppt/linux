@@ -30,7 +30,7 @@ int copro_handle_mm_fault(struct mm_struct *mm, unsigned long ea,
 	if (mm == NULL)
 		return -EFAULT;
 
-	if (mm->pgd == NULL)
+	if (mm->pgt.pgd == NULL)
 		return -EFAULT;
 
 	down_read(&mm->mmap_sem);

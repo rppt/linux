@@ -189,7 +189,7 @@ extern pgd_t kernel_pg_dir[PTRS_PER_PGD];
 #define pgd_index(address)     ((address) >> PGDIR_SHIFT)
 
 #define pgd_offset(mm, address) \
-((mm)->pgd + pgd_index(address))
+((mm)->pgt.pgd + pgd_index(address))
 
 /* Find an entry in a kernel pagetable directory. */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)

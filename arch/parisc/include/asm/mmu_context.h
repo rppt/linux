@@ -54,7 +54,7 @@ static inline void switch_mm_irqs_off(struct mm_struct *prev,
 		struct mm_struct *next, struct task_struct *tsk)
 {
 	if (prev != next) {
-		mtctl(__pa(next->pgd), 25);
+		mtctl(__pa(next->pgt.pgd), 25);
 		load_context(next->context);
 	}
 }

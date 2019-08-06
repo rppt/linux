@@ -199,7 +199,7 @@ void __flush_hash_table_range(struct mm_struct *mm, unsigned long start,
 	start = _ALIGN_DOWN(start, PAGE_SIZE);
 	end = _ALIGN_UP(end, PAGE_SIZE);
 
-	BUG_ON(!mm->pgd);
+	BUG_ON(!mm->pgt.pgd);
 
 	/*
 	 * Note: Normally, we should only ever use a batch within a
@@ -212,7 +212,7 @@ void __flush_hash_table_range(struct mm_struct *mm, unsigned long start,
 	local_irq_save(flags);
 	arch_enter_lazy_mmu_mode();
 	for (; start < end; start += PAGE_SIZE) {
-		pte_t *ptep = find_current_mm_pte(mm->pgd, start, &is_thp,
+		pte_t *ptep = find_current_mm_pte(mm->pgt.pgd, start, &is_thp,
 						  &hugepage_shift);
 		unsigned long pte;
 

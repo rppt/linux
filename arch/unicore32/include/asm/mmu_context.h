@@ -49,7 +49,7 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	unsigned int cpu = smp_processor_id();
 
 	if (!cpumask_test_and_set_cpu(cpu, mm_cpumask(next)) || prev != next)
-		cpu_switch_mm(next->pgd, next);
+		cpu_switch_mm(next->pgt.pgd, next);
 }
 
 #define deactivate_mm(tsk, mm)	do { } while (0)

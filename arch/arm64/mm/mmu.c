@@ -418,7 +418,7 @@ void __init create_pgd_mapping(struct mm_struct *mm, phys_addr_t phys,
 	if (page_mappings_only)
 		flags = NO_BLOCK_MAPPINGS | NO_CONT_MAPPINGS;
 
-	__create_pgd_mapping(mm->pgd, phys, virt, size, prot,
+	__create_pgd_mapping(mm->pgt.pgd, phys, virt, size, prot,
 			     pgd_pgtable_alloc, flags);
 }
 

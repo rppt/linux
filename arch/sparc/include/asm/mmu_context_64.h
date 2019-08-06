@@ -38,7 +38,7 @@ void __tsb_context_switch(unsigned long pgd_pa,
 static inline void tsb_context_switch_ctx(struct mm_struct *mm,
 					  unsigned long ctx)
 {
-	__tsb_context_switch(__pa(mm->pgd),
+	__tsb_context_switch(__pa(mm->pgt.pgd),
 			     &mm->context.tsb_block[MM_TSB_BASE],
 #if defined(CONFIG_HUGETLB_PAGE) || defined(CONFIG_TRANSPARENT_HUGEPAGE)
 			     (mm->context.tsb_block[MM_TSB_HUGE].tsb ?

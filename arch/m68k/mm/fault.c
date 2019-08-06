@@ -74,7 +74,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 	pr_debug("do page fault:\nregs->sr=%#x, regs->pc=%#lx, address=%#lx, %ld, %p\n",
-		regs->sr, regs->pc, address, error_code, mm ? mm->pgd : NULL);
+		regs->sr, regs->pc, address, error_code, mm ? mm->pgt.pgd : NULL);
 
 	/*
 	 * If we're in an interrupt or have no user

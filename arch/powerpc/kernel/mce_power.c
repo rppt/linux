@@ -36,7 +36,7 @@ unsigned long addr_to_pfn(struct pt_regs *regs, unsigned long addr)
 
 	local_irq_save(flags);
 	if (mm == current->mm)
-		ptep = find_current_mm_pte(mm->pgd, addr, NULL, NULL);
+		ptep = find_current_mm_pte(mm->pgt.pgd, addr, NULL, NULL);
 	else
 		ptep = find_init_mm_pte(addr, NULL);
 	local_irq_restore(flags);

@@ -41,7 +41,7 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	if (prev != next)
 		check_and_switch_context(next, cpu);
 
-	TLBMISS_HANDLER_SETUP_PGD(next->pgd);
+	TLBMISS_HANDLER_SETUP_PGD(next->pgt.pgd);
 	write_mmu_entryhi(next->context.asid.counter);
 }
 #endif /* __ASM_CSKY_MMU_CONTEXT_H */

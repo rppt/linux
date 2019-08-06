@@ -649,7 +649,7 @@ static inline phys_addr_t pgd_page_paddr(pgd_t pgd)
 
 #define pgd_offset_raw(pgd, addr)	((pgd) + pgd_index(addr))
 
-#define pgd_offset(mm, addr)	(pgd_offset_raw((mm)->pgd, (addr)))
+#define pgd_offset(mm, addr)	(pgd_offset_raw((mm)->pgt.pgd, (addr)))
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)

@@ -372,7 +372,7 @@ pgd_index (unsigned long address)
 static inline pgd_t*
 pgd_offset (const struct mm_struct *mm, unsigned long address)
 {
-	return mm->pgd + pgd_index(address);
+	return mm->pgt.pgd + pgd_index(address);
 }
 
 /* In the kernel's mapped region we completely ignore the region number

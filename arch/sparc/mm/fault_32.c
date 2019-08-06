@@ -49,9 +49,9 @@ static void __noreturn unhandled_fault(unsigned long address,
 	}
 	printk(KERN_ALERT "tsk->{mm,active_mm}->context = %08lx\n",
 		(tsk->mm ? tsk->mm->context : tsk->active_mm->context));
-	printk(KERN_ALERT "tsk->{mm,active_mm}->pgd = %08lx\n",
-		(tsk->mm ? (unsigned long) tsk->mm->pgd :
-			(unsigned long) tsk->active_mm->pgd));
+	printk(KERN_ALERT "tsk->{mm,active_mm}->pgt.pgd = %08lx\n",
+		(tsk->mm ? (unsigned long) tsk->mm->pgt.pgd :
+			(unsigned long) tsk->active_mm->pgt.pgd));
 	die_if_kernel("Oops", regs);
 }
 
@@ -353,7 +353,7 @@ vmalloc_fault:
 		pgd_t *pgd, *pgd_k;
 		pmd_t *pmd, *pmd_k;
 
-		pgd = tsk->active_mm->pgd + offset;
+		pgd = tsk->active_mm->pgt.pgd + offset;
 		pgd_k = init_mm.pgt.pgd + offset;
 
 		if (!pgd_present(*pgd)) {

@@ -142,8 +142,8 @@ static inline int is_module_addr(void *addr)
  * 0123456789012345678901234567890123456789012345678901234567890123
  *
  * X Space-Switch event:
- * G Segment-Invalid Bit:  
- * P Private-Space Bit:    
+ * G Segment-Invalid Bit:
+ * P Private-Space Bit:
  * S Storage-Alteration:
  * R Real space
  * TL Table-Length:
@@ -1237,7 +1237,7 @@ static inline pgd_t *pgd_offset_raw(pgd_t *pgd, unsigned long address)
 	return pgd + ((address >> shift) & (PTRS_PER_PGD - 1));
 }
 
-#define pgd_offset(mm, address) pgd_offset_raw(READ_ONCE((mm)->pgd), address)
+#define pgd_offset(mm, address) pgd_offset_raw(READ_ONCE((mm)->pgt.pgd), address)
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
 static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)

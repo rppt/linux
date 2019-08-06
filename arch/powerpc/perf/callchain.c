@@ -119,7 +119,7 @@ static int read_user_stack_slow(void __user *ptr, void *buf, int nb)
 	unsigned long pfn, flags;
 	void *kaddr;
 
-	pgdir = current->mm->pgd;
+	pgdir = current->mm->pgt.pgd;
 	if (!pgdir)
 		return -EFAULT;
 

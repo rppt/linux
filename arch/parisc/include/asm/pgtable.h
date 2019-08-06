@@ -90,11 +90,11 @@ static inline void purge_tlb_entries(struct mm_struct *mm, unsigned long addr)
 	do {							\
 		pte_t old_pte;					\
 		unsigned long flags;				\
-		spin_lock_irqsave(pgd_spinlock((mm)->pgd), flags);\
+		spin_lock_irqsave(pgd_spinlock((mm)->pgt.pgd), flags);\
 		old_pte = *ptep;				\
 		set_pte(ptep, pteval);				\
 		purge_tlb_entries(mm, addr);			\
-		spin_unlock_irqrestore(pgd_spinlock((mm)->pgd), flags);\
+		spin_unlock_irqrestore(pgd_spinlock((mm)->pgt.pgd), flags);\
 	} while (0)
 
 #endif /* !__ASSEMBLY__ */
@@ -444,7 +444,7 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 
 /* to find an entry in a page-table-directory */
 #define pgd_offset(mm, address) \
-((mm)->pgd + ((address) >> PGDIR_SHIFT))
+((mm)->pgt.pgd + ((address) >> PGDIR_SHIFT))
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
@@ -459,7 +459,7 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 #define pmd_offset(dir,addr) ((pmd_t *) dir)
 #endif
 
-/* Find an entry in the third-level page table.. */ 
+/* Find an entry in the third-level page table.. */
 #define pte_index(address) (((address) >> PAGE_SHIFT) & (PTRS_PER_PTE-1))
 #define pte_offset_kernel(pmd, address) \
 	((pte_t *) pmd_page_vaddr(*(pmd)) + pte_index(address))
@@ -505,15 +505,15 @@ static inline int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned
 	if (!pte_young(*ptep))
 		return 0;
 
-	spin_lock_irqsave(pgd_spinlock(vma->vm_mm->pgd), flags);
+	spin_lock_irqsave(pgd_spinlock(vma->vm_mm->pgt.pgd), flags);
 	pte = *ptep;
 	if (!pte_young(pte)) {
-		spin_unlock_irqrestore(pgd_spinlock(vma->vm_mm->pgd), flags);
+		spin_unlock_irqrestore(pgd_spinlock(vma->vm_mm->pgt.pgd), flags);
 		return 0;
 	}
 	set_pte(ptep, pte_mkold(pte));
 	purge_tlb_entries(vma->vm_mm, addr);
-	spin_unlock_irqrestore(pgd_spinlock(vma->vm_mm->pgd), flags);
+	spin_unlock_irqrestore(pgd_spinlock(vma->vm_mm->pgt.pgd), flags);
 	return 1;
 }
 
@@ -523,11 +523,11 @@ static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 	pte_t old_pte;
 	unsigned long flags;
 
-	spin_lock_irqsave(pgd_spinlock(mm->pgd), flags);
+	spin_lock_irqsave(pgd_spinlock(mm->pgt.pgd), flags);
 	old_pte = *ptep;
 	set_pte(ptep, __pte(0));
 	purge_tlb_entries(mm, addr);
-	spin_unlock_irqrestore(pgd_spinlock(mm->pgd), flags);
+	spin_unlock_irqrestore(pgd_spinlock(mm->pgt.pgd), flags);
 
 	return old_pte;
 }
@@ -535,10 +535,10 @@ static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long flags;
-	spin_lock_irqsave(pgd_spinlock(mm->pgd), flags);
+	spin_lock_irqsave(pgd_spinlock(mm->pgt.pgd), flags);
 	set_pte(ptep, pte_wrprotect(*ptep));
 	purge_tlb_entries(mm, addr);
-	spin_unlock_irqrestore(pgd_spinlock(mm->pgd), flags);
+	spin_unlock_irqrestore(pgd_spinlock(mm->pgt.pgd), flags);
 }
 
 #define pte_same(A,B)	(pte_val(A) == pte_val(B))

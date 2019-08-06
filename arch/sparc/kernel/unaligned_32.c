@@ -226,9 +226,9 @@ static void kernel_mna_trap_fault(struct pt_regs *regs, unsigned int insn)
 		printk(KERN_ALERT "current->{mm,active_mm}->context = %08lx\n",
 			(current->mm ? current->mm->context :
 			current->active_mm->context));
-		printk(KERN_ALERT "current->{mm,active_mm}->pgd = %08lx\n",
-			(current->mm ? (unsigned long) current->mm->pgd :
-			(unsigned long) current->active_mm->pgd));
+		printk(KERN_ALERT "current->{mm,active_mm}->pgt.pgd = %08lx\n",
+			(current->mm ? (unsigned long) current->mm->pgt.pgd :
+			(unsigned long) current->active_mm->pgt.pgd));
 	        die_if_kernel("Oops", regs);
 		/* Not reached */
 	}

@@ -17,14 +17,14 @@ static inline void switch_mm_pgdir(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
 	/* 32-bit keeps track of the current PGDIR in the thread struct */
-	tsk->thread.pgdir = mm->pgd;
+	tsk->thread.pgdir = mm->pgt.pgd;
 }
 #elif defined(CONFIG_PPC_BOOK3E_64)
 static inline void switch_mm_pgdir(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
 	/* 64-bit Book3E keeps track of current PGD in the PACA */
-	get_paca()->pgd = mm->pgd;
+	get_paca()->pgd = mm->pgt.pgd;
 }
 #else
 static inline void switch_mm_pgdir(struct task_struct *tsk,

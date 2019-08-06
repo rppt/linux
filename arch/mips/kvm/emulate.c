@@ -1008,7 +1008,7 @@ static void kvm_mips_change_entryhi(struct kvm_vcpu *vcpu,
 		 * Guest user page table will get flushed lazily on re-entry to
 		 * guest user if the guest ASID actually changes.
 		 */
-		kvm_mips_flush_gva_pt(kern_mm->pgd, KMF_KERN);
+		kvm_mips_flush_gva_pt(kern_mm->pgt.pgd, KMF_KERN);
 
 		/*
 		 * Regenerate/invalidate kernel MMU context.

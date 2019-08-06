@@ -185,7 +185,7 @@ void output_mm_defines(void)
 	BLANK();
 	COMMENT("Linux mm_struct offsets.");
 	OFFSET(MM_USERS, mm_struct, mm_users);
-	OFFSET(MM_PGD, mm_struct, pgd);
+	OFFSET(MM_PGD, mm_struct, pgt.pgd);
 	OFFSET(MM_CONTEXT, mm_struct, context);
 	BLANK();
 	DEFINE(_PGD_T_SIZE, sizeof(pgd_t));

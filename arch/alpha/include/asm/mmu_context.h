@@ -58,7 +58,7 @@ __reload_thread(struct pcb_struct *pcb)
  * in use) and the Valid bit set, then entries can also effectively be
  * made coherent by assigning a new, unused ASN to the currently
  * running process and not reusing the previous ASN before calling the
- * appropriate PALcode routine to invalidate the translation buffer (TB)". 
+ * appropriate PALcode routine to invalidate the translation buffer (TB)".
  *
  * In short, the EV4 has a "kind of" ASN capability, but it doesn't actually
  * work correctly and can thus not be used (explaining the lack of PAL-code
@@ -238,7 +238,7 @@ init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 		mm->context[i] = 0;
 	if (tsk != current)
 		task_thread_info(tsk)->pcb.ptbr
-		  = ((unsigned long)mm->pgd - IDENT_ADDR) >> PAGE_SHIFT;
+		  = ((unsigned long)mm->pgt.pgd - IDENT_ADDR) >> PAGE_SHIFT;
 	return 0;
 }
 
@@ -252,7 +252,7 @@ static inline void
 enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 	task_thread_info(tsk)->pcb.ptbr
-	  = ((unsigned long)mm->pgd - IDENT_ADDR) >> PAGE_SHIFT;
+	  = ((unsigned long)mm->pgt.pgd - IDENT_ADDR) >> PAGE_SHIFT;
 }
 
 #ifdef __MMU_EXTERN_INLINE

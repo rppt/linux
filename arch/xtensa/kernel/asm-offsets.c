@@ -110,7 +110,7 @@ int main(void)
 
 	/* struct mm_struct */
 	DEFINE(MM_USERS, offsetof(struct mm_struct, mm_users));
-	DEFINE(MM_PGD, offsetof (struct mm_struct, pgd));
+	DEFINE(MM_PGD, offsetof (struct mm_struct, pgt.pgd));
 	DEFINE(MM_CONTEXT, offsetof (struct mm_struct, context));
 
 	/* struct page */

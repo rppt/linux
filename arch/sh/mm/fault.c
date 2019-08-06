@@ -39,7 +39,7 @@ static void show_pte(struct mm_struct *mm, unsigned long addr)
 	pgd_t *pgd;
 
 	if (mm) {
-		pgd = mm->pgd;
+		pgd = mm->pgt.pgd;
 	} else {
 		pgd = get_TTB();
 

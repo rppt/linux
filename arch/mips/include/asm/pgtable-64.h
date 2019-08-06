@@ -325,7 +325,7 @@ static inline void pud_clear(pud_t *pudp)
 #define pmd_index(address)	(((address) >> PMD_SHIFT) & (PTRS_PER_PMD-1))
 
 /* to find an entry in a page-table-directory */
-#define pgd_offset(mm, addr)	((mm)->pgd + pgd_index(addr))
+#define pgd_offset(mm, addr)	((mm)->pgt.pgd + pgd_index(addr))
 
 #ifndef __PAGETABLE_PMD_FOLDED
 static inline unsigned long pud_page_vaddr(pud_t pud)

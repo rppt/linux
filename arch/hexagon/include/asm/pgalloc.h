@@ -87,8 +87,8 @@ static inline void pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmd,
 	 * Now the "slave" copy of the current thread.
 	 * This is pointer arithmetic, not byte addresses!
 	 */
-	pmdindex = (pgd_t *)pmd - mm->pgd;
-	ppmd = (pmd_t *)current->active_mm->pgd + pmdindex;
+	pmdindex = (pgd_t *)pmd - mm->pgt.pgd;
+	ppmd = (pmd_t *)current->active_mm->pgt.pgd + pmdindex;
 	set_pmd(ppmd, __pmd(((unsigned long)__pa(pte)) | HEXAGON_L1_PTE_SIZE));
 	if (pmdindex > max_kernel_seg)
 		max_kernel_seg = pmdindex;

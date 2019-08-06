@@ -39,30 +39,30 @@ static inline int init_new_context(struct task_struct *tsk,
 	case _REGION2_SIZE:
 		/*
 		 * forked 3-level task, fall through to set new asce with new
-		 * mm->pgd
+		 * mm->pgt.pgd
 		 */
 	case 0:
 		/* context created by exec, set asce limit to 4TB */
 		mm->context.asce_limit = STACK_TOP_MAX;
-		mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+		mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 				   _ASCE_USER_BITS | _ASCE_TYPE_REGION3;
 		break;
 	case -PAGE_SIZE:
-		/* forked 5-level task, set new asce with new_mm->pgd */
-		mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+		/* forked 5-level task, set new asce with new_mm->pgt.pgd */
+		mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 			_ASCE_USER_BITS | _ASCE_TYPE_REGION1;
 		break;
 	case _REGION1_SIZE:
-		/* forked 4-level task, set new asce with new mm->pgd */
-		mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+		/* forked 4-level task, set new asce with new mm->pgt.pgd */
+		mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 				   _ASCE_USER_BITS | _ASCE_TYPE_REGION2;
 		break;
 	case _REGION3_SIZE:
-		/* forked 2-level compat task, set new asce with new mm->pgd */
-		mm->context.asce = __pa(mm->pgd) | _ASCE_TABLE_LENGTH |
+		/* forked 2-level compat task, set new asce with new mm->pgt.pgd */
+		mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 				   _ASCE_USER_BITS | _ASCE_TYPE_SEGMENT;
 	}
-	crst_table_init((unsigned long *) mm->pgd, pgd_entry_type(mm));
+	crst_table_init((unsigned long *) mm->pgt.pgd, pgd_entry_type(mm));
 	return 0;
 }
 

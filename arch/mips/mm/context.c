@@ -260,7 +260,7 @@ void check_switch_mmu_context(struct mm_struct *mm)
 #endif
 
 setup_pgd:
-	TLBMISS_HANDLER_SETUP_PGD(mm->pgd);
+	TLBMISS_HANDLER_SETUP_PGD(mm->pgt.pgd);
 }
 EXPORT_SYMBOL_GPL(check_switch_mmu_context);
 

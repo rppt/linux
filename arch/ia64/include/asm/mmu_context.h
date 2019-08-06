@@ -190,7 +190,7 @@ activate_mm (struct mm_struct *prev, struct mm_struct *next)
 	 * We may get interrupts here, but that's OK because interrupt
 	 * handlers cannot touch user-space.
 	 */
-	ia64_set_kr(IA64_KR_PT_BASE, __pa(next->pgd));
+	ia64_set_kr(IA64_KR_PT_BASE, __pa(next->pgt.pgd));
 	activate_context(next);
 }
 

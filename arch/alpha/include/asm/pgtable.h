@@ -179,7 +179,7 @@ extern unsigned long __zero_page(void);
  * just working around a userspace bug.  The X server was intending to
  * provide the physical address but instead provided the KSEG address.
  * Or tried to, except it's not representable.
- * 
+ *
  * On Tsunami there's nothing meaningful at 0x40000000000, so this is
  * a safe thing to do.  Come the first core logic that does put something
  * in this area -- memory or whathaveyou -- then this hack will have
@@ -285,7 +285,7 @@ extern inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
 /* to find an entry in a page-table-directory. */
 #define pgd_index(address)	(((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD-1))
-#define pgd_offset(mm, address)	((mm)->pgd+pgd_index(address))
+#define pgd_offset(mm, address)	((mm)->pgt.pgd+pgd_index(address))
 
 /*
  * The smp_read_barrier_depends() in the following functions are required to

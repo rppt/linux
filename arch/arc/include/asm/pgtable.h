@@ -336,7 +336,7 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
  */
 #define pgd_offset_k(address)	pgd_offset(&init_mm, address)
 #define pgd_index(addr)		((addr) >> PGDIR_SHIFT)
-#define pgd_offset(mm, addr)	(((mm)->pgd)+pgd_index(addr))
+#define pgd_offset(mm, addr)	(((mm)->pgt.pgd)+pgd_index(addr))
 
 /*
  * Macro to quickly access the PGD entry, utlising the fact that some

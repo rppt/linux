@@ -357,7 +357,7 @@ void switch_mmu_context(struct mm_struct *prev, struct mm_struct *next,
 
 	/* Flick the MMU and release lock */
 	pr_hardcont(" -> %d\n", id);
-	set_context(id, next->pgd);
+	set_context(id, next->pgt.pgd);
 	raw_spin_unlock(&context_lock);
 }
 

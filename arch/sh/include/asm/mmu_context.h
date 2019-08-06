@@ -126,7 +126,7 @@ static inline void switch_mm(struct mm_struct *prev,
 
 	if (likely(prev != next)) {
 		cpumask_set_cpu(cpu, mm_cpumask(next));
-		set_TTB(next->pgd);
+		set_TTB(next->pgt.pgd);
 		activate_context(next, cpu);
 	} else
 		if (!cpumask_test_and_set_cpu(cpu, mm_cpumask(next)))

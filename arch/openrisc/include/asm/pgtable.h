@@ -373,7 +373,7 @@ static inline void pmd_set(pmd_t *pmdp, pte_t *ptep)
 
 #define __pgd_offset(address)   pgd_index(address)
 
-#define pgd_offset(mm, address) ((mm)->pgd+pgd_index(address))
+#define pgd_offset(mm, address) ((mm)->pgt.pgd+pgd_index(address))
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
