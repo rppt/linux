@@ -735,11 +735,11 @@ static int __meminit stop_machine_change_mapping(void *data)
 	if (!data)
 		return -1;
 
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&init_mm.pgt.page_table_lock);
 	pte_clear(&init_mm, params->aligned_start, params->pte);
 	create_physical_mapping(params->aligned_start, params->start, -1);
 	create_physical_mapping(params->end, params->aligned_end, -1);
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&init_mm.pgt.page_table_lock);
 	return 0;
 }
 
@@ -873,7 +873,7 @@ static void __meminit remove_pagetable(unsigned long start, unsigned long end)
 	pud_t *pud_base;
 	pgd_t *pgd;
 
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock(&init_mm.pgt.page_table_lock);
 
 	for (addr = start; addr < end; addr = next) {
 		next = pgd_addr_end(addr, end);
@@ -891,7 +891,7 @@ static void __meminit remove_pagetable(unsigned long start, unsigned long end)
 		remove_pud_table(pud_base, addr, next);
 	}
 
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock(&init_mm.pgt.page_table_lock);
 	radix__flush_tlb_kernel_range(start, end);
 }
 

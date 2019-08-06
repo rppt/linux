@@ -507,9 +507,9 @@ static u32 *iopte_alloc(struct omap_iommu *obj, u32 *iopgd,
 	/*
 	 * do the allocation outside the page table lock
 	 */
-	spin_unlock(&obj->page_table_lock);
+	spin_unlock(&obj->pgt.page_table_lock);
 	iopte = kmem_cache_zalloc(iopte_cachep, GFP_KERNEL);
-	spin_lock(&obj->page_table_lock);
+	spin_lock(&obj->pgt.page_table_lock);
 
 	if (!*iopgd) {
 		if (!iopte)
@@ -663,9 +663,9 @@ iopgtable_store_entry_core(struct omap_iommu *obj, struct iotlb_entry *e)
 
 	prot = get_iopte_attr(e);
 
-	spin_lock(&obj->page_table_lock);
+	spin_lock(&obj->pgt.page_table_lock);
 	err = fn(obj, e->da, e->pa, prot);
-	spin_unlock(&obj->page_table_lock);
+	spin_unlock(&obj->pgt.page_table_lock);
 
 	return err;
 }
@@ -771,12 +771,12 @@ static size_t iopgtable_clear_entry(struct omap_iommu *obj, u32 da)
 {
 	size_t bytes;
 
-	spin_lock(&obj->page_table_lock);
+	spin_lock(&obj->pgt.page_table_lock);
 
 	bytes = iopgtable_clear_entry_core(obj, da);
 	flush_iotlb_page(obj, da);
 
-	spin_unlock(&obj->page_table_lock);
+	spin_unlock(&obj->pgt.page_table_lock);
 
 	return bytes;
 }
@@ -786,7 +786,7 @@ static void iopgtable_clear_entry_all(struct omap_iommu *obj)
 	unsigned long offset;
 	int i;
 
-	spin_lock(&obj->page_table_lock);
+	spin_lock(&obj->pgt.page_table_lock);
 
 	for (i = 0; i < PTRS_PER_IOPGD; i++) {
 		u32 da;
@@ -808,7 +808,7 @@ static void iopgtable_clear_entry_all(struct omap_iommu *obj)
 
 	flush_iotlb_all(obj);
 
-	spin_unlock(&obj->page_table_lock);
+	spin_unlock(&obj->pgt.page_table_lock);
 }
 
 /*
@@ -998,7 +998,7 @@ static int omap_iommu_probe(struct platform_device *pdev)
 	obj->ctx = (void *)obj + sizeof(*obj);
 
 	spin_lock_init(&obj->iommu_lock);
-	spin_lock_init(&obj->page_table_lock);
+	spin_lock_init(&obj->pgt.page_table_lock);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	obj->regbase = devm_ioremap_resource(obj->dev, res);

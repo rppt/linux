@@ -1955,11 +1955,11 @@ static inline bool ptlock_init(struct page *page)
 
 #else	/* !USE_SPLIT_PTE_PTLOCKS */
 /*
- * We use mm->page_table_lock to guard all pagetable pages of the mm.
+ * We use mm->pgt.page_table_lock to guard all pagetable pages of the mm.
  */
 static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
-	return &mm->page_table_lock;
+	return &mm->pgt.page_table_lock;
 }
 static inline void ptlock_cache_init(void) {}
 static inline bool ptlock_init(struct page *page) { return true; }
@@ -2050,7 +2050,7 @@ static inline void pgtable_pmd_page_dtor(struct page *page)
 
 static inline spinlock_t *pmd_lockptr(struct mm_struct *mm, pmd_t *pmd)
 {
-	return &mm->page_table_lock;
+	return &mm->pgt.page_table_lock;
 }
 
 static inline bool pgtable_pmd_page_ctor(struct page *page) { return true; }
@@ -2075,7 +2075,7 @@ static inline spinlock_t *pmd_lock(struct mm_struct *mm, pmd_t *pmd)
  */
 static inline spinlock_t *pud_lockptr(struct mm_struct *mm, pud_t *pud)
 {
-	return &mm->page_table_lock;
+	return &mm->pgt.page_table_lock;
 }
 
 static inline spinlock_t *pud_lock(struct mm_struct *mm, pud_t *pud)

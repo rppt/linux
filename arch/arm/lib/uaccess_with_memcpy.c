@@ -52,7 +52,7 @@ pin_page_for_write(const void __user *_addr, pte_t **ptep, spinlock_t **ptlp)
 	 * need to fault on write.
 	 */
 	if (unlikely(pmd_thp_or_huge(*pmd))) {
-		ptl = &current->mm->page_table_lock;
+		ptl = &current->mm->pgt.page_table_lock;
 		spin_lock(ptl);
 		if (unlikely(!pmd_thp_or_huge(*pmd)
 			|| pmd_hugewillfault(*pmd))) {

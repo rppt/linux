@@ -348,14 +348,14 @@ static int browse_rb(struct mm_struct *mm)
 				  vma->vm_start, vma->vm_end);
 			bug = 1;
 		}
-		spin_lock(&mm->page_table_lock);
+		spin_lock(&mm->pgt.page_table_lock);
 		if (vma->rb_subtree_gap != vma_compute_subtree_gap(vma)) {
 			pr_emerg("free gap %lx, correct %lx\n",
 			       vma->rb_subtree_gap,
 			       vma_compute_subtree_gap(vma));
 			bug = 1;
 		}
-		spin_unlock(&mm->page_table_lock);
+		spin_unlock(&mm->pgt.page_table_lock);
 		i++;
 		pn = nd;
 		prev = vma->vm_start;
@@ -2392,10 +2392,10 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 				 * anon_vma_lock_write() doesn't help here, as
 				 * we don't guarantee that all growable vmas
 				 * in a mm share the same root anon vma.
-				 * So, we reuse mm->page_table_lock to guard
+				 * So, we reuse mm->pgt.page_table_lock to guard
 				 * against concurrent vma expansions.
 				 */
-				spin_lock(&mm->page_table_lock);
+				spin_lock(&mm->pgt.page_table_lock);
 				if (vma->vm_flags & VM_LOCKED)
 					mm->locked_vm += grow;
 				vm_stat_account(mm, vma->vm_flags, grow);
@@ -2406,7 +2406,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 					vma_gap_update(vma->vm_next);
 				else
 					mm->highest_vm_end = vm_end_gap(vma);
-				spin_unlock(&mm->page_table_lock);
+				spin_unlock(&mm->pgt.page_table_lock);
 
 				perf_event_mmap(vma);
 			}
@@ -2472,10 +2472,10 @@ int expand_downwards(struct vm_area_struct *vma,
 				 * anon_vma_lock_write() doesn't help here, as
 				 * we don't guarantee that all growable vmas
 				 * in a mm share the same root anon vma.
-				 * So, we reuse mm->page_table_lock to guard
+				 * So, we reuse mm->pgt.page_table_lock to guard
 				 * against concurrent vma expansions.
 				 */
-				spin_lock(&mm->page_table_lock);
+				spin_lock(&mm->pgt.page_table_lock);
 				if (vma->vm_flags & VM_LOCKED)
 					mm->locked_vm += grow;
 				vm_stat_account(mm, vma->vm_flags, grow);
@@ -2484,7 +2484,7 @@ int expand_downwards(struct vm_area_struct *vma,
 				vma->vm_pgoff -= grow;
 				anon_vma_interval_tree_post_update_vma(vma);
 				vma_gap_update(vma);
-				spin_unlock(&mm->page_table_lock);
+				spin_unlock(&mm->pgt.page_table_lock);
 
 				perf_event_mmap(vma);
 			}

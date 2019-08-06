@@ -365,6 +365,9 @@ struct pg_table {
 #ifdef CONFIG_MMU
 	atomic_long_t pgtables_bytes;	/* PTE page table pages */
 #endif
+	spinlock_t page_table_lock;	 /* Protects page tables and some
+					  * counters
+					  */
 };
 
 struct kioctx_table;
@@ -412,9 +415,6 @@ struct mm_struct {
 
 		int map_count;			/* number of VMAs */
 
-		spinlock_t page_table_lock; /* Protects page tables and some
-					     * counters
-					     */
 		struct rw_semaphore mmap_sem;
 
 		struct list_head mmlist; /* List of maybe swapped mm's.	These

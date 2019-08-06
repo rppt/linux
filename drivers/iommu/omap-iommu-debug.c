@@ -181,7 +181,7 @@ static void dump_ioptable(struct seq_file *s)
 	u32 *iopgd, *iopte;
 	struct omap_iommu *obj = s->private;
 
-	spin_lock(&obj->page_table_lock);
+	spin_lock(&obj->pgt.page_table_lock);
 
 	iopgd = iopgd_offset(obj, 0);
 	for (i = 0; i < PTRS_PER_IOPGD; i++, iopgd++) {
@@ -204,7 +204,7 @@ static void dump_ioptable(struct seq_file *s)
 		}
 	}
 
-	spin_unlock(&obj->page_table_lock);
+	spin_unlock(&obj->pgt.page_table_lock);
 }
 
 static int pagetable_show(struct seq_file *s, void *data)

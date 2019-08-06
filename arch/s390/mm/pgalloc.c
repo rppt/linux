@@ -90,7 +90,7 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 			rc = -ENOMEM;
 			break;
 		}
-		spin_lock_bh(&mm->page_table_lock);
+		spin_lock_bh(&mm->pgt.page_table_lock);
 		pgd = (unsigned long *) mm->pgd;
 		if (mm->context.asce_limit == _REGION2_SIZE) {
 			crst_table_init(table, _REGION2_ENTRY_EMPTY);
@@ -109,7 +109,7 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 				_ASCE_USER_BITS | _ASCE_TYPE_REGION1;
 		}
 		notify = 1;
-		spin_unlock_bh(&mm->page_table_lock);
+		spin_unlock_bh(&mm->pgt.page_table_lock);
 	}
 	if (notify)
 		on_each_cpu(__crst_table_upgrade, mm, 0);

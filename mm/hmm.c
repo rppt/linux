@@ -47,11 +47,11 @@ static struct hmm *hmm_get_or_create(struct mm_struct *mm)
 	lockdep_assert_held_write(&mm->mmap_sem);
 
 	/* Abuse the page_table_lock to also protect mm->hmm. */
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	hmm = mm->hmm;
 	if (mm->hmm && kref_get_unless_zero(&mm->hmm->kref))
 		goto out_unlock;
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 
 	hmm = kmalloc(sizeof(*hmm), GFP_KERNEL);
 	if (!hmm)
@@ -78,11 +78,11 @@ static struct hmm *hmm_get_or_create(struct mm_struct *mm)
 	 * We hold the exclusive mmap_sem here so we know that mm->hmm is
 	 * still NULL or 0 kref, and is safe to update.
 	 */
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	mm->hmm = hmm;
 
 out_unlock:
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 	return hmm;
 }
 
@@ -98,10 +98,10 @@ static void hmm_free(struct kref *kref)
 {
 	struct hmm *hmm = container_of(kref, struct hmm, kref);
 
-	spin_lock(&hmm->mm->page_table_lock);
+	spin_lock(&hmm->mm->pgt.page_table_lock);
 	if (hmm->mm->hmm == hmm)
 		hmm->mm->hmm = NULL;
-	spin_unlock(&hmm->mm->page_table_lock);
+	spin_unlock(&hmm->mm->pgt.page_table_lock);
 
 	mmu_notifier_unregister_no_release(&hmm->mmu_notifier, hmm->mm);
 	mmu_notifier_call_srcu(&hmm->rcu, hmm_free_rcu);

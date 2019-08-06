@@ -77,7 +77,7 @@
  *
  *  ->mmap_sem
  *    ->i_mmap_rwsem
- *      ->page_table_lock or pte_lock	(various, mainly in memory.c)
+ *      ->pgt.page_table_lock or pte_lock	(various, mainly in memory.c)
  *        ->i_pages lock	(arch-dependent flush_dcache_mmap_lock)
  *
  *  ->mmap_sem
@@ -94,9 +94,9 @@
  *    ->anon_vma.lock		(vma_adjust)
  *
  *  ->anon_vma.lock
- *    ->page_table_lock or pte_lock	(anon_vma_prepare and various)
+ *    ->pgt.page_table_lock or pte_lock	(anon_vma_prepare and various)
  *
- *  ->page_table_lock or pte_lock
+ *  ->pgt.page_table_lock or pte_lock
  *    ->swap_lock		(try_to_unmap_one)
  *    ->private_lock		(try_to_unmap_one)
  *    ->i_pages lock		(try_to_unmap_one)

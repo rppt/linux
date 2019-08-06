@@ -246,7 +246,7 @@ static pmd_t *get_pmd_from_cache(struct mm_struct *mm)
 	if (PMD_FRAG_NR == 1)
 		return NULL;
 
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	ret = mm->context.pmd_frag;
 	if (ret) {
 		pmd_frag = ret + PMD_FRAG_SIZE;
@@ -257,7 +257,7 @@ static pmd_t *get_pmd_from_cache(struct mm_struct *mm)
 			pmd_frag = NULL;
 		mm->context.pmd_frag = pmd_frag;
 	}
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 	return (pmd_t *)ret;
 }
 
@@ -287,7 +287,7 @@ static pmd_t *__alloc_for_pmdcache(struct mm_struct *mm)
 	if (PMD_FRAG_NR == 1)
 		return ret;
 
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	/*
 	 * If we find pgtable_page set, we return
 	 * the allocated page with single fragement
@@ -297,7 +297,7 @@ static pmd_t *__alloc_for_pmdcache(struct mm_struct *mm)
 		atomic_set(&page->pt_frag_refcount, PMD_FRAG_NR);
 		mm->context.pmd_frag = ret + PMD_FRAG_SIZE;
 	}
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 
 	return (pmd_t *)ret;
 }

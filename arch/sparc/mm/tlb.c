@@ -267,7 +267,7 @@ void pgtable_trans_huge_deposit(struct mm_struct *mm, pmd_t *pmdp,
 {
 	struct list_head *lh = (struct list_head *) pgtable;
 
-	assert_spin_locked(&mm->page_table_lock);
+	assert_spin_locked(&mm->pgt.page_table_lock);
 
 	/* FIFO */
 	if (!pmd_huge_pte(mm, pmdp))
@@ -282,7 +282,7 @@ pgtable_t pgtable_trans_huge_withdraw(struct mm_struct *mm, pmd_t *pmdp)
 	struct list_head *lh;
 	pgtable_t pgtable;
 
-	assert_spin_locked(&mm->page_table_lock);
+	assert_spin_locked(&mm->pgt.page_table_lock);
 
 	/* FIFO */
 	pgtable = pmd_huge_pte(mm, pmdp);

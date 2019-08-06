@@ -4,14 +4,14 @@
 Split page table lock
 =====================
 
-Originally, mm->page_table_lock spinlock protected all page tables of the
+Originally, mm->pgt.page_table_lock spinlock protected all page tables of the
 mm_struct. But this approach leads to poor page fault scalability of
 multi-threaded applications due high contention on the lock. To improve
 scalability, split page table lock was introduced.
 
 With split page table lock we have separate per-table lock to serialize
 access to the table. At the moment we use split lock for PTE and PMD
-tables. Access to higher level tables protected by mm->page_table_lock.
+tables. Access to higher level tables protected by mm->pgt.page_table_lock.
 
 There are helpers to lock/unlock a table and other accessor functions:
 
@@ -32,7 +32,7 @@ There are helpers to lock/unlock a table and other accessor functions:
 
 Split page table lock for PTE tables is enabled compile-time if
 CONFIG_SPLIT_PTLOCK_CPUS (usually 4) is less or equal to NR_CPUS.
-If split lock is disabled, all tables guaded by mm->page_table_lock.
+If split lock is disabled, all tables guaded by mm->pgt.page_table_lock.
 
 Split page table lock for PMD tables is enabled, if it's enabled for PTE
 tables and the architecture supports it (see below).
@@ -46,7 +46,7 @@ level, but not for PUD.
 Hugetlb-specific helpers:
 
  - huge_pte_lock()
-	takes pmd split lock for PMD_SIZE page, mm->page_table_lock
+	takes pmd split lock for PMD_SIZE page, mm->pgt.page_table_lock
 	otherwise;
  - huge_pte_lockptr()
 	returns pointer to table lock;

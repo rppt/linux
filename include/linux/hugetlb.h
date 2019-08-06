@@ -537,7 +537,7 @@ static inline spinlock_t *huge_pte_lockptr(struct hstate *h,
 	if (huge_page_size(h) == PMD_SIZE)
 		return pmd_lockptr(mm, (pmd_t *) pte);
 	VM_BUG_ON(huge_page_size(h) == PAGE_SIZE);
-	return &mm->page_table_lock;
+	return &mm->pgt.page_table_lock;
 }
 
 #ifndef hugepages_supported
@@ -725,7 +725,7 @@ static inline bool hugepage_movable_supported(struct hstate *h)
 static inline spinlock_t *huge_pte_lockptr(struct hstate *h,
 					   struct mm_struct *mm, pte_t *pte)
 {
-	return &mm->page_table_lock;
+	return &mm->pgt.page_table_lock;
 }
 
 static inline void hugetlb_report_usage(struct seq_file *f, struct mm_struct *m)

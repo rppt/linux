@@ -206,7 +206,7 @@ void vmalloc_sync_all(void)
 			spinlock_t *pgt_lock;
 
 			/* the pgt_lock only for Xen */
-			pgt_lock = &pgd_page_get_mm(page)->page_table_lock;
+			pgt_lock = &pgd_page_get_mm(page)->pgt.page_table_lock;
 
 			spin_lock(pgt_lock);
 			vmalloc_sync_one(page_address(page), address);

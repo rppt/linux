@@ -420,7 +420,7 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long address,
 #ifdef CONFIG_PPC_BOOK3S
 	/*
 	 * We don't need to worry about _PAGE_PRESENT here because we are
-	 * called with either mm->page_table_lock held or ptl lock held
+	 * called with either mm->pgt.page_table_lock held or ptl lock held
 	 */
 	unsigned long trap;
 	bool is_exec;

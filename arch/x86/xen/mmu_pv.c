@@ -700,7 +700,7 @@ static spinlock_t *xen_pte_lock(struct page *page, struct mm_struct *mm)
 
 #if USE_SPLIT_PTE_PTLOCKS
 	ptl = ptlock_ptr(page);
-	spin_lock_nest_lock(ptl, &mm->page_table_lock);
+	spin_lock_nest_lock(ptl, &mm->pgt.page_table_lock);
 #endif
 
 	return ptl;
@@ -976,16 +976,16 @@ void xen_mm_unpin_all(void)
 
 static void xen_activate_mm(struct mm_struct *prev, struct mm_struct *next)
 {
-	spin_lock(&next->page_table_lock);
+	spin_lock(&next->pgt.page_table_lock);
 	xen_pgd_pin(next);
-	spin_unlock(&next->page_table_lock);
+	spin_unlock(&next->pgt.page_table_lock);
 }
 
 static void xen_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm)
 {
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	xen_pgd_pin(mm);
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 }
 
 static void drop_mm_ref_this_cpu(void *info)
@@ -1068,13 +1068,13 @@ static void xen_exit_mmap(struct mm_struct *mm)
 	xen_drop_mm_ref(mm);
 	put_cpu();
 
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 
 	/* pgd may not be pinned in the error exit path of execve */
 	if (xen_page_pinned(mm->pgd))
 		xen_pgd_unpin(mm);
 
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 }
 
 static void xen_post_allocator_init(void);

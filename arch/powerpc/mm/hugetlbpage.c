@@ -130,7 +130,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz
 		/*
 		 * We need to use hugepd table
 		 */
-		ptl = &mm->page_table_lock;
+		ptl = &mm->pgt.page_table_lock;
 		hpdp = (hugepd_t *)pg;
 	} else {
 		pdshift = PUD_SHIFT;
@@ -158,7 +158,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz
 	}
 #else
 	if (pshift >= PGDIR_SHIFT) {
-		ptl = &mm->page_table_lock;
+		ptl = &mm->pgt.page_table_lock;
 		hpdp = (hugepd_t *)pg;
 	} else {
 		pdshift = PUD_SHIFT;
@@ -500,10 +500,10 @@ struct page *follow_huge_pd(struct vm_area_struct *vma,
 
 retry:
 	/*
-	 * hugepage directory entries are protected by mm->page_table_lock
+	 * hugepage directory entries are protected by mm->pgt.page_table_lock
 	 * Use this instead of huge_pte_lockptr
 	 */
-	ptl = &mm->page_table_lock;
+	ptl = &mm->pgt.page_table_lock;
 	spin_lock(ptl);
 
 	ptep = hugepte_offset(hpd, address, pdshift);

@@ -294,7 +294,7 @@ When oom event notifier is registered, event will be delivered.
    Other lock order is following:
 
    PG_locked.
-     mm->page_table_lock
+     mm->pgt.page_table_lock
          pgdat->lru_lock
 	   lock_page_cgroup.
 

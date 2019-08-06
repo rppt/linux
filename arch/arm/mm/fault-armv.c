@@ -65,7 +65,7 @@ static int do_adjust_pte(struct vm_area_struct *vma, unsigned long address,
 #if USE_SPLIT_PTE_PTLOCKS
 /*
  * If we are using split PTE locks, then we need to take the page
- * lock here.  Otherwise we are using shared mm->page_table_lock
+ * lock here.  Otherwise we are using shared mm->pgt.page_table_lock
  * which is already locked, thus cannot take it.
  */
 static inline void do_pte_lock(spinlock_t *ptl)

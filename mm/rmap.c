@@ -26,7 +26,7 @@
  *       hugetlbfs_i_mmap_rwsem_key (in huge_pmd_share)
  *         mapping->i_mmap_rwsem
  *           anon_vma->rwsem
- *             mm->page_table_lock or pte_lock
+ *             mm->pgt.page_table_lock or pte_lock
  *               pgdat->lru_lock (in mark_page_accessed, isolate_lru_page)
  *               swap_lock (in swap_duplicate, swap_info_get)
  *                 mmlist_lock (in mmput, drain_mmlist and others)
@@ -195,7 +195,7 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
 
 	anon_vma_lock_write(anon_vma);
 	/* page_table_lock to protect against threads */
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&mm->pgt.page_table_lock);
 	if (likely(!vma->anon_vma)) {
 		vma->anon_vma = anon_vma;
 		anon_vma_chain_link(vma, avc, anon_vma);
@@ -204,7 +204,7 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
 		allocated = NULL;
 		avc = NULL;
 	}
-	spin_unlock(&mm->page_table_lock);
+	spin_unlock(&mm->pgt.page_table_lock);
 	anon_vma_unlock_write(anon_vma);
 
 	if (unlikely(allocated))
