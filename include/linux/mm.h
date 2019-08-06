@@ -1799,14 +1799,14 @@ static inline void mm_inc_nr_puds(struct mm_struct *mm)
 {
 	if (mm_pud_folded(mm))
 		return;
-	atomic_long_add(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
+	atomic_long_add(PTRS_PER_PUD * sizeof(pud_t), &mm->pgt.pgtables_bytes);
 }
 
 static inline void mm_dec_nr_puds(struct mm_struct *mm)
 {
 	if (mm_pud_folded(mm))
 		return;
-	atomic_long_sub(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
+	atomic_long_sub(PTRS_PER_PUD * sizeof(pud_t), &mm->pgt.pgtables_bytes);
 }
 #endif
 
@@ -1827,36 +1827,36 @@ static inline void mm_inc_nr_pmds(struct mm_struct *mm)
 {
 	if (mm_pmd_folded(mm))
 		return;
-	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgt.pgtables_bytes);
 }
 
 static inline void mm_dec_nr_pmds(struct mm_struct *mm)
 {
 	if (mm_pmd_folded(mm))
 		return;
-	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgt.pgtables_bytes);
 }
 #endif
 
 #ifdef CONFIG_MMU
 static inline void mm_pgtables_bytes_init(struct mm_struct *mm)
 {
-	atomic_long_set(&mm->pgtables_bytes, 0);
+	atomic_long_set(&mm->pgt.pgtables_bytes, 0);
 }
 
 static inline unsigned long mm_pgtables_bytes(const struct mm_struct *mm)
 {
-	return atomic_long_read(&mm->pgtables_bytes);
+	return atomic_long_read(&mm->pgt.pgtables_bytes);
 }
 
 static inline void mm_inc_nr_ptes(struct mm_struct *mm)
 {
-	atomic_long_add(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
+	atomic_long_add(PTRS_PER_PTE * sizeof(pte_t), &mm->pgt.pgtables_bytes);
 }
 
 static inline void mm_dec_nr_ptes(struct mm_struct *mm)
 {
-	atomic_long_sub(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
+	atomic_long_sub(PTRS_PER_PTE * sizeof(pte_t), &mm->pgt.pgtables_bytes);
 }
 #else
 

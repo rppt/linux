@@ -361,11 +361,18 @@ struct core_state {
 	struct completion startup;
 };
 
+struct pg_table {
+#ifdef CONFIG_MMU
+	atomic_long_t pgtables_bytes;	/* PTE page table pages */
+#endif
+};
+
 struct kioctx_table;
 struct mm_struct {
 	struct {
 		struct vm_area_struct *mmap;		/* list of VMAs */
 		struct rb_root mm_rb;
+		struct pg_table pgt;
 		u64 vmacache_seqnum;                   /* per-thread vmacache */
 #ifdef CONFIG_MMU
 		unsigned long (*get_unmapped_area) (struct file *filp,
@@ -403,9 +410,6 @@ struct mm_struct {
 		 */
 		atomic_t mm_count;
 
-#ifdef CONFIG_MMU
-		atomic_long_t pgtables_bytes;	/* PTE page table pages */
-#endif
 		int map_count;			/* number of VMAs */
 
 		spinlock_t page_table_lock; /* Protects page tables and some
