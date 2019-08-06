@@ -377,7 +377,7 @@ void __init efi_reserve_boot_services(void)
  */
 static void __init efi_unmap_pages(efi_memory_desc_t *md)
 {
-	pgd_t *pgd = efi_mm.pgd;
+	pgd_t *pgd = efi_mm.pgt.pgd;
 	u64 pa = md->phys_addr;
 	u64 va = md->virt_addr;
 

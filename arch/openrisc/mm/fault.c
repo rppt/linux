@@ -56,7 +56,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long address,
 
 	/*
 	 * We fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should
@@ -308,7 +308,7 @@ vmalloc_fault:
 		phx_mmu("vmalloc_fault");
 */
 		pgd = (pgd_t *)current_pgd[smp_processor_id()] + offset;
-		pgd_k = init_mm.pgd + offset;
+		pgd_k = init_mm.pgt.pgd + offset;
 
 		/* Since we're two-level, we don't need to do both
 		 * set_pgd and set_pmd (they do the same thing). If

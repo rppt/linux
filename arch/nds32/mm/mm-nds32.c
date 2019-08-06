@@ -80,7 +80,7 @@ void setup_mm_for_reboot(char mode)
 	if (current->mm && current->mm->pgd)
 		pgd = current->mm->pgd;
 	else
-		pgd = init_mm.pgd;
+		pgd = init_mm.pgt.pgd;
 
 	for (i = 0; i < USER_PTRS_PER_PGD; i++) {
 		pmdval = (i << PGDIR_SHIFT);

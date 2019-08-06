@@ -379,14 +379,14 @@ static void __init radix_init_pgtable(void)
 	 * Fill in the process table.
 	 */
 	rts_field = radix__get_tree_size();
-	process_tb->prtb0 = cpu_to_be64(rts_field | __pa(init_mm.pgd) | RADIX_PGD_INDEX_SIZE);
+	process_tb->prtb0 = cpu_to_be64(rts_field | __pa(init_mm.pgt.pgd) | RADIX_PGD_INDEX_SIZE);
 	/*
 	 * Fill in the partition table. We are suppose to use effective address
 	 * of process table here. But our linear mapping also enable us to use
 	 * physical address here.
 	 */
 	register_process_table(__pa(process_tb), 0, PRTB_SIZE_SHIFT - 12);
-	pr_info("Process table %p and radix root for kernel: %p\n", process_tb, init_mm.pgd);
+	pr_info("Process table %p and radix root for kernel: %p\n", process_tb, init_mm.pgt.pgd);
 	asm volatile("ptesync" : : : "memory");
 	asm volatile(PPC_TLBIE_5(%0,%1,2,1,1) : :
 		     "r" (TLBIEL_INVAL_SET_LPID), "r" (0));
@@ -416,7 +416,7 @@ static void __init radix_init_partition_table(void)
 
 	mmu_partition_table_init();
 	rts_field = radix__get_tree_size();
-	dw0 = rts_field | __pa(init_mm.pgd) | RADIX_PGD_INDEX_SIZE | PATB_HR;
+	dw0 = rts_field | __pa(init_mm.pgt.pgd) | RADIX_PGD_INDEX_SIZE | PATB_HR;
 	mmu_partition_table_set_entry(0, dw0, 0);
 
 	pr_info("Initializing Radix MMU\n");

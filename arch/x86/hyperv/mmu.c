@@ -86,7 +86,7 @@ static void hyperv_flush_tlb_others(const struct cpumask *cpus,
 		 * AddressSpace argument must match the CR3 with PCID bits
 		 * stripped out.
 		 */
-		flush->address_space = virt_to_phys(info->mm->pgd);
+		flush->address_space = virt_to_phys(info->mm->pgt.pgd);
 		flush->address_space &= CR3_ADDR_MASK;
 		flush->flags = 0;
 	} else {
@@ -182,7 +182,7 @@ static u64 hyperv_flush_tlb_others_ex(const struct cpumask *cpus,
 		 * AddressSpace argument must match the CR3 with PCID bits
 		 * stripped out.
 		 */
-		flush->address_space = virt_to_phys(info->mm->pgd);
+		flush->address_space = virt_to_phys(info->mm->pgt.pgd);
 		flush->address_space &= CR3_ADDR_MASK;
 		flush->flags = 0;
 	} else {

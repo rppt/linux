@@ -92,7 +92,7 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 	}
 
 	secondary_thread_info = task_thread_info(idle);
-	current_pgd[cpu] = init_mm.pgd;
+	current_pgd[cpu] = init_mm.pgt.pgd;
 
 	boot_secondary(cpu, idle);
 	if (!wait_for_completion_timeout(&cpu_running,

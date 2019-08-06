@@ -48,7 +48,7 @@ void do_page_fault(struct pt_regs *regs)
 	code = SEGV_MAPERR;
 
 	/* We fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 */
 	if (address >= TASK_SIZE && !user_mode(regs))
 		goto vmalloc_fault;
@@ -204,7 +204,7 @@ vmalloc_fault:
 			goto bad_page_fault;
 
 		pgd = act_mm->pgd + index;
-		pgd_k = init_mm.pgd + index;
+		pgd_k = init_mm.pgt.pgd + index;
 
 		if (!pgd_present(*pgd_k))
 			goto bad_page_fault;

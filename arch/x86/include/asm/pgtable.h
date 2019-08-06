@@ -1012,7 +1012,7 @@ static inline int pgd_none(pgd_t pgd)
 /*
  * a shortcut to get a pgd_t in a given mm
  */
-#define pgd_offset(mm, address) pgd_offset_pgd((mm)->pgd, (address))
+#define pgd_offset(mm, address) pgd_offset_pgd((mm)->pgt.pgd, (address))
 /*
  * a shortcut which implies the use of the kernel's pgd, instead
  * of a process's

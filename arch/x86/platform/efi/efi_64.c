@@ -84,7 +84,7 @@ pgd_t * __init efi_call_phys_prolog(void)
 
 	if (!efi_enabled(EFI_OLD_MEMMAP)) {
 		efi_switch_mm(&efi_mm);
-		return efi_mm.pgd;
+		return efi_mm.pgt.pgd;
 	}
 
 	early_code_mapping_set_exec(1);
@@ -234,7 +234,7 @@ int __init efi_alloc_page_tables(void)
 		return -ENOMEM;
 	}
 
-	efi_mm.pgd = efi_pgd;
+	efi_mm.pgt.pgd = efi_pgd;
 	mm_init_cpumask(&efi_mm);
 	init_new_context(NULL, &efi_mm);
 
@@ -250,7 +250,7 @@ void efi_sync_low_kernel_mappings(void)
 	pgd_t *pgd_k, *pgd_efi;
 	p4d_t *p4d_k, *p4d_efi;
 	pud_t *pud_k, *pud_efi;
-	pgd_t *efi_pgd = efi_mm.pgd;
+	pgd_t *efi_pgd = efi_mm.pgt.pgd;
 
 	if (efi_enabled(EFI_OLD_MEMMAP))
 		return;
@@ -344,7 +344,7 @@ int __init efi_setup_page_tables(unsigned long pa_memmap, unsigned num_pages)
 	unsigned long pfn, text, pf;
 	struct page *page;
 	unsigned npages;
-	pgd_t *pgd = efi_mm.pgd;
+	pgd_t *pgd = efi_mm.pgt.pgd;
 
 	if (efi_enabled(EFI_OLD_MEMMAP))
 		return 0;
@@ -415,7 +415,7 @@ static void __init __map_region(efi_memory_desc_t *md, u64 va)
 {
 	unsigned long flags = _PAGE_RW;
 	unsigned long pfn;
-	pgd_t *pgd = efi_mm.pgd;
+	pgd_t *pgd = efi_mm.pgt.pgd;
 
 	if (!(md->attribute & EFI_MEMORY_WB))
 		flags |= _PAGE_PCD;
@@ -519,7 +519,7 @@ void __init parse_efi_setup(u64 phys_addr, u32 data_len)
 static int __init efi_update_mappings(efi_memory_desc_t *md, unsigned long pf)
 {
 	unsigned long pfn;
-	pgd_t *pgd = efi_mm.pgd;
+	pgd_t *pgd = efi_mm.pgt.pgd;
 	int err1, err2;
 
 	/* Update the 1:1 mapping */
@@ -616,7 +616,7 @@ void __init efi_dump_pagetable(void)
 	if (efi_enabled(EFI_OLD_MEMMAP))
 		ptdump_walk_pgd_level(NULL, swapper_pg_dir);
 	else
-		ptdump_walk_pgd_level(NULL, efi_mm.pgd);
+		ptdump_walk_pgd_level(NULL, efi_mm.pgt.pgd);
 #endif
 }
 

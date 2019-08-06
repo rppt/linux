@@ -135,7 +135,7 @@ void __init paging_init(void)
 
 	printk(KERN_INFO "Setting up paging and PTEs.\n");
 
-	/* clear out the init_mm.pgd that will contain the kernel's mappings */
+	/* clear out the init_mm.pgt.pgd that will contain the kernel's mappings */
 
 	for (i = 0; i < PTRS_PER_PGD; i++)
 		swapper_pg_dir[i] = __pgd(0);
@@ -144,7 +144,7 @@ void __init paging_init(void)
 	 * (even if it is most probably not used until the next
 	 *  switch_mm)
 	 */
-	current_pgd[smp_processor_id()] = init_mm.pgd;
+	current_pgd[smp_processor_id()] = init_mm.pgt.pgd;
 
 	end = (unsigned long)__va(max_low_pfn * PAGE_SIZE);
 

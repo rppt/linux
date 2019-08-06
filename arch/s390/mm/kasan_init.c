@@ -320,7 +320,7 @@ void __init kasan_early_init(void)
 	} else {
 		pgalloc_pos = memsize;
 	}
-	init_mm.pgd = early_pg_dir;
+	init_mm.pgt.pgd = early_pg_dir;
 	/*
 	 * Current memory layout:
 	 * +- 0 -------------+	 +- shadow start -+

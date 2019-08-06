@@ -346,7 +346,7 @@ int intel_svm_bind_mm(struct device *dev, int *pasid, int flags, struct svm_dev_
 
 		spin_lock(&iommu->lock);
 		ret = intel_pasid_setup_first_level(iommu, dev,
-				mm ? mm->pgd : init_mm.pgd,
+				mm ? mm->pgt.pgd : init_mm.pgt.pgd,
 				svm->pasid, FLPT_DEFAULT_DID,
 				mm ? 0 : PASID_FLAG_SUPERVISOR_MODE);
 		spin_unlock(&iommu->lock);
@@ -367,7 +367,7 @@ int intel_svm_bind_mm(struct device *dev, int *pasid, int flags, struct svm_dev_
 		 */
 		spin_lock(&iommu->lock);
 		ret = intel_pasid_setup_first_level(iommu, dev,
-						mm ? mm->pgd : init_mm.pgd,
+						mm ? mm->pgt.pgd : init_mm.pgt.pgd,
 						svm->pasid, FLPT_DEFAULT_DID,
 						mm ? 0 : PASID_FLAG_SUPERVISOR_MODE);
 		spin_unlock(&iommu->lock);
@@ -583,7 +583,7 @@ static irqreturn_t prq_event_thread(int irq, void *d)
 		}
 
 		result = QI_RESP_INVALID;
-		/* Since we're using init_mm.pgd directly, we should never take
+		/* Since we're using init_mm.pgt.pgd directly, we should never take
 		 * any faults on kernel addresses. */
 		if (!svm->mm)
 			goto bad_req;

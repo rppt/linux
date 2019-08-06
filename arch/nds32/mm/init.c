@@ -147,7 +147,7 @@ void __init paging_init(void)
 	void *zero_page;
 
 	pr_info("Setting up paging and PTEs.\n");
-	/* clear out the init_mm.pgd that will contain the kernel's mappings */
+	/* clear out the init_mm.pgt.pgd that will contain the kernel's mappings */
 	for (i = 0; i < PTRS_PER_PGD; i++)
 		swapper_pg_dir[i] = __pgd(1);
 

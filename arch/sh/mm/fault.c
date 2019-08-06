@@ -111,7 +111,7 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	pmd_t *pmd, *pmd_k;
 
 	pgd += index;
-	pgd_k = init_mm.pgd + index;
+	pgd_k = init_mm.pgt.pgd + index;
 
 	if (!pgd_present(*pgd_k))
 		return NULL;
@@ -388,7 +388,7 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/*
 	 * We fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should

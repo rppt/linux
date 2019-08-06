@@ -40,7 +40,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs)
 
 	/*
 	 * Fault-in kernel-space virtual memory on-demand.
-	 * The 'reference' page table is init_mm.pgd.
+	 * The 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should
@@ -231,7 +231,7 @@ vmalloc_fault:
 		 */
 		index = pgd_index(addr);
 		pgd = (pgd_t *)pfn_to_virt(csr_read(CSR_SATP)) + index;
-		pgd_k = init_mm.pgd + index;
+		pgd_k = init_mm.pgt.pgd + index;
 
 		if (!pgd_present(*pgd_k))
 			goto no_context;

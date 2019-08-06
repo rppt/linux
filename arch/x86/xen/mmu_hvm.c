@@ -50,7 +50,7 @@ static void xen_hvm_exit_mmap(struct mm_struct *mm)
 	int rc;
 
 	a.domid = DOMID_SELF;
-	a.gpa = __pa(mm->pgd);
+	a.gpa = __pa(mm->pgt.pgd);
 	rc = HYPERVISOR_hvm_op(HVMOP_pagetable_dying, &a);
 	WARN_ON_ONCE(rc < 0);
 }

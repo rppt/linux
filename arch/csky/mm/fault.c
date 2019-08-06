@@ -58,7 +58,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 #ifndef CONFIG_CPU_HAS_TLBI
 	/*
 	 * We fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should
@@ -84,7 +84,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 
 		pgd_base = (unsigned long)__va(get_pgd());
 		pgd = (pgd_t *)pgd_base + offset;
-		pgd_k = init_mm.pgd + offset;
+		pgd_k = init_mm.pgt.pgd + offset;
 
 		if (!pgd_present(*pgd_k))
 			goto no_context;

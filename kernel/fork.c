@@ -619,15 +619,15 @@ fail_nomem:
 
 static inline int mm_alloc_pgd(struct mm_struct *mm)
 {
-	mm->pgd = pgd_alloc(mm);
-	if (unlikely(!mm->pgd))
+	mm->pgt.pgd = pgd_alloc(mm);
+	if (unlikely(!mm->pgt.pgd))
 		return -ENOMEM;
 	return 0;
 }
 
 static inline void mm_free_pgd(struct mm_struct *mm)
 {
-	pgd_free(mm, mm->pgd);
+	pgd_free(mm, mm->pgt.pgd);
 }
 #else
 static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)

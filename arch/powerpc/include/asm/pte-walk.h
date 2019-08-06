@@ -28,7 +28,7 @@ static inline pte_t *find_linux_pte(pgd_t *pgdir, unsigned long ea,
 
 static inline pte_t *find_init_mm_pte(unsigned long ea, unsigned *hshift)
 {
-	pgd_t *pgdir = init_mm.pgd;
+	pgd_t *pgdir = init_mm.pgt.pgd;
 	return __find_linux_pte(pgdir, ea, NULL, hshift);
 }
 /*

@@ -561,7 +561,7 @@ static int kvm_trap_emul_vcpu_init(struct kvm_vcpu *vcpu)
 
 static void kvm_mips_emul_free_gva_pt(pgd_t *pgd)
 {
-	/* Don't free host kernel page tables copied from init_mm.pgd */
+	/* Don't free host kernel page tables copied from init_mm.pgt.pgd */
 	const unsigned long end = 0x80000000;
 	unsigned long pgd_va, pud_va, pmd_va;
 	pud_t *pud;

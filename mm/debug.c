@@ -163,7 +163,7 @@ void dump_mm(const struct mm_struct *mm)
 		mm->get_unmapped_area,
 #endif
 		mm->mmap_base, mm->mmap_legacy_base, mm->highest_vm_end,
-		mm->pgd, atomic_read(&mm->mm_users),
+		mm->pgt.pgd, atomic_read(&mm->mm_users),
 		atomic_read(&mm->mm_count),
 		mm_pgtables_bytes(mm),
 		mm->map_count,

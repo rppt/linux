@@ -650,7 +650,7 @@ int amd_iommu_bind_pasid(struct pci_dev *pdev, int pasid,
 		goto out_unregister;
 
 	ret = amd_iommu_domain_set_gcr3(dev_state->domain, pasid,
-					__pa(pasid_state->mm->pgd));
+					__pa(pasid_state->mm->pgt.pgd));
 	if (ret)
 		goto out_clear_state;
 

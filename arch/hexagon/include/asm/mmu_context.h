@@ -63,7 +63,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	 */
 	if (next->context.generation < prev->context.generation) {
 		for (l1 = MIN_KERNEL_SEG; l1 <= max_kernel_seg; l1++)
-			next->pgd[l1] = init_mm.pgd[l1];
+			next->pgd[l1] = init_mm.pgt.pgd[l1];
 
 		next->context.generation = prev->context.generation;
 	}

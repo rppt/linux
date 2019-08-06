@@ -68,7 +68,7 @@ void __init mem_init(void)
 	 * descriptors "context" value to point to the initial
 	 * kernel segment table's physical address.
 	 */
-	init_mm.context.ptbase = __pa(init_mm.pgd);
+	init_mm.context.ptbase = __pa(init_mm.pgt.pgd);
 }
 
 /*

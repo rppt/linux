@@ -2403,7 +2403,7 @@ void __init paging_init(void)
 	/* Set kernel pgd to upper alias so physical page computations
 	 * work.
 	 */
-	init_mm.pgd += ((shift) / (sizeof(pgd_t)));
+	init_mm.pgt.pgd += ((shift) / (sizeof(pgd_t)));
 	
 	memset(swapper_pg_dir, 0, sizeof(swapper_pg_dir));
 

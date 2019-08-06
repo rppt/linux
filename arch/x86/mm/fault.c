@@ -155,7 +155,7 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	pmd_t *pmd, *pmd_k;
 
 	pgd += index;
-	pgd_k = init_mm.pgd + index;
+	pgd_k = init_mm.pgt.pgd + index;
 
 	if (!pgd_present(*pgd_k))
 		return NULL;
@@ -1118,7 +1118,7 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	    error_code != (X86_PF_INSTR | X86_PF_PROT))
 		return 0;
 
-	pgd = init_mm.pgd + pgd_index(address);
+	pgd = init_mm.pgt.pgd + pgd_index(address);
 	if (!pgd_present(*pgd))
 		return 0;
 
@@ -1236,7 +1236,7 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 
 	/*
 	 * We can fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should

@@ -2048,7 +2048,7 @@ static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
 	cpa.numpages = numpages;
 	cpa.mask_set = enc ? __pgprot(_PAGE_ENC) : __pgprot(0);
 	cpa.mask_clr = enc ? __pgprot(0) : __pgprot(_PAGE_ENC);
-	cpa.pgd = init_mm.pgd;
+	cpa.pgd = init_mm.pgt.pgd;
 
 	/* Must avoid aliasing mappings in the highmem code */
 	kmap_flush_unused();

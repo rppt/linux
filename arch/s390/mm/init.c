@@ -91,7 +91,7 @@ void __init paging_init(void)
 	unsigned long pgd_type, asce_bits;
 	psw_t psw;
 
-	init_mm.pgd = swapper_pg_dir;
+	init_mm.pgt.pgd = swapper_pg_dir;
 	if (VMALLOC_END > _REGION2_SIZE) {
 		asce_bits = _ASCE_TYPE_REGION2 | _ASCE_TABLE_LENGTH;
 		pgd_type = _REGION2_ENTRY_EMPTY;
@@ -99,12 +99,12 @@ void __init paging_init(void)
 		asce_bits = _ASCE_TYPE_REGION3 | _ASCE_TABLE_LENGTH;
 		pgd_type = _REGION3_ENTRY_EMPTY;
 	}
-	init_mm.context.asce = (__pa(init_mm.pgd) & PAGE_MASK) | asce_bits;
+	init_mm.context.asce = (__pa(init_mm.pgt.pgd) & PAGE_MASK) | asce_bits;
 	S390_lowcore.kernel_asce = init_mm.context.asce;
 	S390_lowcore.user_asce = S390_lowcore.kernel_asce;
-	crst_table_init((unsigned long *) init_mm.pgd, pgd_type);
+	crst_table_init((unsigned long *) init_mm.pgt.pgd, pgd_type);
 	vmem_map_init();
-	kasan_copy_shadow(init_mm.pgd);
+	kasan_copy_shadow(init_mm.pgt.pgd);
 
 	/* enable virtual mapping in kernel mode */
 	__ctl_load(S390_lowcore.kernel_asce, 1, 1);

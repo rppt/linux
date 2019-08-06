@@ -429,7 +429,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	if (pgd == NULL)
 		goto out;
 
-	mm->pgd = pgd;
+	mm->pgt.pgd = pgd;
 
 	if (preallocate_pmds(mm, pmds, PREALLOCATED_PMDS) != 0)
 		goto out_free_pgd;

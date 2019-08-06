@@ -67,7 +67,7 @@ static void __kprobes __do_page_fault(struct pt_regs *regs, unsigned long write,
 
 	/*
 	 * We fault-in kernel-space virtual memory on-demand. The
-	 * 'reference' page table is init_mm.pgd.
+	 * 'reference' page table is init_mm.pgt.pgd.
 	 *
 	 * NOTE! We MUST NOT take any locks for this case. We may
 	 * be in an interrupt or a critical region, and should
@@ -299,7 +299,7 @@ vmalloc_fault:
 		pte_t *pte_k;
 
 		pgd = (pgd_t *) pgd_current[raw_smp_processor_id()] + offset;
-		pgd_k = init_mm.pgd + offset;
+		pgd_k = init_mm.pgt.pgd + offset;
 
 		if (!pgd_present(*pgd_k))
 			goto no_context;

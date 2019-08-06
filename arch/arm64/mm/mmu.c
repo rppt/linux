@@ -403,7 +403,7 @@ static void __init create_mapping_noalloc(phys_addr_t phys, unsigned long virt,
 			&phys, virt);
 		return;
 	}
-	__create_pgd_mapping(init_mm.pgd, phys, virt, size, prot, NULL,
+	__create_pgd_mapping(init_mm.pgt.pgd, phys, virt, size, prot, NULL,
 			     NO_CONT_MAPPINGS);
 }
 
@@ -431,7 +431,7 @@ static void update_mapping_prot(phys_addr_t phys, unsigned long virt,
 		return;
 	}
 
-	__create_pgd_mapping(init_mm.pgd, phys, virt, size, prot, NULL,
+	__create_pgd_mapping(init_mm.pgt.pgd, phys, virt, size, prot, NULL,
 			     NO_CONT_MAPPINGS);
 
 	/* flush the TLBs after updating live kernel mappings */
@@ -674,7 +674,7 @@ void __init paging_init(void)
 	pgd_clear_fixmap();
 
 	cpu_replace_ttbr1(lm_alias(swapper_pg_dir));
-	init_mm.pgd = swapper_pg_dir;
+	init_mm.pgt.pgd = swapper_pg_dir;
 
 	memblock_free(__pa_symbol(init_pg_dir),
 		      __pa_symbol(init_pg_end) - __pa_symbol(init_pg_dir));

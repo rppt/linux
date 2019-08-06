@@ -258,7 +258,7 @@ static inline bool nmi_uaccess_okay(void)
 
 	/*
 	 * The condition we want to check is
-	 * current_mm->pgd == __va(read_cr3_pa()).  This may be slow, though,
+	 * current_mm->pgt.pgd == __va(read_cr3_pa()). This may be slow, though,
 	 * if we're running in a VM with shadow paging, and nmi_uaccess_okay()
 	 * is supposed to be reasonably fast.
 	 *
@@ -269,7 +269,7 @@ static inline bool nmi_uaccess_okay(void)
 	if (loaded_mm != current_mm)
 		return false;
 
-	VM_WARN_ON_ONCE(current_mm->pgd != __va(read_cr3_pa()));
+	VM_WARN_ON_ONCE(current_mm->pgt.pgd != __va(read_cr3_pa()));
 
 	return true;
 }
