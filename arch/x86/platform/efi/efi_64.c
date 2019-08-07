@@ -184,7 +184,7 @@ void __init efi_call_phys_epilog(pgd_t *save_pgd)
 		}
 
 		p4d = (p4d_t *)pgd_page_vaddr(*pgd);
-		p4d_free(&init_mm, p4d);
+		p4d_free(p4d);
 	}
 
 	kfree(save_pgd);

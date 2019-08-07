@@ -196,7 +196,7 @@ static inline p4d_t *p4d_alloc_one(struct mm_struct *mm, unsigned long addr)
 	return (p4d_t *)get_zeroed_page(gfp);
 }
 
-static inline void p4d_free(struct mm_struct *mm, p4d_t *p4d)
+static inline void p4d_free(p4d_t *p4d)
 {
 	if (!pgtable_l5_enabled())
 		return;

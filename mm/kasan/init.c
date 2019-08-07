@@ -350,7 +350,7 @@ static void kasan_free_p4d(p4d_t *p4d_start, pgd_t *pgd)
 			return;
 	}
 
-	p4d_free(&init_mm, (p4d_t *)page_to_virt(pgd_page(*pgd)));
+	p4d_free((p4d_t *)page_to_virt(pgd_page(*pgd)));
 	pgd_clear(pgd);
 }
 

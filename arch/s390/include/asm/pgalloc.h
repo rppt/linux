@@ -56,7 +56,7 @@ static inline p4d_t *p4d_alloc_one(struct mm_struct *mm, unsigned long address)
 		crst_table_init(table, _REGION2_ENTRY_EMPTY);
 	return (p4d_t *) table;
 }
-#define p4d_free(mm, p4d) crst_table_free((unsigned long *) p4d)
+#define p4d_free(p4d) crst_table_free((unsigned long *) p4d)
 
 static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long address)
 {
