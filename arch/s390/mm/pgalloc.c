@@ -51,7 +51,7 @@ __initcall(page_table_register_sysctl);
 
 #endif /* CONFIG_PGSTE */
 
-unsigned long *crst_table_alloc(struct mm_struct *mm)
+unsigned long *crst_table_alloc(void)
 {
 	struct page *page = alloc_pages(GFP_KERNEL, 2);
 
@@ -61,7 +61,7 @@ unsigned long *crst_table_alloc(struct mm_struct *mm)
 	return (unsigned long *) page_to_phys(page);
 }
 
-void crst_table_free(struct mm_struct *mm, unsigned long *table)
+void crst_table_free(unsigned long *table)
 {
 	free_pages((unsigned long) table, 2);
 }
@@ -85,7 +85,7 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 	rc = 0;
 	notify = 0;
 	while (mm->context.asce_limit < end) {
-		table = crst_table_alloc(mm);
+		table = crst_table_alloc();
 		if (!table) {
 			rc = -ENOMEM;
 			break;
@@ -134,7 +134,7 @@ void crst_table_downgrade(struct mm_struct *mm)
 	mm->context.asce_limit = _REGION3_SIZE;
 	mm->context.asce = __pa(mm->pgt.pgd) | _ASCE_TABLE_LENGTH |
 			   _ASCE_USER_BITS | _ASCE_TYPE_SEGMENT;
-	crst_table_free(mm, (unsigned long *) pgd);
+	crst_table_free((unsigned long *) pgd);
 
 	if (current->active_mm == mm)
 		set_user_asce(mm);

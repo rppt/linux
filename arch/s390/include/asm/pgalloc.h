@@ -19,8 +19,8 @@
 
 #define CRST_ALLOC_ORDER 2
 
-unsigned long *crst_table_alloc(struct mm_struct *);
-void crst_table_free(struct mm_struct *, unsigned long *);
+unsigned long *crst_table_alloc(void);
+void crst_table_free(unsigned long *);
 
 unsigned long *page_table_alloc(struct mm_struct *);
 struct page *page_table_alloc_pgste(struct mm_struct *mm);
@@ -50,32 +50,32 @@ void crst_table_downgrade(struct mm_struct *);
 
 static inline p4d_t *p4d_alloc_one(struct mm_struct *mm, unsigned long address)
 {
-	unsigned long *table = crst_table_alloc(mm);
+	unsigned long *table = crst_table_alloc();
 
 	if (table)
 		crst_table_init(table, _REGION2_ENTRY_EMPTY);
 	return (p4d_t *) table;
 }
-#define p4d_free(mm, p4d) crst_table_free(mm, (unsigned long *) p4d)
+#define p4d_free(mm, p4d) crst_table_free((unsigned long *) p4d)
 
 static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long address)
 {
-	unsigned long *table = crst_table_alloc(mm);
+	unsigned long *table = crst_table_alloc();
 	if (table)
 		crst_table_init(table, _REGION3_ENTRY_EMPTY);
 	return (pud_t *) table;
 }
-#define pud_free(mm, pud) crst_table_free(mm, (unsigned long *) pud)
+#define pud_free(mm, pud) crst_table_free((unsigned long *) pud)
 
 static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long vmaddr)
 {
-	unsigned long *table = crst_table_alloc(mm);
+	unsigned long *table = crst_table_alloc();
 
 	if (!table)
 		return NULL;
 	crst_table_init(table, _SEGMENT_ENTRY_EMPTY);
 	if (!pgtable_pmd_page_ctor(virt_to_page(table))) {
-		crst_table_free(mm, table);
+		crst_table_free(table);
 		return NULL;
 	}
 	return (pmd_t *) table;
@@ -84,7 +84,7 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long vmaddr)
 static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 {
 	pgtable_pmd_page_dtor(virt_to_page(pmd));
-	crst_table_free(mm, (unsigned long *) pmd);
+	crst_table_free((unsigned long *) pmd);
 }
 
 static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, p4d_t *p4d)
@@ -104,14 +104,14 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 {
-	unsigned long *table = crst_table_alloc(mm);
+	unsigned long *table = crst_table_alloc();
 
 	if (!table)
 		return NULL;
 	if (mm->context.asce_limit == _REGION3_SIZE) {
 		/* Forking a compat process with 2 page table levels */
 		if (!pgtable_pmd_page_ctor(virt_to_page(table))) {
-			crst_table_free(mm, table);
+			crst_table_free(table);
 			return NULL;
 		}
 	}
@@ -122,7 +122,7 @@ static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	if (mm->context.asce_limit == _REGION3_SIZE)
 		pgtable_pmd_page_dtor(virt_to_page(pgd));
-	crst_table_free(mm, (unsigned long *) pgd);
+	crst_table_free((unsigned long *) pgd);
 }
 
 static inline void pmd_populate(struct mm_struct *mm,
