@@ -58,7 +58,7 @@ static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
  * inside the p4d, so has no extra memory associated with it.
  */
 #define pud_alloc_one(mm, address)		NULL
-#define pud_free(mm, x)				do { } while (0)
+#define pud_free(x)				do { } while (0)
 #define __pud_free_tlb(tlb, x, a)		do { } while (0)
 
 #undef  pud_addr_end

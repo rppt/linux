@@ -45,11 +45,11 @@ static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
 	return quicklist_alloc(0, GFP_KERNEL, NULL);
 }
 
-static inline void pud_free(struct mm_struct *mm, pud_t *pud)
+static inline void pud_free(pud_t *pud)
 {
 	quicklist_free(0, NULL, pud);
 }
-#define __pud_free_tlb(tlb, pud, address)	pud_free((tlb)->mm, pud)
+#define __pud_free_tlb(tlb, pud, address)	pud_free(pud)
 #endif /* CONFIG_PGTABLE_LEVELS == 4 */
 
 static inline void

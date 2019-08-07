@@ -449,7 +449,7 @@ static void clear_hyp_pgd_entry(pgd_t *pgd)
 {
 	pud_t *pud_table __maybe_unused = pud_offset(pgd, 0UL);
 	pgd_clear(pgd);
-	pud_free(NULL, pud_table);
+	pud_free(pud_table);
 	put_page(virt_to_page(pgd));
 }
 

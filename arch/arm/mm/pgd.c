@@ -106,7 +106,7 @@ no_pte:
 	pmd_free(mm, new_pmd);
 	mm_dec_nr_pmds(mm);
 no_pmd:
-	pud_free(mm, new_pud);
+	pud_free(new_pud);
 no_pud:
 	__pgd_free(new_pgd);
 no_pgd:
@@ -145,7 +145,7 @@ no_pmd:
 	mm_dec_nr_pmds(mm);
 no_pud:
 	pgd_clear(pgd);
-	pud_free(mm, pud);
+	pud_free(pud);
 no_pgd:
 #ifdef CONFIG_ARM_LPAE
 	/*
@@ -164,7 +164,7 @@ no_pgd:
 		pmd_free(mm, pmd);
 		mm_dec_nr_pmds(mm);
 		pgd_clear(pgd);
-		pud_free(mm, pud);
+		pud_free(pud);
 	}
 #endif
 	__pgd_free(pgd_base);

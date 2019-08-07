@@ -29,7 +29,7 @@
 
 #undef pud_free_tlb
 #define pud_free_tlb(tlb, x, addr)	do { } while (0)
-#define pud_free(mm, x)			do { } while (0)
+#define pud_free(x)			do { } while (0)
 #define __pud_free_tlb(tlb, x, addr)	do { } while (0)
 
 #undef  pud_addr_end

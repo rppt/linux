@@ -335,7 +335,7 @@ static void kasan_free_pud(pud_t *pud_start, p4d_t *p4d)
 			return;
 	}
 
-	pud_free(&init_mm, (pud_t *)page_to_virt(p4d_page(*p4d)));
+	pud_free((pud_t *)page_to_virt(p4d_page(*p4d)));
 	p4d_clear(p4d);
 }
 

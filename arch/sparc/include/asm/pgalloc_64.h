@@ -45,7 +45,7 @@ static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
 	return kmem_cache_alloc(pgtable_cache, GFP_KERNEL);
 }
 
-static inline void pud_free(struct mm_struct *mm, pud_t *pud)
+static inline void pud_free(pud_t *pud)
 {
 	kmem_cache_free(pgtable_cache, pud);
 }

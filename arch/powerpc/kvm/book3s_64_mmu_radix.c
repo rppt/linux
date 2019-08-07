@@ -491,7 +491,7 @@ static void kvmppc_unmap_free_pud(struct kvm *kvm, pud_t *pud,
 			pud_clear(p);
 		}
 	}
-	pud_free(kvm->mm, pud);
+	pud_free(pud);
 }
 
 void kvmppc_free_pgtable_radix(struct kvm *kvm, pgd_t *pgd, unsigned int lpid)
@@ -727,7 +727,7 @@ int kvmppc_create_pte(struct kvm *kvm, pgd_t *pgtable, pte_t pte,
  out_unlock:
 	spin_unlock(&kvm->mmu_lock);
 	if (new_pud)
-		pud_free(kvm->mm, new_pud);
+		pud_free(new_pud);
 	if (new_pmd)
 		kvmppc_pmd_free(new_pmd);
 	if (new_ptep)

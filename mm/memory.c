@@ -4058,13 +4058,13 @@ int __pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address)
 		mm_inc_nr_puds(mm);
 		p4d_populate(mm, p4d, new);
 	} else	/* Another has populated it */
-		pud_free(mm, new);
+		pud_free(new);
 #else
 	if (!pgd_present(*p4d)) {
 		mm_inc_nr_puds(mm);
 		pgd_populate(mm, p4d, new);
 	} else	/* Another has populated it */
-		pud_free(mm, new);
+		pud_free(new);
 #endif /* __ARCH_HAS_5LEVEL_HACK */
 	spin_unlock(&mm->pgt.page_table_lock);
 	return 0;
