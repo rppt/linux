@@ -595,7 +595,7 @@ static void kvm_mips_emul_free_gva_pt(pgd_t *pgd)
 				pte = pte_offset(pmd + k, 0);
 				pte_free_kernel(NULL, pte);
 			}
-			pmd_free(NULL, pmd);
+			pmd_free(pmd);
 		}
 		pud_free(pud);
 	}

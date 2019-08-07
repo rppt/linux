@@ -39,7 +39,7 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
 	return page_address(page);
 }
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmdp)
+static inline void pmd_free(pmd_t *pmdp)
 {
 	BUG_ON((unsigned long)pmdp & (PAGE_SIZE-1));
 	pgtable_pmd_page_dtor(virt_to_page(pmdp));

@@ -4091,13 +4091,13 @@ int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 		mm_inc_nr_pmds(mm);
 		pud_populate(mm, pud, new);
 	} else	/* Another has populated it */
-		pmd_free(mm, new);
+		pmd_free(new);
 #else
 	if (!pgd_present(*pud)) {
 		mm_inc_nr_pmds(mm);
 		pgd_populate(mm, pud, new);
 	} else /* Another has populated it */
-		pmd_free(mm, new);
+		pmd_free(new);
 #endif /* __ARCH_HAS_4LEVEL_HACK */
 	spin_unlock(ptl);
 	return 0;

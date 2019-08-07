@@ -81,7 +81,7 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long vmaddr)
 	return (pmd_t *) table;
 }
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
+static inline void pmd_free(pmd_t *pmd)
 {
 	pgtable_pmd_page_dtor(virt_to_page(pmd));
 	crst_table_free((unsigned long *) pmd);

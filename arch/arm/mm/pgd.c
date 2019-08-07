@@ -103,7 +103,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	return new_pgd;
 
 no_pte:
-	pmd_free(mm, new_pmd);
+	pmd_free(new_pmd);
 	mm_dec_nr_pmds(mm);
 no_pmd:
 	pud_free(new_pud);
@@ -141,7 +141,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd_base)
 	mm_dec_nr_ptes(mm);
 no_pmd:
 	pud_clear(pud);
-	pmd_free(mm, pmd);
+	pmd_free(pmd);
 	mm_dec_nr_pmds(mm);
 no_pud:
 	pgd_clear(pgd);
@@ -161,7 +161,7 @@ no_pgd:
 			continue;
 		pmd = pmd_offset(pud, 0);
 		pud_clear(pud);
-		pmd_free(mm, pmd);
+		pmd_free(pmd);
 		mm_dec_nr_pmds(mm);
 		pgd_clear(pgd);
 		pud_free(pud);

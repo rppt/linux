@@ -320,7 +320,7 @@ static void kasan_free_pmd(pmd_t *pmd_start, pud_t *pud)
 			return;
 	}
 
-	pmd_free(&init_mm, (pmd_t *)page_to_virt(pud_page(*pud)));
+	pmd_free((pmd_t *)page_to_virt(pud_page(*pud)));
 	pud_clear(pud);
 }
 

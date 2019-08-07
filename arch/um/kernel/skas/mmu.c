@@ -41,7 +41,7 @@ static int init_stub_pte(struct mm_struct *mm, unsigned long proc,
 	return 0;
 
  out_pte:
-	pmd_free(mm, pmd);
+	pmd_free(pmd);
  out_pmd:
 	pud_free(pud);
  out:

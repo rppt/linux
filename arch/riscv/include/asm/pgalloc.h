@@ -67,12 +67,12 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
 		GFP_KERNEL | __GFP_RETRY_MAYFAIL | __GFP_ZERO);
 }
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
+static inline void pmd_free(pmd_t *pmd)
 {
 	free_page((unsigned long)pmd);
 }
 
-#define __pmd_free_tlb(tlb, pmd, addr)  pmd_free((tlb)->mm, pmd)
+#define __pmd_free_tlb(tlb, pmd, addr)  pmd_free(pmd)
 
 #endif /* __PAGETABLE_PMD_FOLDED */
 

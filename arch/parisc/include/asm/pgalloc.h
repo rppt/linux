@@ -73,7 +73,7 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
 	return pmd;
 }
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
+static inline void pmd_free(pmd_t *pmd)
 {
 	if (pmd_flag(*pmd) & PxD_FLAG_ATTACHED) {
 		/*
@@ -98,7 +98,7 @@ static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
  */
 
 #define pmd_alloc_one(mm, addr)		({ BUG(); ((pmd_t *)2); })
-#define pmd_free(mm, x)			do { } while (0)
+#define pmd_free(x)			do { } while (0)
 #define pgd_populate(mm, pmd, pte)	BUG()
 
 #endif

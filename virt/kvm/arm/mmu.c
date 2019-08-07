@@ -458,7 +458,7 @@ static void clear_hyp_pud_entry(pud_t *pud)
 	pmd_t *pmd_table __maybe_unused = pmd_offset(pud, 0);
 	VM_BUG_ON(pud_huge(*pud));
 	pud_clear(pud);
-	pmd_free(NULL, pmd_table);
+	pmd_free(pmd_table);
 	put_page(virt_to_page(pud));
 }
 

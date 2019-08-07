@@ -81,7 +81,7 @@ static inline void pte_free(struct mm_struct *mm, struct page *page)
  * In our implementation, each pgd entry contains 1 pmd that is never allocated
  * or freed.  pgd_present is always 1, so this should never be called. -NL
  */
-#define pmd_free(mm, pmd) BUG()
+#define pmd_free(pmd) BUG()
 
 static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {

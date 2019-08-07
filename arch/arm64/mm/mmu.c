@@ -1050,7 +1050,7 @@ int pud_free_pmd_page(pud_t *pudp, unsigned long addr)
 
 	pud_clear(pudp);
 	__flush_tlb_kernel_pgtable(addr);
-	pmd_free(NULL, table);
+	pmd_free(table);
 	return 1;
 }
 

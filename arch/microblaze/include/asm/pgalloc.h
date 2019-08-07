@@ -167,8 +167,8 @@ static inline void pte_free(struct mm_struct *mm, struct page *ptepage)
  * the pgd will always be present..
  */
 #define pmd_alloc_one(mm, address)	({ BUG(); ((pmd_t *)2); })
-#define pmd_free(mm, x)			do { } while (0)
-#define __pmd_free_tlb(tlb, x, addr)	pmd_free((tlb)->mm, x)
+#define pmd_free(x)			do { } while (0)
+#define __pmd_free_tlb(tlb, x, addr)	pmd_free(x)
 #define pgd_populate(mm, pmd, pte)	BUG()
 
 extern int do_check_pgt_cache(int, int);

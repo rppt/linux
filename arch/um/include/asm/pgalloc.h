@@ -35,7 +35,7 @@ do {							\
 
 #ifdef CONFIG_3_LEVEL_PGTABLES
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
+static inline void pmd_free(pmd_t *pmd)
 {
 	free_page((unsigned long)pmd);
 }

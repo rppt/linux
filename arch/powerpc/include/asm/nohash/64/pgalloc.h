@@ -51,7 +51,7 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
 			pgtable_gfp_flags(mm, GFP_KERNEL));
 }
 
-static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
+static inline void pmd_free(pmd_t *pmd)
 {
 	kmem_cache_free(PGT_CACHE(PMD_CACHE_INDEX), pmd);
 }

@@ -49,8 +49,8 @@ static inline void free_pmd_fast(pmd_t * pmd)
 	srmmu_free_nocache(pmd, SRMMU_PMD_TABLE_SIZE);
 }
 
-#define pmd_free(mm, pmd)		free_pmd_fast(pmd)
-#define __pmd_free_tlb(tlb, pmd, addr)	pmd_free((tlb)->mm, pmd)
+#define pmd_free(pmd)		free_pmd_fast(pmd)
+#define __pmd_free_tlb(tlb, pmd, addr)	pmd_free(pmd)
 
 void pmd_populate(struct mm_struct *mm, pmd_t *pmdp, struct page *ptep);
 #define pmd_pgtable(pmd) pmd_page(pmd)

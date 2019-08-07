@@ -247,7 +247,7 @@ static bool kvm_mips_flush_gpa_pud(pud_t *pud, unsigned long start_gpa,
 
 		if (kvm_mips_flush_gpa_pmd(pmd, start_gpa, end)) {
 			pud_clear(pud + i);
-			pmd_free(NULL, pmd);
+			pmd_free(pmd);
 		} else {
 			safe_to_remove = false;
 		}
@@ -905,7 +905,7 @@ static bool kvm_mips_flush_gva_pud(pud_t *pud, unsigned long start_gva,
 
 		if (kvm_mips_flush_gva_pmd(pmd, start_gva, end)) {
 			pud_clear(pud + i);
-			pmd_free(NULL, pmd);
+			pmd_free(pmd);
 		} else {
 			safe_to_remove = false;
 		}
