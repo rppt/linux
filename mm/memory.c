@@ -4023,7 +4023,7 @@ EXPORT_SYMBOL_GPL(handle_mm_fault);
  */
 int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 {
-	p4d_t *new = p4d_alloc_one(mm, address);
+	p4d_t *new = p4d_alloc_one(&mm->pgt, address);
 	if (!new)
 		return -ENOMEM;
 

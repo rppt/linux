@@ -187,11 +187,11 @@ static inline void pgd_populate_safe(struct mm_struct *mm, pgd_t *pgd, p4d_t *p4
 	set_pgd_safe(pgd, __pgd(_PAGE_TABLE | __pa(p4d)));
 }
 
-static inline p4d_t *p4d_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline p4d_t *p4d_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	gfp_t gfp = GFP_KERNEL_ACCOUNT;
 
-	if (mm == &init_mm)
+	if (pgt == &init_mm.pgt)
 		gfp &= ~__GFP_ACCOUNT;
 	return (p4d_t *)get_zeroed_page(gfp);
 }
