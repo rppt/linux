@@ -1774,13 +1774,13 @@ static inline pte_t *get_locked_pte(struct mm_struct *mm, unsigned long addr,
 }
 
 #ifdef __PAGETABLE_P4D_FOLDED
-static inline int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
+static inline int _p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 						unsigned long address)
 {
 	return 0;
 }
 #else
-int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address);
+int _p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address);
 #endif
 
 #if defined(__PAGETABLE_PUD_FOLDED) || !defined(CONFIG_MMU)
@@ -1883,7 +1883,7 @@ int __pte_alloc_kernel(pmd_t *pmd);
 static inline p4d_t *p4d_alloc(struct mm_struct *mm, pgd_t *pgd,
 		unsigned long address)
 {
-	return (unlikely(pgd_none(*pgd)) && __p4d_alloc(mm, pgd, address)) ?
+	return (unlikely(pgd_none(*pgd)) && _p4d_alloc(mm, pgd, address)) ?
 		NULL : p4d_offset(pgd, address);
 }
 

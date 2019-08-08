@@ -4021,22 +4021,28 @@ EXPORT_SYMBOL_GPL(handle_mm_fault);
  * Allocate p4d page table.
  * We've already handled the fast-path in-line.
  */
-int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
+int __p4d_alloc(struct pg_table *pgt, pgd_t *pgd, unsigned long address)
 {
-	p4d_t *new = p4d_alloc_one(&mm->pgt, address);
+	p4d_t *new = p4d_alloc_one(pgt, address);
 	if (!new)
 		return -ENOMEM;
 
 	smp_wmb(); /* See comment in __pte_alloc */
 
-	spin_lock(&mm->pgt.page_table_lock);
+	spin_lock(&pgt->page_table_lock);
 	if (pgd_present(*pgd))		/* Another has populated it */
 		p4d_free(new);
 	else
-		pgd_populate_pgt(&mm->pgt, pgd, new);
-	spin_unlock(&mm->pgt.page_table_lock);
+		pgd_populate_pgt(pgt, pgd, new);
+	spin_unlock(&pgt->page_table_lock);
 	return 0;
 }
+
+int _p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
+{
+	return __p4d_alloc(&mm->pgt, pgd, address);
+}
+
 #endif /* __PAGETABLE_P4D_FOLDED */
 
 #ifndef __PAGETABLE_PUD_FOLDED
