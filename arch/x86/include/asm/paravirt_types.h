@@ -49,6 +49,7 @@ struct page;
 struct thread_struct;
 struct desc_ptr;
 struct tss_struct;
+struct pg_table;
 struct mm_struct;
 struct desc_struct;
 struct task_struct;
@@ -243,7 +244,7 @@ struct pv_mmu_ops {
 	void (*alloc_pte)(struct mm_struct *mm, unsigned long pfn);
 	void (*alloc_pmd)(struct mm_struct *mm, unsigned long pfn);
 	void (*alloc_pud)(struct mm_struct *mm, unsigned long pfn);
-	void (*alloc_p4d)(struct mm_struct *mm, unsigned long pfn);
+	void (*alloc_p4d)(struct pg_table *pgt, unsigned long pfn);
 	void (*release_pte)(unsigned long pfn);
 	void (*release_pmd)(unsigned long pfn);
 	void (*release_pud)(unsigned long pfn);

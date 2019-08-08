@@ -4033,7 +4033,7 @@ int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 	if (pgd_present(*pgd))		/* Another has populated it */
 		p4d_free(new);
 	else
-		pgd_populate(mm, pgd, new);
+		pgd_populate_pgt(&mm->pgt, pgd, new);
 	spin_unlock(&mm->pgt.page_table_lock);
 	return 0;
 }

@@ -361,9 +361,9 @@ static inline void paravirt_release_pud(unsigned long pfn)
 	PVOP_VCALL1(mmu.release_pud, pfn);
 }
 
-static inline void paravirt_alloc_p4d(struct mm_struct *mm, unsigned long pfn)
+static inline void paravirt_alloc_p4d(struct pg_table *pgt, unsigned long pfn)
 {
-	PVOP_VCALL2(mmu.alloc_p4d, mm, pfn);
+	PVOP_VCALL2(mmu.alloc_p4d, pgt, pfn);
 }
 
 static inline void paravirt_release_p4d(unsigned long pfn)
