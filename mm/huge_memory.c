@@ -856,7 +856,7 @@ static void insert_pfn_pud(struct vm_area_struct *vma, unsigned long addr,
 	pud_t entry;
 	spinlock_t *ptl;
 
-	ptl = pud_lock(mm, pud);
+	ptl = pud_lock(&mm->pgt, pud);
 	if (!pud_none(*pud)) {
 		if (write) {
 			if (pud_pfn(*pud) != pfn_t_to_pfn(pfn)) {
@@ -1079,7 +1079,7 @@ struct page *follow_devmap_pud(struct vm_area_struct *vma, unsigned long addr,
 	struct mm_struct *mm = vma->vm_mm;
 	struct page *page;
 
-	assert_spin_locked(pud_lockptr(mm, pud));
+	assert_spin_locked(pud_lockptr(&mm->pgt, pud));
 
 	if (flags & FOLL_WRITE && !pud_write(*pud))
 		return NULL;
@@ -1117,8 +1117,8 @@ int copy_huge_pud(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	pud_t pud;
 	int ret;
 
-	dst_ptl = pud_lock(dst_mm, dst_pud);
-	src_ptl = pud_lockptr(src_mm, src_pud);
+	dst_ptl = pud_lock(&dst_mm->pgt, dst_pud);
+	src_ptl = pud_lockptr(&src_mm->pgt, src_pud);
 	spin_lock_nested(src_ptl, SINGLE_DEPTH_NESTING);
 
 	ret = -EAGAIN;
@@ -1152,7 +1152,7 @@ void huge_pud_set_accessed(struct vm_fault *vmf, pud_t orig_pud)
 	unsigned long haddr;
 	bool write = vmf->flags & FAULT_FLAG_WRITE;
 
-	vmf->ptl = pud_lock(vmf->vma->vm_mm, vmf->pud);
+	vmf->ptl = pud_lock(&vmf->vma->vm_mm->pgt, vmf->pud);
 	if (unlikely(!pud_same(*vmf->pud, orig_pud)))
 		goto unlock;
 
@@ -2026,7 +2026,7 @@ spinlock_t *__pud_trans_huge_lock(pud_t *pud, struct vm_area_struct *vma)
 {
 	spinlock_t *ptl;
 
-	ptl = pud_lock(vma->vm_mm, pud);
+	ptl = pud_lock(&vma->vm_mm->pgt, pud);
 	if (likely(pud_trans_huge(*pud) || pud_devmap(*pud)))
 		return ptl;
 	spin_unlock(ptl);
@@ -2083,7 +2083,7 @@ void __split_huge_pud(struct vm_area_struct *vma, pud_t *pud,
 				address & HPAGE_PUD_MASK,
 				(address & HPAGE_PUD_MASK) + HPAGE_PUD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
-	ptl = pud_lock(vma->vm_mm, pud);
+	ptl = pud_lock(&vma->vm_mm->pgt, pud);
 	if (unlikely(!pud_trans_huge(*pud) && !pud_devmap(*pud)))
 		goto out;
 	__split_huge_pud_locked(vma, pud, range.start);

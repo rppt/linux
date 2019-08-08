@@ -1811,30 +1811,30 @@ static inline void mm_dec_nr_puds(struct pg_table *pgt)
 #endif
 
 #if defined(__PAGETABLE_PMD_FOLDED) || !defined(CONFIG_MMU)
-static inline int __pmd_alloc(struct mm_struct *mm, pud_t *pud,
+static inline int _pmd_alloc(struct mm_struct *mm, pud_t *pud,
 						unsigned long address)
 {
 	return 0;
 }
 
-static inline void mm_inc_nr_pmds(struct mm_struct *mm) {}
-static inline void mm_dec_nr_pmds(struct mm_struct *mm) {}
+static inline void mm_inc_nr_pmds(struct pg_table *pgt) {}
+static inline void mm_dec_nr_pmds(struct pg_table *pgt) {}
 
 #else
-int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address);
+int _pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address);
 
-static inline void mm_inc_nr_pmds(struct mm_struct *mm)
+static inline void mm_inc_nr_pmds(struct pg_table *pgt)
 {
-	if (mm_pmd_folded(mm))
+	if (pgt_pmd_folded(pgt))
 		return;
-	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgt.pgtables_bytes);
+	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &pgt->pgtables_bytes);
 }
 
-static inline void mm_dec_nr_pmds(struct mm_struct *mm)
+static inline void mm_dec_nr_pmds(struct pg_table *pgt)
 {
-	if (mm_pmd_folded(mm))
+	if (pgt_pmd_folded(pgt))
 		return;
-	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgt.pgtables_bytes);
+	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &pgt->pgtables_bytes);
 }
 #endif
 
@@ -1897,7 +1897,7 @@ static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
 
 static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
-	return (unlikely(pud_none(*pud)) && __pmd_alloc(mm, pud, address))?
+	return (unlikely(pud_none(*pud)) && _pmd_alloc(mm, pud, address))?
 		NULL: pmd_offset(pud, address);
 }
 #endif /* CONFIG_MMU && !__ARCH_HAS_4LEVEL_HACK */
@@ -2073,14 +2073,14 @@ static inline spinlock_t *pmd_lock(struct mm_struct *mm, pmd_t *pmd)
  * considered ready to switch to split PUD locks yet; there may be places
  * which need to be converted from page_table_lock.
  */
-static inline spinlock_t *pud_lockptr(struct mm_struct *mm, pud_t *pud)
+static inline spinlock_t *pud_lockptr(struct pg_table *pgt, pud_t *pud)
 {
-	return &mm->pgt.page_table_lock;
+	return &pgt->page_table_lock;
 }
 
-static inline spinlock_t *pud_lock(struct mm_struct *mm, pud_t *pud)
+static inline spinlock_t *pud_lock(struct pg_table *pgt, pud_t *pud)
 {
-	spinlock_t *ptl = pud_lockptr(mm, pud);
+	spinlock_t *ptl = pud_lockptr(pgt, pud);
 
 	spin_lock(ptl);
 	return ptl;

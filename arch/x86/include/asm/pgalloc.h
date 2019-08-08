@@ -17,7 +17,7 @@ static inline int  __paravirt_pgd_alloc(struct mm_struct *mm) { return 0; }
 #define paravirt_pgd_alloc(mm)	__paravirt_pgd_alloc(mm)
 static inline void paravirt_pgd_free(struct mm_struct *mm, pgd_t *pgd) {}
 static inline void paravirt_alloc_pte(struct mm_struct *mm, unsigned long pfn)	{}
-static inline void paravirt_alloc_pmd(struct mm_struct *mm, unsigned long pfn)	{}
+static inline void paravirt_alloc_pmd(struct pg_table *pgt, unsigned long pfn)	{}
 static inline void paravirt_alloc_pmd_clone(unsigned long pfn, unsigned long clonepfn,
 					    unsigned long start, unsigned long count) {}
 static inline void paravirt_alloc_pud(struct pg_table *pgt, unsigned long pfn)	{}
@@ -86,12 +86,12 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
 #if CONFIG_PGTABLE_LEVELS > 2
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	struct page *page;
 	gfp_t gfp = GFP_KERNEL_ACCOUNT | __GFP_ZERO;
 
-	if (mm == &init_mm)
+	if (pgt == &init_mm.pgt)
 		gfp &= ~__GFP_ACCOUNT;
 	page = alloc_pages(gfp, 0);
 	if (!page)
@@ -121,16 +121,26 @@ static inline void __pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd,
 #ifdef CONFIG_X86_PAE
 extern void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd);
 #else	/* !CONFIG_X86_PAE */
+static inline void pud_populate_pgt(struct pg_table *pgt, pud_t *pud, pmd_t *pmd)
+{
+	paravirt_alloc_pmd(pgt, __pa(pmd) >> PAGE_SHIFT);
+	set_pud(pud, __pud(_PAGE_TABLE | __pa(pmd)));
+}
+
 static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 {
-	paravirt_alloc_pmd(mm, __pa(pmd) >> PAGE_SHIFT);
-	set_pud(pud, __pud(_PAGE_TABLE | __pa(pmd)));
+	return pud_populate_pgt(&mm->pgt, pud, pmd);
+}
+
+static inline void pud_populate_pgt_safe(struct pg_table *pgt, pud_t *pud, pmd_t *pmd)
+{
+	paravirt_alloc_pmd(pgt, __pa(pmd) >> PAGE_SHIFT);
+	set_pud_safe(pud, __pud(_PAGE_TABLE | __pa(pmd)));
 }
 
 static inline void pud_populate_safe(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 {
-	paravirt_alloc_pmd(mm, __pa(pmd) >> PAGE_SHIFT);
-	set_pud_safe(pud, __pud(_PAGE_TABLE | __pa(pmd)));
+	return pud_populate_pgt_safe(&mm->pgt, pud, pmd);
 }
 #endif	/* CONFIG_X86_PAE */
 

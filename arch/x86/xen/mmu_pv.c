@@ -1583,7 +1583,7 @@ static void __init xen_alloc_pte_init(struct mm_struct *mm, unsigned long pfn)
 }
 
 /* Used for pmd and pud */
-static void __init xen_alloc_pmd_init(struct mm_struct *mm, unsigned long pfn)
+static void __init xen_alloc_pmd_init(struct pg_table *pgt, unsigned long pfn)
 {
 #ifdef CONFIG_FLATMEM
 	BUG_ON(mem_map);	/* should only be used early */
@@ -1672,9 +1672,9 @@ static void xen_alloc_pte(struct mm_struct *mm, unsigned long pfn)
 	xen_alloc_ptpage(&mm->pgt, pfn, PT_PTE);
 }
 
-static void xen_alloc_pmd(struct mm_struct *mm, unsigned long pfn)
+static void xen_alloc_pmd(struct pg_table *pgt, unsigned long pfn)
 {
-	xen_alloc_ptpage(&mm->pgt, pfn, PT_PMD);
+	xen_alloc_ptpage(pgt, pfn, PT_PMD);
 }
 
 /* This should never happen until we're OK to use struct page */

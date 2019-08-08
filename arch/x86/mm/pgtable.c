@@ -211,7 +211,7 @@ static void free_pmds(struct mm_struct *mm, pmd_t *pmds[], int count)
 		if (pmds[i]) {
 			pgtable_pmd_page_dtor(virt_to_page(pmds[i]));
 			free_page((unsigned long)pmds[i]);
-			mm_dec_nr_pmds(mm);
+			mm_dec_nr_pmds(&mm->pgt);
 		}
 }
 
@@ -234,7 +234,7 @@ static int preallocate_pmds(struct mm_struct *mm, pmd_t *pmds[], int count)
 			failed = true;
 		}
 		if (pmd)
-			mm_inc_nr_pmds(mm);
+			mm_inc_nr_pmds(&mm->pgt);
 		pmds[i] = pmd;
 	}
 
@@ -263,7 +263,7 @@ static void mop_up_one_pmd(struct mm_struct *mm, pgd_t *pgdp)
 
 		paravirt_release_pmd(pgd_val(pgd) >> PAGE_SHIFT);
 		pmd_free(pmd);
-		mm_dec_nr_pmds(mm);
+		mm_dec_nr_pmds(&mm->pgt);
 	}
 }
 

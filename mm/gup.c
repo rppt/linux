@@ -459,7 +459,7 @@ static struct page *follow_pud_mask(struct vm_area_struct *vma,
 		return no_page_table(vma, flags);
 	}
 	if (pud_devmap(*pud)) {
-		ptl = pud_lock(mm, pud);
+		ptl = pud_lock(&mm->pgt, pud);
 		page = follow_devmap_pud(vma, address, pud, flags, &ctx->pgmap);
 		spin_unlock(ptl);
 		if (page)

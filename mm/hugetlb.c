@@ -4797,7 +4797,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	if (pud_none(*pud)) {
 		pud_populate(mm, pud,
 				(pmd_t *)((unsigned long)spte & PAGE_MASK));
-		mm_inc_nr_pmds(mm);
+		mm_inc_nr_pmds(&mm->pgt);
 	} else {
 		put_page(virt_to_page(spte));
 	}
@@ -4832,7 +4832,7 @@ int huge_pmd_unshare(struct mm_struct *mm, unsigned long *addr, pte_t *ptep)
 
 	pud_clear(pud);
 	put_page(virt_to_page(ptep));
-	mm_dec_nr_pmds(mm);
+	mm_dec_nr_pmds(&mm->pgt);
 	*addr = ALIGN(*addr, HPAGE_SIZE * PTRS_PER_PTE) - HPAGE_SIZE;
 	return 1;
 }

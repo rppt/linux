@@ -232,7 +232,7 @@ static inline void free_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	pmd = pmd_offset(pud, start);
 	pud_clear(pud);
 	pmd_free_tlb(tlb, pmd, start);
-	mm_dec_nr_pmds(tlb->mm);
+	mm_dec_nr_pmds(&tlb->mm->pgt);
 }
 
 static inline void free_pud_range(struct mmu_gather *tlb, p4d_t *p4d,
@@ -4088,31 +4088,36 @@ int _pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address)
  * Allocate page middle directory.
  * We've already handled the fast-path in-line.
  */
-int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+int __pmd_alloc(struct pg_table *pgt, pud_t *pud, unsigned long address)
 {
 	spinlock_t *ptl;
-	pmd_t *new = pmd_alloc_one(mm, address);
+	pmd_t *new = pmd_alloc_one(pgt, address);
 	if (!new)
 		return -ENOMEM;
 
 	smp_wmb(); /* See comment in __pte_alloc */
 
-	ptl = pud_lock(mm, pud);
+	ptl = pud_lock(pgt, pud);
 #ifndef __ARCH_HAS_4LEVEL_HACK
 	if (!pud_present(*pud)) {
-		mm_inc_nr_pmds(mm);
-		pud_populate(mm, pud, new);
+		mm_inc_nr_pmds(pgt);
+		pud_populate_pgt(pgt, pud, new);
 	} else	/* Another has populated it */
 		pmd_free(new);
 #else
 	if (!pgd_present(*pud)) {
-		mm_inc_nr_pmds(mm);
-		pgd_populate(mm, pud, new);
+		mm_inc_nr_pmds(pgt);
+		pgd_populate_pgt(pgt, pud, new);
 	} else /* Another has populated it */
 		pmd_free(new);
 #endif /* __ARCH_HAS_4LEVEL_HACK */
 	spin_unlock(ptl);
 	return 0;
+}
+
+int _pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+{
+	return __pmd_alloc(&mm->pgt, pud, address);
 }
 #endif /* __PAGETABLE_PMD_FOLDED */
 
