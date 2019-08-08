@@ -1591,6 +1591,14 @@ static void __init xen_alloc_pmd_init(struct mm_struct *mm, unsigned long pfn)
 	make_lowmem_page_readonly(__va(PFN_PHYS(pfn)));
 }
 
+static void __init xen_alloc_pud_init(struct pg_table *pgt, unsigned long pfn)
+{
+#ifdef CONFIG_FLATMEM
+	BUG_ON(mem_map);	/* should only be used early */
+#endif
+	make_lowmem_page_readonly(__va(PFN_PHYS(pfn)));
+}
+
 /* Early release_pte assumes that all pts are pinned, since there's
    only init_mm and anything attached to that is pinned. */
 static void __init xen_release_pte_init(unsigned long pfn)
@@ -1703,9 +1711,9 @@ static void xen_release_pmd(unsigned long pfn)
 }
 
 #ifdef CONFIG_X86_64
-static void xen_alloc_pud(struct mm_struct *mm, unsigned long pfn)
+static void xen_alloc_pud(struct pg_table *pgt, unsigned long pfn)
 {
-	xen_alloc_ptpage(&mm->pgt, pfn, PT_PUD);
+	xen_alloc_ptpage(pgt, pfn, PT_PUD);
 }
 
 static void xen_release_pud(unsigned long pfn)
@@ -2435,7 +2443,7 @@ static const struct pv_mmu_ops xen_mmu_ops __initconst = {
 	.make_pud = PV_CALLEE_SAVE(xen_make_pud),
 	.set_p4d = xen_set_p4d_hyper,
 
-	.alloc_pud = xen_alloc_pmd_init,
+	.alloc_pud = xen_alloc_pud_init,
 	.release_pud = xen_release_pmd_init,
 
 #if CONFIG_PGTABLE_LEVELS >= 5

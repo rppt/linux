@@ -20,7 +20,7 @@ static inline void paravirt_alloc_pte(struct mm_struct *mm, unsigned long pfn)	{
 static inline void paravirt_alloc_pmd(struct mm_struct *mm, unsigned long pfn)	{}
 static inline void paravirt_alloc_pmd_clone(unsigned long pfn, unsigned long clonepfn,
 					    unsigned long start, unsigned long count) {}
-static inline void paravirt_alloc_pud(struct mm_struct *mm, unsigned long pfn)	{}
+static inline void paravirt_alloc_pud(struct pg_table *pgt, unsigned long pfn)	{}
 static inline void paravirt_alloc_p4d(struct pg_table *pgt, unsigned long pfn)	{}
 static inline void paravirt_release_pte(unsigned long pfn) {}
 static inline void paravirt_release_pmd(unsigned long pfn) {}
@@ -135,23 +135,33 @@ static inline void pud_populate_safe(struct mm_struct *mm, pud_t *pud, pmd_t *pm
 #endif	/* CONFIG_X86_PAE */
 
 #if CONFIG_PGTABLE_LEVELS > 3
+static inline void p4d_populate_pgt(struct pg_table *pgt, p4d_t *p4d, pud_t *pud)
+{
+	paravirt_alloc_pud(pgt, __pa(pud) >> PAGE_SHIFT);
+	set_p4d(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
+}
+
 static inline void p4d_populate(struct mm_struct *mm, p4d_t *p4d, pud_t *pud)
 {
-	paravirt_alloc_pud(mm, __pa(pud) >> PAGE_SHIFT);
-	set_p4d(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
+	return p4d_populate_pgt(&mm->pgt, p4d, pud);
+}
+
+static inline void p4d_populate_pgt_safe(struct pg_table *pgt, p4d_t *p4d, pud_t *pud)
+{
+	paravirt_alloc_pud(pgt, __pa(pud) >> PAGE_SHIFT);
+	set_p4d_safe(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
 }
 
 static inline void p4d_populate_safe(struct mm_struct *mm, p4d_t *p4d, pud_t *pud)
 {
-	paravirt_alloc_pud(mm, __pa(pud) >> PAGE_SHIFT);
-	set_p4d_safe(p4d, __p4d(_PAGE_TABLE | __pa(pud)));
+	return p4d_populate_pgt_safe(&mm->pgt, p4d, pud);
 }
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	gfp_t gfp = GFP_KERNEL_ACCOUNT;
 
-	if (mm == &init_mm)
+	if (pgt == &init_mm.pgt)
 		gfp &= ~__GFP_ACCOUNT;
 	return (pud_t *)get_zeroed_page(gfp);
 }

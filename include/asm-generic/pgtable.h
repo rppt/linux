@@ -1184,6 +1184,10 @@ static inline bool arch_has_pfn_modify_check(void)
 #define mm_pud_folded(mm)	__is_defined(__PAGETABLE_PUD_FOLDED)
 #endif
 
+#ifndef pgt_pud_folded
+#define pgt_pud_folded(mm)	__is_defined(__PAGETABLE_PUD_FOLDED)
+#endif
+
 #ifndef mm_pmd_folded
 #define mm_pmd_folded(mm)	__is_defined(__PAGETABLE_PMD_FOLDED)
 #endif
