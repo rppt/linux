@@ -1629,12 +1629,12 @@ static inline void __set_pfn_prot(unsigned long pfn, pgprot_t prot)
 
 /* This needs to make sure the new pte page is pinned iff its being
    attached to a pinned pagetable. */
-static inline void xen_alloc_ptpage(struct mm_struct *mm, unsigned long pfn,
+static inline void xen_alloc_ptpage(struct pg_table *pgt, unsigned long pfn,
 				    unsigned level)
 {
-	bool pinned = xen_page_pinned(mm->pgt.pgd);
+	bool pinned = xen_page_pinned(pgt->pgd);
 
-	trace_xen_mmu_alloc_ptpage(mm, pfn, level, pinned);
+	trace_xen_mmu_alloc_ptpage(pgt, pfn, level, pinned);
 
 	if (pinned) {
 		struct page *page = pfn_to_page(pfn);
@@ -1661,12 +1661,12 @@ static inline void xen_alloc_ptpage(struct mm_struct *mm, unsigned long pfn,
 
 static void xen_alloc_pte(struct mm_struct *mm, unsigned long pfn)
 {
-	xen_alloc_ptpage(mm, pfn, PT_PTE);
+	xen_alloc_ptpage(&mm->pgt, pfn, PT_PTE);
 }
 
 static void xen_alloc_pmd(struct mm_struct *mm, unsigned long pfn)
 {
-	xen_alloc_ptpage(mm, pfn, PT_PMD);
+	xen_alloc_ptpage(&mm->pgt, pfn, PT_PMD);
 }
 
 /* This should never happen until we're OK to use struct page */
@@ -1705,7 +1705,7 @@ static void xen_release_pmd(unsigned long pfn)
 #ifdef CONFIG_X86_64
 static void xen_alloc_pud(struct mm_struct *mm, unsigned long pfn)
 {
-	xen_alloc_ptpage(mm, pfn, PT_PUD);
+	xen_alloc_ptpage(&mm->pgt, pfn, PT_PUD);
 }
 
 static void xen_release_pud(unsigned long pfn)

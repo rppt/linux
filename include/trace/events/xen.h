@@ -300,20 +300,20 @@ DEFINE_XEN_MMU_PTEP_MODIFY_PROT(xen_mmu_ptep_modify_prot_start);
 DEFINE_XEN_MMU_PTEP_MODIFY_PROT(xen_mmu_ptep_modify_prot_commit);
 
 TRACE_EVENT(xen_mmu_alloc_ptpage,
-	    TP_PROTO(struct mm_struct *mm, unsigned long pfn, unsigned level, bool pinned),
-	    TP_ARGS(mm, pfn, level, pinned),
+	    TP_PROTO(struct pg_table *pgt, unsigned long pfn, unsigned level, bool pinned),
+	    TP_ARGS(pgt, pfn, level, pinned),
 	    TP_STRUCT__entry(
-		    __field(struct mm_struct *, mm)
+		    __field(struct pg_table *, pgt)
 		    __field(unsigned long, pfn)
 		    __field(unsigned, level)
 		    __field(bool, pinned)
 		    ),
-	    TP_fast_assign(__entry->mm = mm;
+	    TP_fast_assign(__entry->pgt = pgt;
 			   __entry->pfn = pfn;
 			   __entry->level = level;
 			   __entry->pinned = pinned),
 	    TP_printk("mm %p  pfn %lx  level %d  %spinned",
-		      __entry->mm, __entry->pfn, __entry->level,
+		      __entry->pgt, __entry->pfn, __entry->level,
 		      __entry->pinned ? "" : "un")
 	);
 
