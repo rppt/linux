@@ -37,7 +37,7 @@ static inline void pgd_set(pgd_t * pgdp, pmd_t * pmdp)
 
 #define pgd_populate(MM, PGD, PMD)      pgd_set(PGD, PMD)
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm,
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, 
 				   unsigned long address)
 {
 	return srmmu_get_nocache(SRMMU_PMD_TABLE_SIZE,

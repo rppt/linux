@@ -665,7 +665,7 @@ static int create_hyp_pud_mappings(pgd_t *pgd, unsigned long start,
 		pud = pud_offset(pgd, addr);
 
 		if (pud_none_or_clear_bad(pud)) {
-			pmd = pmd_alloc_one(NULL, addr);
+			pmd = pmd_alloc_one(mm_pgt(NULL), addr);
 			if (!pmd) {
 				kvm_err("Cannot allocate Hyp pmd\n");
 				return -ENOMEM;

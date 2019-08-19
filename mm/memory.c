@@ -851,7 +851,7 @@ static inline int copy_pmd_range(struct mm_struct *dst_mm, struct mm_struct *src
 	pmd_t *src_pmd, *dst_pmd;
 	unsigned long next;
 
-	dst_pmd = pmd_alloc(dst_mm, dst_pud, addr);
+	dst_pmd = pmd_alloc(mm_pgt(dst_mm), dst_pud, addr);
 	if (!dst_pmd)
 		return -ENOMEM;
 	src_pmd = pmd_offset(src_pud, addr);
@@ -1399,7 +1399,7 @@ pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 	pud = pud_alloc(mm_pgt(mm), p4d, addr);
 	if (!pud)
 		return NULL;
-	pmd = pmd_alloc(mm, pud, addr);
+	pmd = pmd_alloc(mm_pgt(mm), pud, addr);
 	if (!pmd)
 		return NULL;
 
@@ -1818,7 +1818,7 @@ static inline int remap_pmd_range(struct mm_struct *mm, pud_t *pud,
 	int err;
 
 	pfn -= addr >> PAGE_SHIFT;
-	pmd = pmd_alloc(mm, pud, addr);
+	pmd = pmd_alloc(mm_pgt(mm), pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	VM_BUG_ON(pmd_trans_huge(*pmd));
@@ -2037,7 +2037,7 @@ static int apply_to_pmd_range(struct mm_struct *mm, pud_t *pud,
 
 	BUG_ON(pud_huge(*pud));
 
-	pmd = pmd_alloc(mm, pud, addr);
+	pmd = pmd_alloc(mm_pgt(mm), pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	do {
@@ -3928,7 +3928,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		}
 	}
 
-	vmf.pmd = pmd_alloc(mm, vmf.pud, address);
+	vmf.pmd = pmd_alloc(mm_pgt(mm), vmf.pud, address);
 	if (!vmf.pmd)
 		return VM_FAULT_OOM;
 	if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
@@ -4103,11 +4103,6 @@ int __pmd_alloc(struct pg_table *pgt, pud_t *pud, unsigned long address)
 #endif /* __ARCH_HAS_4LEVEL_HACK */
 	spin_unlock(ptl);
 	return 0;
-}
-
-int _pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
-{
-	return __pmd_alloc(&mm->pgt, pud, address);
 }
 #endif /* __PAGETABLE_PMD_FOLDED */
 

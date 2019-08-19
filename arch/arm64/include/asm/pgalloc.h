@@ -21,12 +21,12 @@
 
 #if CONFIG_PGTABLE_LEVELS > 2
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	gfp_t gfp = GFP_PGTABLE_USER;
 	struct page *page;
 
-	if (mm == &init_mm)
+	if (pgt == &init_mm)
 		gfp = GFP_PGTABLE_KERNEL;
 
 	page = alloc_page(gfp);

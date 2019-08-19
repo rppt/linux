@@ -95,7 +95,7 @@ inline int dvma_map_cpu(unsigned long kaddr,
 		pmd_t *pmd;
 		unsigned long end2;
 
-		if((pmd = pmd_alloc(&init_mm, pgd, vaddr)) == NULL) {
+		if((pmd = pmd_alloc(mm_pgt(&init_mm), pgd, vaddr)) == NULL) {
 			ret = -ENOMEM;
 			goto out;
 		}

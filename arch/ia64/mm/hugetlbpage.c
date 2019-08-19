@@ -37,7 +37,7 @@ huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz)
 	pgd = pgd_offset(mm, taddr);
 	pud = pud_alloc(mm_pgt(mm), pgd, taddr);
 	if (pud) {
-		pmd = pmd_alloc(mm, pud, taddr);
+		pmd = pmd_alloc(mm_pgt(mm), pud, taddr);
 		if (pmd)
 			pte = pte_alloc_map(mm, pmd, taddr);
 	}

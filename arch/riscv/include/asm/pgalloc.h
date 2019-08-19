@@ -61,7 +61,7 @@ static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 
 #ifndef __PAGETABLE_PMD_FOLDED
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	return (pmd_t *)__get_free_page(
 		GFP_KERNEL | __GFP_RETRY_MAYFAIL | __GFP_ZERO);

@@ -166,7 +166,7 @@ static int vmap_pmd_range(pud_t *pud, unsigned long addr,
 	pmd_t *pmd;
 	unsigned long next;
 
-	pmd = pmd_alloc(&init_mm, pud, addr);
+	pmd = pmd_alloc(mm_pgt(&init_mm), pud, addr);
 	if (!pmd)
 		return -ENOMEM;
 	do {

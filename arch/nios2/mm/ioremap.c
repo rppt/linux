@@ -93,7 +93,7 @@ static int remap_area_pages(unsigned long address, unsigned long phys_addr,
 		pud = pud_alloc(mm_pgt(&init_mm), dir, address);
 		if (!pud)
 			break;
-		pmd = pmd_alloc(&init_mm, pud, address);
+		pmd = pmd_alloc(mm_pgt(&init_mm), pud, address);
 		if (!pmd)
 			break;
 		if (remap_area_pmd(pmd, address, end - address,

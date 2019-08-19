@@ -135,7 +135,7 @@ static inline int map_uncached_pages(unsigned long vaddr, unsigned long size,
 	do {
 		pmd_t *pmd;
 		
-		pmd = pmd_alloc(NULL, dir, vaddr);
+		pmd = pmd_alloc(mm_pgt(NULL), dir, vaddr);
 		if (!pmd)
 			return -ENOMEM;
 		if (map_pmd_uncached(pmd, vaddr, end - vaddr, &paddr))

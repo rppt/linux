@@ -196,7 +196,7 @@ void __iomem *__ioremap(unsigned long physaddr, unsigned long size, int cachefla
 			printk ("\npa=%#lx va=%#lx ", physaddr, virtaddr);
 #endif
 		pgd_dir = pgd_offset_k(virtaddr);
-		pmd_dir = pmd_alloc(&init_mm, pgd_dir, virtaddr);
+		pmd_dir = pmd_alloc(mm_pgt(&init_mm), pgd_dir, virtaddr);
 		if (!pmd_dir) {
 			printk("ioremap: no mem for pmd_dir\n");
 			return NULL;

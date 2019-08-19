@@ -58,7 +58,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	if (!new_pud)
 		goto no_pud;
 
-	new_pmd = pmd_alloc(mm, new_pud, 0);
+	new_pmd = pmd_alloc(mm_pgt(mm), new_pud, 0);
 	if (!new_pmd)
 		goto no_pmd;
 #endif
@@ -73,7 +73,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 		if (!new_pud)
 			goto no_pud;
 
-		new_pmd = pmd_alloc(mm, new_pud, 0);
+		new_pmd = pmd_alloc(mm_pgt(mm), new_pud, 0);
 		if (!new_pmd)
 			goto no_pmd;
 

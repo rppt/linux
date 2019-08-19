@@ -72,7 +72,7 @@ static pmd_t *alloc_new_pmd(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (!pud)
 		return NULL;
 
-	pmd = pmd_alloc(mm, pud, addr);
+	pmd = pmd_alloc(mm_pgt(mm), pud, addr);
 	if (!pmd)
 		return NULL;
 

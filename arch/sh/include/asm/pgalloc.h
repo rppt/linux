@@ -12,7 +12,7 @@ extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 
 #if PAGETABLE_LEVELS > 2
 extern void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd);
-extern pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address);
+extern pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long address);
 extern void pmd_free(struct mm_struct *mm, pmd_t *pmd);
 #endif
 

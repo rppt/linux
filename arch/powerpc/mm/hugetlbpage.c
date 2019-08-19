@@ -144,7 +144,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz
 			hpdp = (hugepd_t *)pu;
 		} else {
 			pdshift = PMD_SHIFT;
-			pm = pmd_alloc(mm, pu, addr);
+			pm = pmd_alloc(mm_pgt(mm), pu, addr);
 			if (!pm)
 				return NULL;
 			if (pshift == PMD_SHIFT)
@@ -170,7 +170,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz
 			hpdp = (hugepd_t *)pu;
 		} else {
 			pdshift = PMD_SHIFT;
-			pm = pmd_alloc(mm, pu, addr);
+			pm = pmd_alloc(mm_pgt(mm), pu, addr);
 			if (!pm)
 				return NULL;
 			ptl = pmd_lockptr(mm, pm);

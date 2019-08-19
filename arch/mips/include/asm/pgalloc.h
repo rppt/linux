@@ -60,7 +60,8 @@ do {							\
 
 #ifndef __PAGETABLE_PMD_FOLDED
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt,
+				   unsigned long address)
 {
 	pmd_t *pmd;
 

@@ -4772,7 +4772,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	spinlock_t *ptl;
 
 	if (!vma_shareable(vma, addr))
-		return (pte_t *)pmd_alloc(mm, pud, addr);
+		return (pte_t *)pmd_alloc(mm_pgt(mm), pud, addr);
 
 	i_mmap_lock_write(mapping);
 	vma_interval_tree_foreach(svma, &mapping->i_mmap, idx, idx) {
@@ -4803,7 +4803,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	}
 	spin_unlock(ptl);
 out:
-	pte = (pte_t *)pmd_alloc(mm, pud, addr);
+	pte = (pte_t *)pmd_alloc(mm_pgt(mm), pud, addr);
 	i_mmap_unlock_write(mapping);
 	return pte;
 }
@@ -4877,7 +4877,8 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 			if (want_pmd_share() && pud_none(*pud))
 				pte = huge_pmd_share(mm, addr, pud);
 			else
-				pte = (pte_t *)pmd_alloc(mm, pud, addr);
+				pte = (pte_t *)pmd_alloc(mm_pgt(mm), pud,
+							 addr);
 		}
 	}
 	BUG_ON(pte && pte_present(*pte) && !pte_huge(*pte));

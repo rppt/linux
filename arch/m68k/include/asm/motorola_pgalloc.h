@@ -67,7 +67,8 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, pgtable_t page,
 }
 
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt,
+				   unsigned long address)
 {
 	return get_pointer_table();
 }

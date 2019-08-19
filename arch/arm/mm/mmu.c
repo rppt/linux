@@ -980,7 +980,7 @@ void __init create_mapping_late(struct mm_struct *mm, struct map_desc *md,
 			       md->virtual);
 	if (WARN_ON(!pud))
 		return;
-	pmd_alloc(mm, pud, 0);
+	pmd_alloc(mm_pgt(mm), pud, 0);
 #endif
 	__create_mapping(mm, md, late_alloc, ng);
 }

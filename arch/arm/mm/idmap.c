@@ -28,7 +28,7 @@ static void idmap_add_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 	unsigned long next;
 
 	if (pud_none_or_clear_bad(pud) || (pud_val(*pud) & L_PGD_SWAPPER)) {
-		pmd = pmd_alloc_one(&init_mm, addr);
+		pmd = pmd_alloc_one(mm_pgt(&init_mm), addr);
 		if (!pmd) {
 			pr_warn("Failed to allocate identity pmd.\n");
 			return;

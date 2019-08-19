@@ -158,7 +158,7 @@ int hash__map_kernel_page(unsigned long ea, unsigned long pa, pgprot_t prot)
 		pudp = pud_alloc(mm_pgt(&init_mm), pgdp, ea);
 		if (!pudp)
 			return -ENOMEM;
-		pmdp = pmd_alloc(&init_mm, pudp, ea);
+		pmdp = pmd_alloc(mm_pgt(&init_mm), pudp, ea);
 		if (!pmdp)
 			return -ENOMEM;
 		ptep = pte_alloc_kernel(pmdp, ea);

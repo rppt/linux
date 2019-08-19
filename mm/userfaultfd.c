@@ -162,7 +162,7 @@ static pmd_t *mm_alloc_pmd(struct mm_struct *mm, unsigned long address)
 	 * missing, the *pmd may be already established and in
 	 * turn it may also be a trans_huge_pmd.
 	 */
-	return pmd_alloc(mm, pud, address);
+	return pmd_alloc(mm_pgt(mm), pud, address);
 }
 
 #ifdef CONFIG_HUGETLB_PAGE

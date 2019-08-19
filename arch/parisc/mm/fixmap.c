@@ -18,7 +18,7 @@ void notrace set_fixmap(enum fixed_addresses idx, phys_addr_t phys)
 	pte_t *pte;
 
 	if (pmd_none(*pmd))
-		pmd = pmd_alloc(NULL, pgd, vaddr);
+		pmd = pmd_alloc(mm_pgt(NULL), pgd, vaddr);
 
 	pte = pte_offset_kernel(pmd, vaddr);
 	if (pte_none(*pte))

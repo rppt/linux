@@ -130,9 +130,9 @@ static inline void __pud_free_tlb(struct mmu_gather *tlb, pud_t *pud,
 	pgtable_free_tlb(tlb, pud, PUD_INDEX);
 }
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
-	return pmd_fragment_alloc(mm, addr);
+	return pmd_fragment_alloc(pgt, addr);
 }
 
 static inline void pmd_free(pmd_t *pmd)

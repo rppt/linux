@@ -154,7 +154,7 @@ static int __map_kernel_page(unsigned long ea, unsigned long pa,
 		ptep = (pte_t *)pudp;
 		goto set_the_pte;
 	}
-	pmdp = pmd_alloc(&init_mm, pudp, ea);
+	pmdp = pmd_alloc(mm_pgt(&init_mm), pudp, ea);
 	if (!pmdp)
 		return -ENOMEM;
 	if (map_page_size == PMD_SIZE) {
@@ -203,7 +203,7 @@ void radix__change_memory_range(unsigned long start, unsigned long end,
 			ptep = (pte_t *)pudp;
 			goto update_the_pte;
 		}
-		pmdp = pmd_alloc(&init_mm, pudp, idx);
+		pmdp = pmd_alloc(mm_pgt(&init_mm), pudp, idx);
 		if (!pmdp)
 			continue;
 		if (pmd_is_leaf(*pmdp)) {

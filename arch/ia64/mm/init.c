@@ -219,7 +219,7 @@ put_kernel_page (struct page *page, unsigned long address, pgprot_t pgprot)
 		pud = pud_alloc(mm_pgt(&init_mm), pgd, address);
 		if (!pud)
 			goto out;
-		pmd = pmd_alloc(&init_mm, pud, address);
+		pmd = pmd_alloc(mm_pgt(&init_mm), pud, address);
 		if (!pmd)
 			goto out;
 		pte = pte_alloc_kernel(pmd, address);

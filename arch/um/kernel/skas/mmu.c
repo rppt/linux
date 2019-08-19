@@ -28,7 +28,7 @@ static int init_stub_pte(struct mm_struct *mm, unsigned long proc,
 	if (!pud)
 		goto out;
 
-	pmd = pmd_alloc(mm, pud, proc);
+	pmd = pmd_alloc(mm_pgt(mm), pud, proc);
 	if (!pmd)
 		goto out_pmd;
 

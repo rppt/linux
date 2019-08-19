@@ -60,7 +60,7 @@ static pte_t *__get_pte_phys(unsigned long addr)
 		return NULL;
 	}
 
-	pmd = pmd_alloc(NULL, pud, addr);
+	pmd = pmd_alloc(mm_pgt(NULL), pud, addr);
 	if (unlikely(!pmd)) {
 		pmd_ERROR(*pmd);
 		return NULL;

@@ -229,7 +229,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 	if (sz == PUD_SIZE) {
 		ptep = (pte_t *)pudp;
 	} else if (sz == (CONT_PTE_SIZE)) {
-		pmdp = pmd_alloc(mm, pudp, addr);
+		pmdp = pmd_alloc(mm_pgt(mm), pudp, addr);
 
 		WARN_ON(addr & (sz - 1));
 		/*
@@ -245,9 +245,9 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 		    pud_none(READ_ONCE(*pudp)))
 			ptep = huge_pmd_share(mm, addr, pudp);
 		else
-			ptep = (pte_t *)pmd_alloc(mm, pudp, addr);
+			ptep = (pte_t *)pmd_alloc(mm_pgt(mm), pudp, addr);
 	} else if (sz == (CONT_PMD_SIZE)) {
-		pmdp = pmd_alloc(mm, pudp, addr);
+		pmdp = pmd_alloc(mm_pgt(mm), pudp, addr);
 		WARN_ON(addr & (sz - 1));
 		return (pte_t *)pmdp;
 	}

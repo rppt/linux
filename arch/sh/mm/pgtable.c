@@ -46,7 +46,7 @@ void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 	set_pud(pud, __pud((unsigned long)pmd));
 }
 
-pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
+pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long address)
 {
 	return kmem_cache_alloc(pmd_cachep, PGALLOC_GFP);
 }

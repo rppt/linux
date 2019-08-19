@@ -69,7 +69,7 @@ static inline pud_t *pud_alloc_one(struct pg_table *pgt,
 }
 #define pud_free(pud) crst_table_free((unsigned long *) pud)
 
-static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long vmaddr)
+static inline pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long vmaddr)
 {
 	unsigned long *table = crst_table_alloc();
 

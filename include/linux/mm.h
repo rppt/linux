@@ -1811,7 +1811,7 @@ static inline void mm_dec_nr_puds(struct pg_table *pgt)
 #endif
 
 #if defined(__PAGETABLE_PMD_FOLDED) || !defined(CONFIG_MMU)
-static inline int _pmd_alloc(struct mm_struct *mm, pud_t *pud,
+static inline int __pmd_alloc(struct pg_table *pgt, pud_t *pud,
 						unsigned long address)
 {
 	return 0;
@@ -1821,7 +1821,7 @@ static inline void mm_inc_nr_pmds(struct pg_table *pgt) {}
 static inline void mm_dec_nr_pmds(struct pg_table *pgt) {}
 
 #else
-int _pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address);
+int __pmd_alloc(struct pg_table *pgt, pud_t *pud, unsigned long address);
 
 static inline void mm_inc_nr_pmds(struct pg_table *pgt)
 {
@@ -1895,9 +1895,10 @@ static inline pud_t *pud_alloc(struct pg_table *pgt, p4d_t *p4d,
 }
 #endif /* !__ARCH_HAS_5LEVEL_HACK */
 
-static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
+static inline pmd_t *pmd_alloc(struct pg_table *pgt, pud_t *pud,
+			       unsigned long address)
 {
-	return (unlikely(pud_none(*pud)) && _pmd_alloc(mm, pud, address))?
+	return (unlikely(pud_none(*pud)) && __pmd_alloc(pgt, pud, address))?
 		NULL: pmd_offset(pud, address);
 }
 #endif /* CONFIG_MMU && !__ARCH_HAS_4LEVEL_HACK */

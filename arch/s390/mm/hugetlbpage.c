@@ -199,7 +199,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 			if (sz == PUD_SIZE)
 				return (pte_t *) pudp;
 			else if (sz == PMD_SIZE)
-				pmdp = pmd_alloc(mm, pudp, addr);
+				pmdp = pmd_alloc(mm_pgt(mm), pudp, addr);
 		}
 	}
 	return (pte_t *) pmdp;

@@ -80,7 +80,7 @@ static inline void pgd_mkuptodate(pgd_t pgd) { pgd_val(pgd) &= ~_PAGE_NEWPAGE; }
 #endif
 
 struct mm_struct;
-extern pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address);
+extern pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long address);
 
 static inline void pud_clear (pud_t *pud)
 {

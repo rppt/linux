@@ -166,7 +166,7 @@ static int __ref zero_pud_populate(p4d_t *p4d, unsigned long addr,
 			pmd_t *p;
 
 			if (slab_is_available()) {
-				p = pmd_alloc(&init_mm, pud, addr);
+				p = pmd_alloc(mm_pgt(&init_mm), pud, addr);
 				if (!p)
 					return -ENOMEM;
 			} else {

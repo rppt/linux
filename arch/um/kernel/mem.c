@@ -209,7 +209,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 }
 
 #ifdef CONFIG_3_LEVEL_PGTABLES
-pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
+pmd_t *pmd_alloc_one(struct pg_table *pgt, unsigned long address)
 {
 	pmd_t *pmd = (pmd_t *) __get_free_page(GFP_KERNEL);
 

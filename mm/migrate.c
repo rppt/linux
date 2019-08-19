@@ -2606,7 +2606,7 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 	pudp = pud_alloc(mm_pgt(mm), p4dp, addr);
 	if (!pudp)
 		goto abort;
-	pmdp = pmd_alloc(mm, pudp, addr);
+	pmdp = pmd_alloc(mm_pgt(mm), pudp, addr);
 	if (!pmdp)
 		goto abort;
 
