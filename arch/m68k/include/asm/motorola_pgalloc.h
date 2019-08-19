@@ -22,7 +22,7 @@ static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm)
 	return pte;
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	cache_page(pte);
 	free_page((unsigned long) pte);
@@ -49,7 +49,7 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
 	return page;
 }
 
-static inline void pte_free(struct mm_struct *mm, pgtable_t page)
+static inline void pte_free(struct pg_table *pgt, pgtable_t page)
 {
 	pgtable_page_dtor(page);
 	cache_page(kmap(page));

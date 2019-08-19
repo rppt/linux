@@ -39,7 +39,7 @@ static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm)
  * @mm: the mm_struct of the current context
  * @pte: pointer to the memory containing the page table
  */
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_page((unsigned long)pte);
 }
@@ -96,7 +96,7 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
  * @mm: the mm_struct of the current context
  * @pte_page: the `struct page` representing the page table
  */
-static inline void pte_free(struct mm_struct *mm, struct page *pte_page)
+static inline void pte_free(struct pg_table *pgt, struct page *pte_page)
 {
 	pgtable_page_dtor(pte_page);
 	__free_page(pte_page);

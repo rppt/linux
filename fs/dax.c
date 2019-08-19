@@ -1454,7 +1454,7 @@ static vm_fault_t dax_pmd_load_hole(struct xa_state *xas, struct vm_fault *vmf,
 
 fallback:
 	if (pgtable)
-		pte_free(vma->vm_mm, pgtable);
+		pte_free(mm_pgt(vma->vm_mm), pgtable);
 	trace_dax_pmd_load_hole_fallback(inode, vmf, zero_page, *entry);
 	return VM_FAULT_FALLBACK;
 }

@@ -700,7 +700,7 @@ static void free_pte_table(pte_t *pte_start, pmd_t *pmd)
 			return;
 	}
 
-	pte_free_kernel(&init_mm, pte_start);
+	pte_free_kernel(mm_pgt(&init_mm), pte_start);
 	pmd_clear(pmd);
 }
 
@@ -1172,7 +1172,7 @@ int pud_free_pmd_page(pud_t *pud, unsigned long addr)
 			pte_t *pte;
 			pte = (pte_t *)pmd_page_vaddr(pmd[i]);
 
-			pte_free_kernel(&init_mm, pte);
+			pte_free_kernel(mm_pgt(&init_mm), pte);
 		}
 	}
 
@@ -1213,7 +1213,7 @@ int pmd_free_pte_page(pmd_t *pmd, unsigned long addr)
 
 	flush_tlb_kernel_range(addr, addr + PMD_SIZE);
 
-	pte_free_kernel(&init_mm, pte);
+	pte_free_kernel(mm_pgt(&init_mm), pte);
 
 	return 1;
 }

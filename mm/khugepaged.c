@@ -1280,7 +1280,7 @@ static void retract_page_tables(struct address_space *mapping, pgoff_t pgoff)
 			spin_unlock(ptl);
 			up_write(&vma->vm_mm->mmap_sem);
 			mm_dec_nr_ptes(vma->vm_mm);
-			pte_free(vma->vm_mm, pmd_pgtable(_pmd));
+			pte_free(mm_pgt(vma->vm_mm), pmd_pgtable(_pmd));
 		}
 	}
 	i_mmap_unlock_write(mapping);

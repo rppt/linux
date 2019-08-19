@@ -35,12 +35,12 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
 void pte_frag_destroy(void *pte_frag);
 void pte_fragment_free(unsigned long *table, int kernel);
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	pte_fragment_free((unsigned long *)pte, 1);
 }
 
-static inline void pte_free(struct mm_struct *mm, pgtable_t ptepage)
+static inline void pte_free(struct pg_table *pgt, pgtable_t ptepage)
 {
 	pte_fragment_free((unsigned long *)ptepage, 0);
 }

@@ -53,12 +53,12 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
 	return page;
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	quicklist_free(QUICK_PT, NULL, pte);
 }
 
-static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
+static inline void pte_free(struct pg_table *pgt, pgtable_t pte)
 {
 	pgtable_page_dtor(pte);
 	quicklist_free_page(QUICK_PT, NULL, pte);

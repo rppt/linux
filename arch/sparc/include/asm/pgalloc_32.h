@@ -71,9 +71,9 @@ static inline void free_pte_fast(pte_t *pte)
 	srmmu_free_nocache(pte, PTE_SIZE);
 }
 
-#define pte_free_kernel(mm, pte)	free_pte_fast(pte)
+#define pte_free_kernel(pgt,pte) free_pte_fast(pte)
 
-void pte_free(struct mm_struct * mm, pgtable_t pte);
-#define __pte_free_tlb(tlb, pte, addr)	pte_free((tlb)->mm, pte)
+void pte_free(struct pg_table *pgt, pgtable_t pte);
+#define __pte_free_tlb(tlb, pte, addr)	pte_free(mm_pgt((tlb)->mm),  pte)
 
 #endif /* _SPARC_PGALLOC_H */

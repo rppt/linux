@@ -5,7 +5,7 @@
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 
-extern inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+extern inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_page((unsigned long) pte);
 }
@@ -71,7 +71,7 @@ static inline struct page *pte_alloc_one(struct mm_struct *mm)
 	return page;
 }
 
-static inline void pte_free(struct mm_struct *mm, struct page *page)
+static inline void pte_free(struct pg_table *pgt, struct page *page)
 {
 	pgtable_page_dtor(page);
 	__free_page(page);

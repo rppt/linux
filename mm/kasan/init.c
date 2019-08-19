@@ -305,7 +305,8 @@ static void kasan_free_pte(pte_t *pte_start, pmd_t *pmd)
 			return;
 	}
 
-	pte_free_kernel(&init_mm, (pte_t *)page_to_virt(pmd_page(*pmd)));
+	pte_free_kernel(mm_pgt(&init_mm),
+			(pte_t *)page_to_virt(pmd_page(*pmd)));
 	pmd_clear(pmd);
 }
 

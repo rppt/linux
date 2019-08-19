@@ -2910,7 +2910,7 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 	return (pte_t *) page_address(page);
 }
 
-void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_page((unsigned long)pte);
 }
@@ -2923,7 +2923,7 @@ static void __pte_free(pgtable_t pte)
 	__free_page(page);
 }
 
-void pte_free(struct mm_struct *mm, pgtable_t pte)
+void pte_free(struct pg_table *pgt, pgtable_t pte)
 {
 	__pte_free(pte);
 }

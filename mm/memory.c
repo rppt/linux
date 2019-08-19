@@ -432,7 +432,7 @@ int __pte_alloc(struct mm_struct *mm, pmd_t *pmd)
 	}
 	spin_unlock(ptl);
 	if (new)
-		pte_free(mm, new);
+		pte_free(mm_pgt(mm), new);
 	return 0;
 }
 
@@ -451,7 +451,7 @@ int __pte_alloc_kernel(pmd_t *pmd)
 	}
 	spin_unlock(&init_mm.pgt.page_table_lock);
 	if (new)
-		pte_free_kernel(&init_mm, new);
+		pte_free_kernel(mm_pgt(&init_mm), new);
 	return 0;
 }
 
@@ -3614,7 +3614,7 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 
 	/* preallocated pagetable is unused: free it */
 	if (vmf->prealloc_pte) {
-		pte_free(vm_mm, vmf->prealloc_pte);
+		pte_free(mm_pgt(vm_mm), vmf->prealloc_pte);
 		vmf->prealloc_pte = NULL;
 	}
 	return ret;

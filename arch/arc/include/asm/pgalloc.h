@@ -116,18 +116,18 @@ pte_alloc_one(struct mm_struct *mm)
 	return pte_pg;
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_pages((unsigned long)pte, __get_order_pte()); /* takes phy addr */
 }
 
-static inline void pte_free(struct mm_struct *mm, pgtable_t ptep)
+static inline void pte_free(struct pg_table *pgt, pgtable_t ptep)
 {
 	pgtable_page_dtor(virt_to_page(ptep));
 	free_pages((unsigned long)ptep, __get_order_pte());
 }
 
-#define __pte_free_tlb(tlb, pte, addr)  pte_free((tlb)->mm, pte)
+#define __pte_free_tlb(tlb, pte, addr)  pte_free(mm_pgt((tlb)->mm),  pte)
 
 #define check_pgt_cache()   do { } while (0)
 #define pmd_pgtable(pmd)	((pgtable_t) pmd_page_vaddr(pmd))

@@ -6,7 +6,7 @@
 
 #include <asm-generic/tlb.h>
 
-#define __pte_free_tlb(tlb, pte, addr)	pte_free((tlb)->mm, pte)
+#define __pte_free_tlb(tlb, pte, addr)	pte_free(mm_pgt((tlb)->mm),  pte)
 #define __pmd_free_tlb(tlb, pmd, addr)	pmd_free(pmd)
 
 #endif

@@ -93,7 +93,7 @@ void free_pgd_slow(struct mm_struct *mm, pgd_t *pgd)
 
 	pte = pmd_pgtable(*pmd);
 	pmd_clear(pmd);
-	pte_free(mm, pte);
+	pte_free(mm_pgt(mm), pte);
 	mm_dec_nr_ptes(mm);
 	pmd_free(pmd);
 	mm_dec_nr_pmds(mm);

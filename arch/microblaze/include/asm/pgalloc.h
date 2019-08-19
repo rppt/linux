@@ -138,7 +138,7 @@ static inline void pte_free_fast(pte_t *pte)
 	pgtable_cache_size++;
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_page((unsigned long)pte);
 }
@@ -148,13 +148,13 @@ static inline void pte_free_slow(struct page *ptepage)
 	__free_page(ptepage);
 }
 
-static inline void pte_free(struct mm_struct *mm, struct page *ptepage)
+static inline void pte_free(struct pg_table *pgt, struct page *ptepage)
 {
 	pgtable_page_dtor(ptepage);
 	__free_page(ptepage);
 }
 
-#define __pte_free_tlb(tlb, pte, addr)	pte_free((tlb)->mm, (pte))
+#define __pte_free_tlb(tlb, pte, addr)	pte_free(mm_pgt((tlb)->mm),  (pte))
 
 #define pmd_populate(mm, pmd, pte) \
 			(pmd_val(*(pmd)) = (unsigned long)page_address(pte))

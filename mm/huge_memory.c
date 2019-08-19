@@ -604,7 +604,7 @@ static vm_fault_t __do_huge_pmd_anonymous_page(struct vm_fault *vmf,
 			spin_unlock(vmf->ptl);
 			mem_cgroup_cancel_charge(page, memcg, true);
 			put_page(page);
-			pte_free(vma->vm_mm, pgtable);
+			pte_free(mm_pgt(vma->vm_mm), pgtable);
 			ret2 = handle_userfault(vmf, VM_UFFD_MISSING);
 			VM_BUG_ON(ret2 & VM_FAULT_FALLBACK);
 			return ret2;
@@ -629,7 +629,7 @@ unlock_release:
 	spin_unlock(vmf->ptl);
 release:
 	if (pgtable)
-		pte_free(vma->vm_mm, pgtable);
+		pte_free(mm_pgt(vma->vm_mm), pgtable);
 	mem_cgroup_cancel_charge(page, memcg, true);
 	put_page(page);
 	return ret;
@@ -723,7 +723,7 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 			return VM_FAULT_OOM;
 		zero_page = mm_get_huge_zero_page(vma->vm_mm);
 		if (unlikely(!zero_page)) {
-			pte_free(vma->vm_mm, pgtable);
+			pte_free(mm_pgt(vma->vm_mm), pgtable);
 			count_vm_event(THP_FAULT_FALLBACK);
 			return VM_FAULT_FALLBACK;
 		}
@@ -747,7 +747,7 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 		} else
 			spin_unlock(vmf->ptl);
 		if (!set)
-			pte_free(vma->vm_mm, pgtable);
+			pte_free(mm_pgt(vma->vm_mm), pgtable);
 		return ret;
 	}
 	gfp = alloc_hugepage_direct_gfpmask(vma, haddr);
@@ -804,7 +804,7 @@ static void insert_pfn_pmd(struct vm_area_struct *vma, unsigned long addr,
 out_unlock:
 	spin_unlock(ptl);
 	if (pgtable)
-		pte_free(mm, pgtable);
+		pte_free(mm_pgt(mm), pgtable);
 }
 
 vm_fault_t vmf_insert_pfn_pmd(struct vm_fault *vmf, pfn_t pfn, bool write)
@@ -1016,7 +1016,7 @@ int copy_huge_pmd(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 #endif
 
 	if (unlikely(!pmd_trans_huge(pmd))) {
-		pte_free(dst_mm, pgtable);
+		pte_free(mm_pgt(dst_mm), pgtable);
 		goto out_unlock;
 	}
 	/*
@@ -1762,7 +1762,7 @@ static inline void zap_deposited_table(struct mm_struct *mm, pmd_t *pmd)
 	pgtable_t pgtable;
 
 	pgtable = pgtable_trans_huge_withdraw(mm, pmd);
-	pte_free(mm, pgtable);
+	pte_free(mm_pgt(mm), pgtable);
 	mm_dec_nr_ptes(mm);
 }
 

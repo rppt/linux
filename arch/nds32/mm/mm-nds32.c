@@ -58,7 +58,7 @@ void pgd_free(struct mm_struct *mm, pgd_t * pgd)
 	pte = pmd_page(*pmd);
 	pmd_clear(pmd);
 	dec_zone_page_state(virt_to_page((unsigned long *)pgd), NR_PAGETABLE);
-	pte_free(mm, pte);
+	pte_free(mm_pgt(mm), pte);
 	mm_dec_nr_ptes(mm);
 	pmd_free(pmd);
 free:

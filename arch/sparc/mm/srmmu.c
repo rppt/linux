@@ -385,7 +385,7 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 	return page;
 }
 
-void pte_free(struct mm_struct *mm, pgtable_t pte)
+void pte_free(struct pg_table *pgt, pgtable_t pte)
 {
 	unsigned long p;
 

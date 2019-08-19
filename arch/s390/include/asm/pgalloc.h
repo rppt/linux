@@ -144,8 +144,8 @@ static inline void pmd_populate(struct mm_struct *mm,
 #define pte_alloc_one_kernel(mm) ((pte_t *)page_table_alloc(mm))
 #define pte_alloc_one(mm) ((pte_t *)page_table_alloc(mm))
 
-#define pte_free_kernel(mm, pte) page_table_free(mm, (unsigned long *) pte)
-#define pte_free(mm, pte) page_table_free(mm, (unsigned long *) pte)
+#define pte_free_kernel(pgt,pte) page_table_free(mm, (unsigned long *)pte)
+#define pte_free(pgt,pte) page_table_free(mm, (unsigned long *)pte)
 
 extern void rcu_table_freelist_finish(void);
 

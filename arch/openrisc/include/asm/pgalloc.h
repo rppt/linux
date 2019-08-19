@@ -82,12 +82,12 @@ static inline struct page *pte_alloc_one(struct mm_struct *mm)
 	return pte;
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	free_page((unsigned long)pte);
 }
 
-static inline void pte_free(struct mm_struct *mm, struct page *pte)
+static inline void pte_free(struct pg_table *pgt, struct page *pte)
 {
 	pgtable_page_dtor(pte);
 	__free_page(pte);

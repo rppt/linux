@@ -104,13 +104,13 @@ static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm)
 	return quicklist_alloc(0, GFP_KERNEL, NULL);
 }
 
-static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
+static inline void pte_free(struct pg_table *pgt, pgtable_t pte)
 {
 	pgtable_page_dtor(pte);
 	quicklist_free_page(0, NULL, pte);
 }
 
-static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
+static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
 {
 	quicklist_free(0, NULL, pte);
 }
@@ -120,6 +120,6 @@ static inline void check_pgt_cache(void)
 	quicklist_trim(0, NULL, 25, 16);
 }
 
-#define __pte_free_tlb(tlb, pte, address)	pte_free((tlb)->mm, pte)
+#define __pte_free_tlb(tlb, pte, address)	pte_free(mm_pgt((tlb)->mm),  pte)
 
 #endif				/* _ASM_IA64_PGALLOC_H */

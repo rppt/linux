@@ -62,8 +62,8 @@ static inline void pmd_free(pmd_t *pmd)
 
 pte_t *pte_alloc_one_kernel(struct mm_struct *mm);
 pgtable_t pte_alloc_one(struct mm_struct *mm);
-void pte_free_kernel(struct mm_struct *mm, pte_t *pte);
-void pte_free(struct mm_struct *mm, pgtable_t ptepage);
+void pte_free_kernel(struct pg_table *pgt, pte_t *pte);
+void pte_free(struct pg_table *pgt, pgtable_t ptepage);
 
 #define pmd_populate_kernel(MM, PMD, PTE)	pmd_set(MM, PMD, PTE)
 #define pmd_populate(MM, PMD, PTE)		pmd_set(MM, PMD, PTE)
