@@ -976,7 +976,8 @@ void __init create_mapping_late(struct mm_struct *mm, struct map_desc *md,
 				bool ng)
 {
 #ifdef CONFIG_ARM_LPAE
-	pud_t *pud = pud_alloc(mm, pgd_offset(mm, md->virtual), md->virtual);
+	pud_t *pud = pud_alloc(mm_pgt(mm), pgd_offset(mm, md->virtual),
+			       md->virtual);
 	if (WARN_ON(!pud))
 		return;
 	pmd_alloc(mm, pud, 0);

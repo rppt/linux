@@ -40,7 +40,7 @@ static inline void __pud_populate(pud_t *pud, pmd_t *pmd)
 
 #define pud_populate(MM, PUD, PMD)	__pud_populate(PUD, PMD)
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	return kmem_cache_alloc(pgtable_cache, GFP_KERNEL);
 }

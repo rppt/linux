@@ -40,7 +40,7 @@ pgd_populate(struct mm_struct *mm, pgd_t * pgd_entry, pud_t * pud)
 	pgd_val(*pgd_entry) = __pa(pud);
 }
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	return quicklist_alloc(0, GFP_KERNEL, NULL);
 }

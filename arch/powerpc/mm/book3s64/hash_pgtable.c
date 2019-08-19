@@ -155,7 +155,7 @@ int hash__map_kernel_page(unsigned long ea, unsigned long pa, pgprot_t prot)
 	BUILD_BUG_ON(TASK_SIZE_USER64 > H_PGTABLE_RANGE);
 	if (slab_is_available()) {
 		pgdp = pgd_offset_k(ea);
-		pudp = pud_alloc(&init_mm, pgdp, ea);
+		pudp = pud_alloc(mm_pgt(&init_mm), pgdp, ea);
 		if (!pudp)
 			return -ENOMEM;
 		pmdp = pmd_alloc(&init_mm, pudp, ea);

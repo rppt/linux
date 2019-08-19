@@ -17,10 +17,10 @@ extern struct vmemmap_backing *vmemmap_list;
 
 #define pgd_populate(MM, PGD, PUD)	pgd_set(PGD, (unsigned long)PUD)
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	return kmem_cache_alloc(PGT_CACHE(PUD_INDEX_SIZE),
-			pgtable_gfp_flags(mm, GFP_KERNEL));
+			pgtable_gfp_flags(pgt, GFP_KERNEL));
 }
 
 static inline void pud_free(pud_t *pud)

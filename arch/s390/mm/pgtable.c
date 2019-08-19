@@ -422,7 +422,7 @@ static pmd_t *pmd_alloc_map(struct mm_struct *mm, unsigned long addr)
 	p4d = p4d_alloc(mm_pgt(mm), pgd, addr);
 	if (!p4d)
 		return NULL;
-	pud = pud_alloc(mm, p4d, addr);
+	pud = pud_alloc(mm_pgt(mm), p4d, addr);
 	if (!pud)
 		return NULL;
 	pmd = pmd_alloc(mm, pud, addr);

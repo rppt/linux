@@ -194,7 +194,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 	pgdp = pgd_offset(mm, addr);
 	p4dp = p4d_alloc(mm_pgt(mm), pgdp, addr);
 	if (p4dp) {
-		pudp = pud_alloc(mm, p4dp, addr);
+		pudp = pud_alloc(mm_pgt(mm), p4dp, addr);
 		if (pudp) {
 			if (sz == PUD_SIZE)
 				return (pte_t *) pudp;

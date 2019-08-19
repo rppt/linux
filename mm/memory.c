@@ -885,7 +885,7 @@ static inline int copy_pud_range(struct mm_struct *dst_mm, struct mm_struct *src
 	pud_t *src_pud, *dst_pud;
 	unsigned long next;
 
-	dst_pud = pud_alloc(dst_mm, dst_p4d, addr);
+	dst_pud = pud_alloc(mm_pgt(dst_mm), dst_p4d, addr);
 	if (!dst_pud)
 		return -ENOMEM;
 	src_pud = pud_offset(src_p4d, addr);
@@ -1396,7 +1396,7 @@ pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 	p4d = p4d_alloc(mm_pgt(mm), pgd, addr);
 	if (!p4d)
 		return NULL;
-	pud = pud_alloc(mm, p4d, addr);
+	pud = pud_alloc(mm_pgt(mm), p4d, addr);
 	if (!pud)
 		return NULL;
 	pmd = pmd_alloc(mm, pud, addr);
@@ -1841,7 +1841,7 @@ static inline int remap_pud_range(struct mm_struct *mm, p4d_t *p4d,
 	int err;
 
 	pfn -= addr >> PAGE_SHIFT;
-	pud = pud_alloc(mm, p4d, addr);
+	pud = pud_alloc(mm_pgt(mm), p4d, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {
@@ -2057,7 +2057,7 @@ static int apply_to_pud_range(struct mm_struct *mm, p4d_t *p4d,
 	unsigned long next;
 	int err;
 
-	pud = pud_alloc(mm, p4d, addr);
+	pud = pud_alloc(mm_pgt(mm), p4d, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {
@@ -3902,7 +3902,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	if (!p4d)
 		return VM_FAULT_OOM;
 
-	vmf.pud = pud_alloc(mm, p4d, address);
+	vmf.pud = pud_alloc(mm_pgt(mm), p4d, address);
 	if (!vmf.pud)
 		return VM_FAULT_OOM;
 	if (pud_none(*vmf.pud) && __transparent_hugepage_enabled(vma)) {
@@ -4069,11 +4069,6 @@ int __pud_alloc(struct pg_table *pgt, p4d_t *p4d, unsigned long address)
 #endif /* __ARCH_HAS_5LEVEL_HACK */
 	spin_unlock(&pgt->page_table_lock);
 	return 0;
-}
-
-int _pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address)
-{
-	return __pud_alloc(&mm->pgt, p4d, address);
 }
 
 #endif /* __PAGETABLE_PUD_FOLDED */

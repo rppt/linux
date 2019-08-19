@@ -90,7 +90,7 @@ static int remap_area_pages(unsigned long address, unsigned long phys_addr,
 		pmd_t *pmd;
 
 		error = -ENOMEM;
-		pud = pud_alloc(&init_mm, dir, address);
+		pud = pud_alloc(mm_pgt(&init_mm), dir, address);
 		if (!pud)
 			break;
 		pmd = pmd_alloc(&init_mm, pud, address);

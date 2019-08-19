@@ -116,7 +116,7 @@ static int map_tboot_page(unsigned long vaddr, unsigned long pfn,
 	p4d = p4d_alloc(mm_pgt(&tboot_mm), pgd, vaddr);
 	if (!p4d)
 		return -1;
-	pud = pud_alloc(&tboot_mm, p4d, vaddr);
+	pud = pud_alloc(mm_pgt(&tboot_mm), p4d, vaddr);
 	if (!pud)
 		return -1;
 	pmd = pmd_alloc(&tboot_mm, pud, vaddr);

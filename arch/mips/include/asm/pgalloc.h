@@ -81,7 +81,8 @@ static inline void pmd_free(pmd_t *pmd)
 
 #ifndef __PAGETABLE_PUD_FOLDED
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long address)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt,
+				   unsigned long address)
 {
 	pud_t *pud;
 

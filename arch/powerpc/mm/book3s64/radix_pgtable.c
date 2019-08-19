@@ -147,7 +147,7 @@ static int __map_kernel_page(unsigned long ea, unsigned long pa,
 	 * boot.
 	 */
 	pgdp = pgd_offset_k(ea);
-	pudp = pud_alloc(&init_mm, pgdp, ea);
+	pudp = pud_alloc(mm_pgt(&init_mm), pgdp, ea);
 	if (!pudp)
 		return -ENOMEM;
 	if (map_page_size == PUD_SIZE) {
@@ -196,7 +196,7 @@ void radix__change_memory_range(unsigned long start, unsigned long end,
 
 	for (idx = start; idx < end; idx += PAGE_SIZE) {
 		pgdp = pgd_offset_k(idx);
-		pudp = pud_alloc(&init_mm, pgdp, idx);
+		pudp = pud_alloc(mm_pgt(&init_mm), pgdp, idx);
 		if (!pudp)
 			continue;
 		if (pud_is_leaf(*pudp)) {

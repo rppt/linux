@@ -700,7 +700,7 @@ static int __create_hyp_mappings(pgd_t *pgdp, unsigned long ptrs_per_pgd,
 		pgd = pgdp + kvm_pgd_index(addr, ptrs_per_pgd);
 
 		if (pgd_none(*pgd)) {
-			pud = pud_alloc_one(NULL, addr);
+			pud = pud_alloc_one(mm_pgt(NULL), addr);
 			if (!pud) {
 				kvm_err("Cannot allocate Hyp pud\n");
 				err = -ENOMEM;

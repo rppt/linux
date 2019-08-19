@@ -92,12 +92,12 @@ static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, pud_t *pud)
 	*pgd =  __pgd(__pgtable_ptr_val(pud) | PGD_VAL_BITS);
 }
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	pud_t *pud;
 
 	pud = kmem_cache_alloc(PGT_CACHE(PUD_CACHE_INDEX),
-			       pgtable_gfp_flags(mm, GFP_KERNEL));
+			       pgtable_gfp_flags(pgt, GFP_KERNEL));
 	/*
 	 * Tell kmemleak to ignore the PUD, that means don't scan it for
 	 * pointers and don't consider it a leak. PUDs are typically only

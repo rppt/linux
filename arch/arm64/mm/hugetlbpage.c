@@ -222,7 +222,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 	pte_t *ptep = NULL;
 
 	pgdp = pgd_offset(mm, addr);
-	pudp = pud_alloc(mm, pgdp, addr);
+	pudp = pud_alloc(mm_pgt(mm), pgdp, addr);
 	if (!pudp)
 		return NULL;
 

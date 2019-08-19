@@ -24,7 +24,7 @@ static int init_stub_pte(struct mm_struct *mm, unsigned long proc,
 	pte_t *pte;
 
 	pgd = pgd_offset(mm, proc);
-	pud = pud_alloc(mm, pgd, proc);
+	pud = pud_alloc(mm_pgt(mm), pgd, proc);
 	if (!pud)
 		goto out;
 

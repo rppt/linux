@@ -183,7 +183,7 @@ static int vmap_pud_range(p4d_t *p4d, unsigned long addr,
 	pud_t *pud;
 	unsigned long next;
 
-	pud = pud_alloc(&init_mm, p4d, addr);
+	pud = pud_alloc(mm_pgt(&init_mm), p4d, addr);
 	if (!pud)
 		return -ENOMEM;
 	do {

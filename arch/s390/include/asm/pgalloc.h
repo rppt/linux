@@ -59,7 +59,8 @@ static inline p4d_t *p4d_alloc_one(struct pg_table *pgt,
 }
 #define p4d_free(p4d) crst_table_free((unsigned long *) p4d)
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long address)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt,
+				   unsigned long address)
 {
 	unsigned long *table = crst_table_alloc();
 	if (table)

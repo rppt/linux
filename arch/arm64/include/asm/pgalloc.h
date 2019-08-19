@@ -64,7 +64,7 @@ static inline void __pud_populate(pud_t *pudp, phys_addr_t pmdp, pudval_t prot)
 
 #if CONFIG_PGTABLE_LEVELS > 3
 
-static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
+static inline pud_t *pud_alloc_one(struct pg_table *pgt, unsigned long addr)
 {
 	return (pud_t *)__get_free_page(GFP_PGTABLE_USER);
 }

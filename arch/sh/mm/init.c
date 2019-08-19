@@ -54,7 +54,7 @@ static pte_t *__get_pte_phys(unsigned long addr)
 		return NULL;
 	}
 
-	pud = pud_alloc(NULL, pgd, addr);
+	pud = pud_alloc(mm_pgt(NULL), pgd, addr);
 	if (unlikely(!pud)) {
 		pud_ERROR(*pud);
 		return NULL;

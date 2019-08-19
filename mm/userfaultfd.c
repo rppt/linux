@@ -154,7 +154,7 @@ static pmd_t *mm_alloc_pmd(struct mm_struct *mm, unsigned long address)
 	p4d = p4d_alloc(mm_pgt(mm), pgd, address);
 	if (!p4d)
 		return NULL;
-	pud = pud_alloc(mm, p4d, address);
+	pud = pud_alloc(mm_pgt(mm), p4d, address);
 	if (!pud)
 		return NULL;
 	/*

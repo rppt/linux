@@ -118,7 +118,7 @@ pgd_t * __init efi_call_phys_prolog(void)
 			addr_p4d = addr_pgd + i * P4D_SIZE;
 			p4d_efi = p4d + p4d_index(addr_p4d);
 
-			pud = pud_alloc(&init_mm, p4d_efi, addr_p4d);
+			pud = pud_alloc(mm_pgt(&init_mm), p4d_efi, addr_p4d);
 			if (!pud) {
 				pr_err("Failed to allocate pud table!\n");
 				goto out;
@@ -226,7 +226,7 @@ int __init efi_alloc_page_tables(void)
 		return -ENOMEM;
 	}
 
-	pud = pud_alloc(&init_mm, p4d, EFI_VA_END);
+	pud = pud_alloc(mm_pgt(&init_mm), p4d, EFI_VA_END);
 	if (!pud) {
 		if (pgtable_l5_enabled())
 			free_page((unsigned long) pgd_page_vaddr(*pgd));

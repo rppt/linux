@@ -1784,7 +1784,7 @@ int __p4d_alloc(struct pg_table *pgt, pgd_t *pgd, unsigned long address);
 #endif
 
 #if defined(__PAGETABLE_PUD_FOLDED) || !defined(CONFIG_MMU)
-static inline int _pud_alloc(struct mm_struct *mm, p4d_t *p4d,
+static inline int __pud_alloc(struct pg_table *pgt, p4d_t *p4d,
 						unsigned long address)
 {
 	return 0;
@@ -1793,7 +1793,7 @@ static inline void mm_inc_nr_puds(struct pg_table *pgt) {}
 static inline void mm_dec_nr_puds(struct pg_table *pgt) {}
 
 #else
-int _pud_alloc(struct mm_struct *mm, p4d_t *p4d, unsigned long address);
+int __pud_alloc(struct pg_table *pgt, p4d_t *p4d, unsigned long address);
 
 static inline void mm_inc_nr_puds(struct pg_table *pgt)
 {
@@ -1887,10 +1887,10 @@ static inline p4d_t *p4d_alloc(struct pg_table *pgt, pgd_t *pgd,
 		NULL : p4d_offset(pgd, address);
 }
 
-static inline pud_t *pud_alloc(struct mm_struct *mm, p4d_t *p4d,
-		unsigned long address)
+static inline pud_t *pud_alloc(struct pg_table *pgt, p4d_t *p4d,
+			       unsigned long address)
 {
-	return (unlikely(p4d_none(*p4d)) && _pud_alloc(mm, p4d, address)) ?
+	return (unlikely(p4d_none(*p4d)) && __pud_alloc(pgt, p4d, address)) ?
 		NULL : pud_offset(p4d, address);
 }
 #endif /* !__ARCH_HAS_5LEVEL_HACK */

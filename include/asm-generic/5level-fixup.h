@@ -13,9 +13,7 @@
 
 #define p4d_t				pgd_t
 
-#define pud_alloc(mm, p4d, address) \
-	((unlikely(pgd_none(*(p4d))) && __pud_alloc(mm, p4d, address)) ? \
-		NULL : pud_offset(p4d, address))
+#define pud_alloc(pgt,p4d,address) ((unlikely(pgd_none(*(p4d))) && __pud_alloc(mm, p4d, address)) ? NULL : pud_offset(p4d, address))
 
 #define p4d_alloc(pgt,pgd,address) (pgd)
 #define p4d_offset(pgd, start)		(pgd)
