@@ -192,7 +192,7 @@ static inline int ioremap_p4d_range(pgd_t *pgd, unsigned long addr,
 	p4d_t *p4d;
 	unsigned long next;
 
-	p4d = p4d_alloc(&init_mm, pgd, addr);
+	p4d = p4d_alloc(mm_pgt(&init_mm), pgd, addr);
 	if (!p4d)
 		return -ENOMEM;
 	do {

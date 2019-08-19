@@ -108,7 +108,7 @@ pgd_t * __init efi_call_phys_prolog(void)
 		pgd_efi = pgd_offset_k(addr_pgd);
 		save_pgd[pgd] = *pgd_efi;
 
-		p4d = p4d_alloc(&init_mm, pgd_efi, addr_pgd);
+		p4d = p4d_alloc(mm_pgt(&init_mm), pgd_efi, addr_pgd);
 		if (!p4d) {
 			pr_err("Failed to allocate p4d table!\n");
 			goto out;
@@ -220,7 +220,7 @@ int __init efi_alloc_page_tables(void)
 		return -ENOMEM;
 
 	pgd = efi_pgd + pgd_index(EFI_VA_END);
-	p4d = p4d_alloc(&init_mm, pgd, EFI_VA_END);
+	p4d = p4d_alloc(mm_pgt(&init_mm), pgd, EFI_VA_END);
 	if (!p4d) {
 		free_page((unsigned long)efi_pgd);
 		return -ENOMEM;

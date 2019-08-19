@@ -919,7 +919,7 @@ static inline int copy_p4d_range(struct mm_struct *dst_mm, struct mm_struct *src
 	p4d_t *src_p4d, *dst_p4d;
 	unsigned long next;
 
-	dst_p4d = p4d_alloc(dst_mm, dst_pgd, addr);
+	dst_p4d = p4d_alloc(mm_pgt(dst_mm), dst_pgd, addr);
 	if (!dst_p4d)
 		return -ENOMEM;
 	src_p4d = p4d_offset(src_pgd, addr);
@@ -1393,7 +1393,7 @@ pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 	pmd_t *pmd;
 
 	pgd = pgd_offset(mm, addr);
-	p4d = p4d_alloc(mm, pgd, addr);
+	p4d = p4d_alloc(mm_pgt(mm), pgd, addr);
 	if (!p4d)
 		return NULL;
 	pud = pud_alloc(mm, p4d, addr);
@@ -1863,7 +1863,7 @@ static inline int remap_p4d_range(struct mm_struct *mm, pgd_t *pgd,
 	int err;
 
 	pfn -= addr >> PAGE_SHIFT;
-	p4d = p4d_alloc(mm, pgd, addr);
+	p4d = p4d_alloc(mm_pgt(mm), pgd, addr);
 	if (!p4d)
 		return -ENOMEM;
 	do {
@@ -2077,7 +2077,7 @@ static int apply_to_p4d_range(struct mm_struct *mm, pgd_t *pgd,
 	unsigned long next;
 	int err;
 
-	p4d = p4d_alloc(mm, pgd, addr);
+	p4d = p4d_alloc(mm_pgt(mm), pgd, addr);
 	if (!p4d)
 		return -ENOMEM;
 	do {
@@ -3898,7 +3898,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 	vm_fault_t ret;
 
 	pgd = pgd_offset(mm, address);
-	p4d = p4d_alloc(mm, pgd, address);
+	p4d = p4d_alloc(mm_pgt(mm), pgd, address);
 	if (!p4d)
 		return VM_FAULT_OOM;
 
@@ -4036,11 +4036,6 @@ int __p4d_alloc(struct pg_table *pgt, pgd_t *pgd, unsigned long address)
 		pgd_populate_pgt(pgt, pgd, new);
 	spin_unlock(&pgt->page_table_lock);
 	return 0;
-}
-
-int _p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
-{
-	return __p4d_alloc(&mm->pgt, pgd, address);
 }
 
 #endif /* __PAGETABLE_P4D_FOLDED */

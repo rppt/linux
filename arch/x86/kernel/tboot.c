@@ -113,7 +113,7 @@ static int map_tboot_page(unsigned long vaddr, unsigned long pfn,
 	pte_t *pte;
 
 	pgd = pgd_offset(&tboot_mm, vaddr);
-	p4d = p4d_alloc(&tboot_mm, pgd, vaddr);
+	p4d = p4d_alloc(mm_pgt(&tboot_mm), pgd, vaddr);
 	if (!p4d)
 		return -1;
 	pud = pud_alloc(&tboot_mm, p4d, vaddr);

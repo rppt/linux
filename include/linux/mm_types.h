@@ -529,6 +529,11 @@ struct mm_struct {
 	unsigned long cpu_bitmap[];
 };
 
+static inline struct pg_table *mm_pgt(struct mm_struct *mm)
+{
+	return &mm->pgt;
+}
+
 extern struct mm_struct init_mm;
 
 /* Pointer magic because the dynamic array size confuses some compilers. */
