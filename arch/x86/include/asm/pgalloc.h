@@ -16,7 +16,7 @@ static inline int  __paravirt_pgd_alloc(struct mm_struct *mm) { return 0; }
 #else
 #define paravirt_pgd_alloc(mm)	__paravirt_pgd_alloc(mm)
 static inline void paravirt_pgd_free(struct mm_struct *mm, pgd_t *pgd) {}
-static inline void paravirt_alloc_pte(struct mm_struct *mm, unsigned long pfn)	{}
+static inline void paravirt_alloc_pte(struct pg_table *pgt, unsigned long pfn)	{}
 static inline void paravirt_alloc_pmd(struct pg_table *pgt, unsigned long pfn)	{}
 static inline void paravirt_alloc_pmd_clone(unsigned long pfn, unsigned long clonepfn,
 					    unsigned long start, unsigned long count) {}
@@ -50,7 +50,7 @@ extern gfp_t __userpte_alloc_gfp;
 extern pgd_t *pgd_alloc(struct mm_struct *);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 
-extern pgtable_t pte_alloc_one(struct mm_struct *);
+extern pgtable_t pte_alloc_one(struct pg_table *);
 
 extern void ___pte_free_tlb(struct mmu_gather *tlb, struct page *pte);
 
@@ -60,27 +60,45 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte,
 	___pte_free_tlb(tlb, pte);
 }
 
-static inline void pmd_populate_kernel(struct mm_struct *mm,
+static inline void pmd_populate_kernel_pgt(struct pg_table *pgt,
 				       pmd_t *pmd, pte_t *pte)
 {
-	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
+	paravirt_alloc_pte(pgt, __pa(pte) >> PAGE_SHIFT);
 	set_pmd(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
 }
 
-static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
+static inline void pmd_populate_kernel(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {
-	paravirt_alloc_pte(mm, __pa(pte) >> PAGE_SHIFT);
+	return pmd_populate_kernel_pgt(&mm->pgt, pmd, pte);
+}
+
+static inline void pmd_populate_kernel_pgt_safe(struct pg_table *pgt,
+				       pmd_t *pmd, pte_t *pte)
+{
+	paravirt_alloc_pte(pgt, __pa(pte) >> PAGE_SHIFT);
 	set_pmd_safe(pmd, __pmd(__pa(pte) | _PAGE_TABLE));
+}
+
+static inline void pmd_populate_kernel_safe(struct mm_struct *mm,
+					    pmd_t *pmd, pte_t *pte)
+{
+	return pmd_populate_kernel_pgt(&mm->pgt, pmd, pte);
+}
+
+static inline void pmd_populate_pgt(struct pg_table *pgt, pmd_t *pmd,
+				    struct page *pte)
+{
+	unsigned long pfn = page_to_pfn(pte);
+
+	paravirt_alloc_pte(pgt, pfn);
+	set_pmd(pmd, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
 }
 
 static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 				struct page *pte)
 {
-	unsigned long pfn = page_to_pfn(pte);
-
-	paravirt_alloc_pte(mm, pfn);
-	set_pmd(pmd, __pmd(((pteval_t)pfn << PAGE_SHIFT) | _PAGE_TABLE));
+	return pmd_populate_pgt(&mm->pgt, pmd, pte);
 }
 
 #define pmd_pgtable(pmd) pmd_page(pmd)

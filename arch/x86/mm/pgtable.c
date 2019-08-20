@@ -21,9 +21,9 @@ EXPORT_SYMBOL(physical_mask);
 
 gfp_t __userpte_alloc_gfp = GFP_PGTABLE_USER | PGTABLE_HIGHMEM;
 
-pgtable_t pte_alloc_one(struct mm_struct *mm)
+pgtable_t pte_alloc_one(struct pg_table *pgt)
 {
-	return __pte_alloc_one(mm, __userpte_alloc_gfp);
+	return __pte_alloc_one(pgt, __userpte_alloc_gfp);
 }
 
 static int __init setup_userpte(char *arg)

@@ -370,7 +370,7 @@ retry:
 		goto retry;
 	}
 	if (pmd_devmap(pmdval)) {
-		ptl = pmd_lock(mm, pmd);
+		ptl = pmd_lock(mm_pgt(mm), pmd);
 		page = follow_devmap_pmd(vma, address, pmd, flags, &ctx->pgmap);
 		spin_unlock(ptl);
 		if (page)
@@ -383,7 +383,7 @@ retry:
 		return no_page_table(vma, flags);
 
 retry_locked:
-	ptl = pmd_lock(mm, pmd);
+	ptl = pmd_lock(mm_pgt(mm), pmd);
 	if (unlikely(pmd_none(*pmd))) {
 		spin_unlock(ptl);
 		return no_page_table(vma, flags);

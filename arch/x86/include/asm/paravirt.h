@@ -333,9 +333,9 @@ static inline void paravirt_pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	PVOP_VCALL2(mmu.pgd_free, mm, pgd);
 }
 
-static inline void paravirt_alloc_pte(struct mm_struct *mm, unsigned long pfn)
+static inline void paravirt_alloc_pte(struct pg_table *pgt, unsigned long pfn)
 {
-	PVOP_VCALL2(mmu.alloc_pte, mm, pfn);
+	PVOP_VCALL2(mmu.alloc_pte, pgt, pfn);
 }
 static inline void paravirt_release_pte(unsigned long pfn)
 {

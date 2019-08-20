@@ -535,7 +535,7 @@ static inline spinlock_t *huge_pte_lockptr(struct hstate *h,
 					   struct mm_struct *mm, pte_t *pte)
 {
 	if (huge_page_size(h) == PMD_SIZE)
-		return pmd_lockptr(mm, (pmd_t *) pte);
+		return pmd_lockptr(mm_pgt(mm), (pmd_t *) pte);
 	VM_BUG_ON(huge_page_size(h) == PAGE_SIZE);
 	return &mm->pgt.page_table_lock;
 }

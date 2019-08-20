@@ -1022,7 +1022,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, NULL, mm,
 				address, address + HPAGE_PMD_SIZE);
 	mmu_notifier_invalidate_range_start(&range);
-	pmd_ptl = pmd_lock(mm, pmd); /* probably unnecessary */
+	pmd_ptl = pmd_lock(mm_pgt(mm), pmd); /* probably unnecessary */
 	/*
 	 * After this gup_fast can't run anymore. This also removes
 	 * any huge TLB entry from the CPU so we won't allow
@@ -1274,7 +1274,7 @@ static void retract_page_tables(struct address_space *mapping, pgoff_t pgoff)
 		 * the system too much.
 		 */
 		if (down_write_trylock(&vma->vm_mm->mmap_sem)) {
-			spinlock_t *ptl = pmd_lock(vma->vm_mm, pmd);
+			spinlock_t *ptl = pmd_lock(mm_pgt(vma->vm_mm), pmd);
 			/* assume page table is clear */
 			_pmd = pmdp_collapse_flush(vma, addr, pmd);
 			spin_unlock(ptl);

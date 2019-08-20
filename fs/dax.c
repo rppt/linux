@@ -1435,7 +1435,7 @@ static vm_fault_t dax_pmd_load_hole(struct xa_state *xas, struct vm_fault *vmf,
 			return VM_FAULT_OOM;
 	}
 
-	ptl = pmd_lock(vmf->vma->vm_mm, vmf->pmd);
+	ptl = pmd_lock(mm_pgt(vmf->vma->vm_mm), vmf->pmd);
 	if (!pmd_none(*(vmf->pmd))) {
 		spin_unlock(ptl);
 		goto fallback;

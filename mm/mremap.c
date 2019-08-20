@@ -215,8 +215,8 @@ static bool move_normal_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 	 * We don't have to worry about the ordering of src and dst
 	 * ptlocks because exclusive mmap_sem prevents deadlock.
 	 */
-	old_ptl = pmd_lock(vma->vm_mm, old_pmd);
-	new_ptl = pmd_lockptr(mm, new_pmd);
+	old_ptl = pmd_lock(mm_pgt(vma->vm_mm), old_pmd);
+	new_ptl = pmd_lockptr(mm_pgt(mm), new_pmd);
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 
@@ -301,7 +301,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 #endif
 		}
 
-		if (pte_alloc(new_vma->vm_mm, new_pmd))
+		if (pte_alloc(mm_pgt(new_vma->vm_mm), new_pmd))
 			break;
 		next = (new_addr + PMD_SIZE) & PMD_MASK;
 		if (extent > next - new_addr)

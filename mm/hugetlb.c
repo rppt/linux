@@ -4956,7 +4956,7 @@ follow_huge_pmd(struct mm_struct *mm, unsigned long address,
 	spinlock_t *ptl;
 	pte_t pte;
 retry:
-	ptl = pmd_lockptr(mm, pmd);
+	ptl = pmd_lockptr(mm_pgt(mm), pmd);
 	spin_lock(ptl);
 	/*
 	 * make sure that the address range covered by this pmd is not

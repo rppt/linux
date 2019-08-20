@@ -241,7 +241,7 @@ struct pv_mmu_ops {
 	 * Hooks for allocating/releasing pagetable pages when they're
 	 * attached to a pagetable
 	 */
-	void (*alloc_pte)(struct mm_struct *mm, unsigned long pfn);
+	void (*alloc_pte)(struct pg_table *pgt, unsigned long pfn);
 	void (*alloc_pmd)(struct pg_table *pgt, unsigned long pfn);
 	void (*alloc_pud)(struct pg_table *pgt, unsigned long pfn);
 	void (*alloc_p4d)(struct pg_table *pgt, unsigned long pfn);

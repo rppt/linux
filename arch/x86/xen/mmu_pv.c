@@ -1573,7 +1573,7 @@ static void __init xen_set_pte_init(pte_t *ptep, pte_t pte)
 
 /* Early in boot, while setting up the initial pagetable, assume
    everything is pinned. */
-static void __init xen_alloc_pte_init(struct mm_struct *mm, unsigned long pfn)
+static void __init xen_alloc_pte_init(struct pg_table *pgt, unsigned long pfn)
 {
 #ifdef CONFIG_FLATMEM
 	BUG_ON(mem_map);	/* should only be used early */
@@ -1667,9 +1667,9 @@ static inline void xen_alloc_ptpage(struct pg_table *pgt, unsigned long pfn,
 	}
 }
 
-static void xen_alloc_pte(struct mm_struct *mm, unsigned long pfn)
+static void xen_alloc_pte(struct pg_table *pgt, unsigned long pfn)
 {
-	xen_alloc_ptpage(&mm->pgt, pfn, PT_PTE);
+	xen_alloc_ptpage(pgt, pfn, PT_PTE);
 }
 
 static void xen_alloc_pmd(struct pg_table *pgt, unsigned long pfn)

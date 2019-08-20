@@ -56,7 +56,7 @@ static inline void pte_free_kernel(struct pg_table *pgt, pte_t *pte)
  *
  * Return: `struct page` initialized as page table or %NULL on error
  */
-static inline pgtable_t __pte_alloc_one(struct mm_struct *mm, gfp_t gfp)
+static inline pgtable_t __pte_alloc_one(struct pg_table *pgt, gfp_t gfp)
 {
 	struct page *pte;
 
@@ -80,9 +80,9 @@ static inline pgtable_t __pte_alloc_one(struct mm_struct *mm, gfp_t gfp)
  *
  * Return: `struct page` initialized as page table or %NULL on error
  */
-static inline pgtable_t pte_alloc_one(struct mm_struct *mm)
+static inline pgtable_t pte_alloc_one(struct pg_table *pgt)
 {
-	return __pte_alloc_one(mm, GFP_PGTABLE_USER);
+	return __pte_alloc_one(pgt, GFP_PGTABLE_USER);
 }
 #endif
 

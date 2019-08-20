@@ -356,7 +356,7 @@ void pmd_migration_entry_wait(struct mm_struct *mm, pmd_t *pmd)
 	spinlock_t *ptl;
 	struct page *page;
 
-	ptl = pmd_lock(mm, pmd);
+	ptl = pmd_lock(mm_pgt(mm), pmd);
 	if (!is_pmd_migration_entry(*pmd))
 		goto unlock;
 	page = migration_entry_to_page(pmd_to_swp_entry(*pmd));
@@ -2028,7 +2028,7 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 	WARN_ON(PageLRU(new_page));
 
 	/* Recheck the target PMD */
-	ptl = pmd_lock(mm, pmd);
+	ptl = pmd_lock(mm_pgt(mm), pmd);
 	if (unlikely(!pmd_same(*pmd, entry) || !page_ref_freeze(page, 2))) {
 		spin_unlock(ptl);
 
@@ -2102,7 +2102,7 @@ int migrate_misplaced_transhuge_page(struct mm_struct *mm,
 
 out_fail:
 	count_vm_events(PGMIGRATE_FAIL, HPAGE_PMD_NR);
-	ptl = pmd_lock(mm, pmd);
+	ptl = pmd_lock(mm_pgt(mm), pmd);
 	if (pmd_same(*pmd, entry)) {
 		entry = pmd_modify(entry, vma->vm_page_prot);
 		set_pmd_at(mm, start, pmd, entry);
@@ -2181,7 +2181,7 @@ again:
 	if (pmd_trans_huge(*pmdp)) {
 		struct page *page;
 
-		ptl = pmd_lock(mm, pmdp);
+		ptl = pmd_lock(mm_pgt(mm), pmdp);
 		if (unlikely(!pmd_trans_huge(*pmdp))) {
 			spin_unlock(ptl);
 			goto again;
