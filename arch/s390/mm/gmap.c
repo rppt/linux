@@ -2513,7 +2513,7 @@ static int __zap_zero_pages(pmd_t *pmd, unsigned long start,
 		pte_t *ptep;
 		spinlock_t *ptl;
 
-		ptep = pte_offset_map_lock(walk->mm, pmd, addr, &ptl);
+		ptep = pte_offset_map_lock(mm_pgt(walk->mm), pmd, addr, &ptl);
 		if (is_zero_pfn(pte_pfn(*ptep)))
 			ptep_xchg_direct(walk->mm, addr, ptep, __pte(_PAGE_INVALID));
 		pte_unmap_unlock(ptep, ptl);

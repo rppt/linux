@@ -1870,7 +1870,7 @@ static int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
 		goto out_nolock;
 	}
 
-	pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
+	pte = pte_offset_map_lock(mm_pgt(vma->vm_mm), pmd, addr, &ptl);
 	if (unlikely(!pte_same_as_swp(*pte, swp_entry_to_pte(entry)))) {
 		mem_cgroup_cancel_charge(page, memcg, false);
 		ret = 0;

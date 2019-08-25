@@ -68,7 +68,7 @@ static void hpte_flush_range(struct mm_struct *mm, unsigned long addr,
 	pmd = pmd_offset(pud, addr);
 	if (pmd_none(*pmd))
 		return;
-	pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
+	pte = pte_offset_map_lock(mm_pgt(mm), pmd, addr, &ptl);
 	arch_enter_lazy_mmu_mode();
 	for (; npages > 0; --npages) {
 		pte_update(mm, addr, pte, 0, 0, 0);

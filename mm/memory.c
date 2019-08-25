@@ -1017,7 +1017,7 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	tlb_change_page_size(tlb, PAGE_SIZE);
 again:
 	init_rss_vec(rss);
-	start_pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
+	start_pte = pte_offset_map_lock(mm_pgt(mm), pmd, addr, &ptl);
 	pte = start_pte;
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
@@ -2334,7 +2334,8 @@ static vm_fault_t wp_page_copy(struct vm_fault *vmf)
 	/*
 	 * Re-check the pte - we dropped the lock
 	 */
-	vmf->pte = pte_offset_map_lock(mm, vmf->pmd, vmf->address, &vmf->ptl);
+	vmf->pte = pte_offset_map_lock(mm_pgt(mm), vmf->pmd, vmf->address,
+				       &vmf->ptl);
 	if (likely(pte_same(*vmf->pte, vmf->orig_pte))) {
 		if (old_page) {
 			if (!PageAnon(old_page)) {
@@ -2448,7 +2449,8 @@ oom:
 vm_fault_t finish_mkwrite_fault(struct vm_fault *vmf)
 {
 	WARN_ON_ONCE(!(vmf->vma->vm_flags & VM_SHARED));
-	vmf->pte = pte_offset_map_lock(vmf->vma->vm_mm, vmf->pmd, vmf->address,
+	vmf->pte = pte_offset_map_lock(mm_pgt(vmf->vma->vm_mm), vmf->pmd,
+				       vmf->address,
 				       &vmf->ptl);
 	/*
 	 * We might have raced with another page fault while we released the
@@ -2570,8 +2572,10 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 			get_page(vmf->page);
 			pte_unmap_unlock(vmf->pte, vmf->ptl);
 			lock_page(vmf->page);
-			vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
-					vmf->address, &vmf->ptl);
+			vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm),
+						       vmf->pmd,
+						       vmf->address,
+						       &vmf->ptl);
 			if (!pte_same(*vmf->pte, vmf->orig_pte)) {
 				unlock_page(vmf->page);
 				pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -2785,8 +2789,10 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 			 * Back out if somebody else faulted in this pte
 			 * while we released the pte lock.
 			 */
-			vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
-					vmf->address, &vmf->ptl);
+			vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm),
+						       vmf->pmd,
+						       vmf->address,
+						       &vmf->ptl);
 			if (likely(pte_same(*vmf->pte, vmf->orig_pte)))
 				ret = VM_FAULT_OOM;
 			delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
@@ -2841,8 +2847,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	/*
 	 * Back out if somebody else already faulted in this pte.
 	 */
-	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd, vmf->address,
-			&vmf->ptl);
+	vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm), vmf->pmd,
+				       vmf->address,
+				       &vmf->ptl);
 	if (unlikely(!pte_same(*vmf->pte, vmf->orig_pte)))
 		goto out_nomap;
 
@@ -2972,8 +2979,8 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 			!mm_forbids_zeropage(vma->vm_mm)) {
 		entry = pte_mkspecial(pfn_pte(my_zero_pfn(vmf->address),
 						vma->vm_page_prot));
-		vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
-				vmf->address, &vmf->ptl);
+		vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm), vmf->pmd,
+					       vmf->address, &vmf->ptl);
 		if (!pte_none(*vmf->pte))
 			goto unlock;
 		ret = check_stable_address_space(vma->vm_mm);
@@ -3009,8 +3016,9 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 	if (vma->vm_flags & VM_WRITE)
 		entry = pte_mkwrite(pte_mkdirty(entry));
 
-	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd, vmf->address,
-			&vmf->ptl);
+	vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm), vmf->pmd,
+				       vmf->address,
+				       &vmf->ptl);
 	if (!pte_none(*vmf->pte))
 		goto release;
 
@@ -3156,8 +3164,9 @@ map_pte:
 	 * pte_none() under vmf->ptl protection when we return to
 	 * alloc_set_pte().
 	 */
-	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd, vmf->address,
-			&vmf->ptl);
+	vmf->pte = pte_offset_map_lock(mm_pgt(vma->vm_mm), vmf->pmd,
+				       vmf->address,
+				       &vmf->ptl);
 	return 0;
 }
 
@@ -3587,7 +3596,8 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 		if (unlikely(!pmd_present(*vmf->pmd)))
 			ret = VM_FAULT_SIGBUS;
 		else {
-			vmf->pte = pte_offset_map_lock(vmf->vma->vm_mm,
+			vmf->pte = pte_offset_map_lock(mm_pgt(vmf->vma->vm_mm),
+						       
 						       vmf->pmd,
 						       vmf->address,
 						       &vmf->ptl);
@@ -4160,7 +4170,7 @@ static int __follow_pte_pmd(struct mm_struct *mm, unsigned long address,
 					(address & PAGE_MASK) + PAGE_SIZE);
 		mmu_notifier_invalidate_range_start(range);
 	}
-	ptep = pte_offset_map_lock(mm, pmd, address, ptlp);
+	ptep = pte_offset_map_lock(mm_pgt(mm), pmd, address, ptlp);
 	if (!pte_present(*ptep))
 		goto unlock;
 	*ptepp = ptep;

@@ -2217,7 +2217,7 @@ again:
 	if (unlikely(pmd_bad(*pmdp)))
 		return migrate_vma_collect_skip(start, end, walk);
 
-	ptep = pte_offset_map_lock(mm, pmdp, addr, &ptl);
+	ptep = pte_offset_map_lock(mm_pgt(mm), pmdp, addr, &ptl);
 	arch_enter_lazy_mmu_mode();
 
 	for (; addr < end; addr += PAGE_SIZE, ptep++) {
@@ -2655,7 +2655,7 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 			entry = pte_mkwrite(pte_mkdirty(entry));
 	}
 
-	ptep = pte_offset_map_lock(mm, pmdp, addr, &ptl);
+	ptep = pte_offset_map_lock(mm_pgt(mm), pmdp, addr, &ptl);
 
 	if (pte_present(*ptep)) {
 		unsigned long pfn = pte_pfn(*ptep);

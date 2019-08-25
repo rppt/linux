@@ -2370,7 +2370,7 @@ static int shmem_mfill_atomic_pte(struct mm_struct *dst_mm,
 		set_page_dirty(page);
 	}
 
-	dst_pte = pte_offset_map_lock(dst_mm, dst_pmd, dst_addr, &ptl);
+	dst_pte = pte_offset_map_lock(mm_pgt(dst_mm), dst_pmd, dst_addr, &ptl);
 
 	ret = -EFAULT;
 	max_off = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);

@@ -1989,9 +1989,9 @@ static inline void pgtable_page_dtor(struct page *page)
 	dec_zone_page_state(page, NR_PAGETABLE);
 }
 
-#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
+#define pte_offset_map_lock(pgt, pmd, address, ptlp)	\
 ({							\
-	spinlock_t *__ptl = pte_lockptr(mm_pgt(mm), pmd);	\
+	spinlock_t *__ptl = pte_lockptr(pgt, pmd);	\
 	pte_t *__pte = pte_offset_map(pmd, address);	\
 	*(ptlp) = __ptl;				\
 	spin_lock(__ptl);				\
@@ -2010,7 +2010,7 @@ static inline void pgtable_page_dtor(struct page *page)
 
 #define pte_alloc_map_lock(mm, pmd, address, ptlp)	\
 	(pte_alloc(&((mm)->pgt), pmd) ?			\
-		 NULL : pte_offset_map_lock(mm, pmd, address, ptlp))
+		 NULL : pte_offset_map_lock(mm_pgt(mm),  pmd, address, ptlp))
 
 #define pte_alloc_kernel(pmd, address)			\
 	((unlikely(pmd_none(*(pmd))) && __pte_alloc_kernel(pmd))? \

@@ -148,7 +148,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	 * We don't have to worry about the ordering of src and dst
 	 * pte locks because exclusive mmap_sem prevents deadlock.
 	 */
-	old_pte = pte_offset_map_lock(mm, old_pmd, old_addr, &old_ptl);
+	old_pte = pte_offset_map_lock(mm_pgt(mm), old_pmd, old_addr, &old_ptl);
 	new_pte = pte_offset_map(new_pmd, new_addr);
 	new_ptl = pte_lockptr(mm_pgt(mm), new_pmd);
 	if (new_ptl != old_ptl)

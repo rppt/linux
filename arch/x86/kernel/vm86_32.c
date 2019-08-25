@@ -190,7 +190,7 @@ static void mark_screen_rdonly(struct mm_struct *mm)
 	}
 	if (pmd_none_or_clear_bad(pmd))
 		goto out;
-	pte = pte_offset_map_lock(mm, pmd, 0xA0000, &ptl);
+	pte = pte_offset_map_lock(mm_pgt(mm), pmd, 0xA0000, &ptl);
 	for (i = 0; i < 32; i++) {
 		if (pte_present(*pte))
 			set_pte(pte, pte_wrprotect(*pte));

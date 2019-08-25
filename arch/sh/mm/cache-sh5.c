@@ -405,7 +405,7 @@ static void sh64_dcache_purge_user_pages(struct mm_struct *mm,
 	if (pmd_none(*pmd) || pmd_bad(*pmd))
 		return;
 
-	pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
+	pte = pte_offset_map_lock(mm_pgt(mm), pmd, addr, &ptl);
 	do {
 		entry = *pte;
 		if (pte_none(entry) || !pte_present(entry))

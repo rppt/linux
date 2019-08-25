@@ -198,7 +198,7 @@ retry:
 	if (unlikely(pmd_bad(*pmd)))
 		return no_page_table(vma, flags);
 
-	ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
+	ptep = pte_offset_map_lock(mm_pgt(mm), pmd, address, &ptl);
 	pte = *ptep;
 	if (!pte_present(pte)) {
 		swp_entry_t entry;

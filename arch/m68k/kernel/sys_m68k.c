@@ -477,7 +477,8 @@ sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 		pmd = pmd_offset(pgd, (unsigned long)mem);
 		if (!pmd_present(*pmd))
 			goto bad_access;
-		pte = pte_offset_map_lock(mm, pmd, (unsigned long)mem, &ptl);
+		pte = pte_offset_map_lock(mm_pgt(mm), pmd, (unsigned long)mem,
+					  &ptl);
 		if (!pte_present(*pte) || !pte_dirty(*pte)
 		    || !pte_write(*pte)) {
 			pte_unmap_unlock(pte, ptl);
