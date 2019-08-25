@@ -150,7 +150,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	 */
 	old_pte = pte_offset_map_lock(mm, old_pmd, old_addr, &old_ptl);
 	new_pte = pte_offset_map(new_pmd, new_addr);
-	new_ptl = pte_lockptr(mm, new_pmd);
+	new_ptl = pte_lockptr(mm_pgt(mm), new_pmd);
 	if (new_ptl != old_ptl)
 		spin_lock_nested(new_ptl, SINGLE_DEPTH_NESTING);
 	flush_tlb_batched_pending(vma->vm_mm);

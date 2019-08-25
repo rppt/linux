@@ -1933,7 +1933,7 @@ static inline spinlock_t *ptlock_ptr(struct page *page)
 }
 #endif /* ALLOC_SPLIT_PTLOCKS */
 
-static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
+static inline spinlock_t *pte_lockptr(struct pg_table *pgt, pmd_t *pmd)
 {
 	return ptlock_ptr(pmd_page(*pmd));
 }
@@ -1958,9 +1958,9 @@ static inline bool ptlock_init(struct page *page)
 /*
  * We use mm->pgt.page_table_lock to guard all pagetable pages of the mm.
  */
-static inline spinlock_t *pte_lockptr(struct mm_struct *mm, pmd_t *pmd)
+static inline spinlock_t *pte_lockptr(struct pg_table *pgt, pmd_t *pmd)
 {
-	return &mm->pgt.page_table_lock;
+	return &pgt->page_table_lock;
 }
 static inline void ptlock_cache_init(void) {}
 static inline bool ptlock_init(struct page *page) { return true; }
@@ -1991,7 +1991,7 @@ static inline void pgtable_page_dtor(struct page *page)
 
 #define pte_offset_map_lock(mm, pmd, address, ptlp)	\
 ({							\
-	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
+	spinlock_t *__ptl = pte_lockptr(mm_pgt(mm), pmd);	\
 	pte_t *__pte = pte_offset_map(pmd, address);	\
 	*(ptlp) = __ptl;				\
 	spin_lock(__ptl);				\

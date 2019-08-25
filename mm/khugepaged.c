@@ -1017,7 +1017,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	anon_vma_lock_write(vma->anon_vma);
 
 	pte = pte_offset_map(pmd, address);
-	pte_ptl = pte_lockptr(mm, pmd);
+	pte_ptl = pte_lockptr(mm_pgt(mm), pmd);
 
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, NULL, mm,
 				address, address + HPAGE_PMD_SIZE);

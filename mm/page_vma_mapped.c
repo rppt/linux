@@ -47,7 +47,7 @@ static bool map_pte(struct page_vma_mapped_walk *pvmw)
 				return false;
 		}
 	}
-	pvmw->ptl = pte_lockptr(pvmw->vma->vm_mm, pvmw->pmd);
+	pvmw->ptl = pte_lockptr(mm_pgt(pvmw->vma->vm_mm), pvmw->pmd);
 	spin_lock(pvmw->ptl);
 	return true;
 }
@@ -240,7 +240,7 @@ next_pte:
 		} while (pte_none(*pvmw->pte));
 
 		if (!pvmw->ptl) {
-			pvmw->ptl = pte_lockptr(mm, pvmw->pmd);
+			pvmw->ptl = pte_lockptr(mm_pgt(mm), pvmw->pmd);
 			spin_lock(pvmw->ptl);
 		}
 	}

@@ -284,7 +284,7 @@ void assert_pte_locked(struct mm_struct *mm, unsigned long addr)
 	if (pmd_none(*pmd))
 		return;
 	BUG_ON(!pmd_present(*pmd));
-	assert_spin_locked(pte_lockptr(mm, pmd));
+	assert_spin_locked(pte_lockptr(mm_pgt(mm), pmd));
 }
 #endif /* CONFIG_DEBUG_VM */
 
