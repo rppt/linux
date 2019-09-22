@@ -2005,8 +2005,8 @@ static inline void pgtable_page_dtor(struct page *page)
 
 #define pte_alloc(pgt, pmd) (unlikely(pmd_none(*(pmd))) && __pte_alloc(pgt, pmd))
 
-#define pte_alloc_map(mm, pmd, address)			\
-	(pte_alloc(&((mm)->pgt), pmd) ? NULL : pte_offset_map(pmd, address))
+#define pte_alloc_map(pgt, pmd, address)			\
+	(pte_alloc(pgt, pmd) ? NULL : pte_offset_map(pmd, address))
 
 #define pte_alloc_map_lock(pgt, pmd, address, ptlp)	\
 	(pte_alloc(pgt, pmd) ?				\

@@ -291,7 +291,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 		return NULL;
 	if (sz >= PMD_SIZE)
 		return (pte_t *)pmd;
-	return pte_alloc_map(mm, pmd, addr);
+	return pte_alloc_map(mm_pgt(mm), pmd, addr);
 }
 
 pte_t *huge_pte_offset(struct mm_struct *mm,
