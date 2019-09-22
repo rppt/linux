@@ -83,6 +83,7 @@ struct mm_struct efi_mm = {
 	.mmap_sem		= __RWSEM_INITIALIZER(efi_mm.mmap_sem),
 	.pgt			= {
 		.page_table_lock = __SPIN_LOCK_UNLOCKED(efi_mm.pgt.page_table_lock),
+		.mm		 = &efi_mm,
 	},
 	.mmlist			= LIST_HEAD_INIT(efi_mm.mmlist),
 	.cpu_bitmap		= { [BITS_TO_LONGS(NR_CPUS)] = 0},

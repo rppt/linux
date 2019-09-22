@@ -33,6 +33,7 @@ struct mm_struct init_mm = {
 	.pgt			= {
 		.page_table_lock = __SPIN_LOCK_UNLOCKED(init_mm.pgt.page_table_lock),
 		.pgd		= swapper_pg_dir,
+		.mm		= &init_mm,
 	},
 	.arg_lock	=  __SPIN_LOCK_UNLOCKED(init_mm.arg_lock),
 	.mmlist		= LIST_HEAD_INIT(init_mm.mmlist),

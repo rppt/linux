@@ -361,6 +361,8 @@ struct core_state {
 	struct completion startup;
 };
 
+struct mm_struct;
+
 struct pg_table {
 #ifdef CONFIG_MMU
 	atomic_long_t pgtables_bytes;	/* PTE page table pages */
@@ -369,6 +371,7 @@ struct pg_table {
 					  * counters
 					  */
 	pgd_t *pgd;
+	struct mm_struct *mm;
 };
 
 struct kioctx_table;

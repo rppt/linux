@@ -91,6 +91,7 @@ static struct mm_struct tboot_mm = {
 	.pgt		= {
 		.pgd            = swapper_pg_dir,
 		.page_table_lock =  __SPIN_LOCK_UNLOCKED(init_mm.pgt.page_table_lock),
+		.mm		= &tboot_mm,
 	},
 	.mm_users       = ATOMIC_INIT(2),
 	.mm_count       = ATOMIC_INIT(1),
