@@ -783,7 +783,7 @@ int set_guest_storage_key(struct mm_struct *mm, unsigned long addr,
 	}
 	spin_unlock(ptl);
 
-	ptep = pte_alloc_map_lock(mm, pmdp, addr, &ptl);
+	ptep = pte_alloc_map_lock(mm_pgt(mm), pmdp, addr, &ptl);
 	if (unlikely(!ptep))
 		return -EFAULT;
 
@@ -882,7 +882,7 @@ int reset_guest_reference_bit(struct mm_struct *mm, unsigned long addr)
 	}
 	spin_unlock(ptl);
 
-	ptep = pte_alloc_map_lock(mm, pmdp, addr, &ptl);
+	ptep = pte_alloc_map_lock(mm_pgt(mm), pmdp, addr, &ptl);
 	if (unlikely(!ptep))
 		return -EFAULT;
 
@@ -938,7 +938,7 @@ int get_guest_storage_key(struct mm_struct *mm, unsigned long addr,
 	}
 	spin_unlock(ptl);
 
-	ptep = pte_alloc_map_lock(mm, pmdp, addr, &ptl);
+	ptep = pte_alloc_map_lock(mm_pgt(mm), pmdp, addr, &ptl);
 	if (unlikely(!ptep))
 		return -EFAULT;
 

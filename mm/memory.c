@@ -795,7 +795,7 @@ static int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 again:
 	init_rss_vec(rss);
 
-	dst_pte = pte_alloc_map_lock(dst_mm, dst_pmd, addr, &dst_ptl);
+	dst_pte = pte_alloc_map_lock(mm_pgt(dst_mm), dst_pmd, addr, &dst_ptl);
 	if (!dst_pte)
 		return -ENOMEM;
 	src_pte = pte_offset_map(src_pmd, addr);
@@ -1404,7 +1404,7 @@ pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 		return NULL;
 
 	VM_BUG_ON(pmd_trans_huge(*pmd));
-	return pte_alloc_map_lock(mm, pmd, addr, ptl);
+	return pte_alloc_map_lock(mm_pgt(mm), pmd, addr, ptl);
 }
 
 /*
@@ -1791,7 +1791,7 @@ static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
 	spinlock_t *ptl;
 	int err = 0;
 
-	pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
+	pte = pte_alloc_map_lock(mm_pgt(mm), pmd, addr, &ptl);
 	if (!pte)
 		return -ENOMEM;
 	arch_enter_lazy_mmu_mode();
@@ -2006,7 +2006,7 @@ static int apply_to_pte_range(struct mm_struct *mm, pmd_t *pmd,
 
 	pte = (mm == &init_mm) ?
 		pte_alloc_kernel(pmd, addr) :
-		pte_alloc_map_lock(mm, pmd, addr, &ptl);
+		pte_alloc_map_lock(mm_pgt(mm), pmd, addr, &ptl);
 	if (!pte)
 		return -ENOMEM;
 
@@ -3597,7 +3597,7 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 			ret = VM_FAULT_SIGBUS;
 		else {
 			vmf->pte = pte_offset_map_lock(mm_pgt(vmf->vma->vm_mm),
-						       
+
 						       vmf->pmd,
 						       vmf->address,
 						       &vmf->ptl);
