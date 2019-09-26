@@ -175,9 +175,9 @@ static void __init pti_setup_vsyscall(void)
 	if (!pte || WARN_ON(level != PG_LEVEL_4K) || pte_none(*pte))
 		return;
 
-	err = asi_map_phys_range(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
-				 __pgprot(pte_flags(*pte)), VSYSCALL_ADDR,
-				 PFN_PHYS(pte_pfn(*pte)), 1);
+	err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+			   VSYSCALL_ADDR, PFN_PHYS(pte_pfn(*pte)),
+			   __pgprot(pte_flags(*pte)));
 	if (WARN_ON(err))
 		return;
 
@@ -279,9 +279,8 @@ static void __init pti_clone_user_shared(void)
 		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
 		int err;
 
-		err = asi_map_phys_range(&init_mm,
-					 kernel_to_user_pgdp(init_mm.pgd),
-					 PAGE_KERNEL, va, pa, 1);
+		err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+				   va, pa,  PAGE_KERNEL);
 		WARN_ON(err);
 	}
 }

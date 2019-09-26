@@ -193,49 +193,37 @@ int asi_clone_pgd_range(struct mm_struct *dst_mm,
 	return 0;
 }
 
-static int asi_map_phys_page(struct mm_struct *mm, pgd_t *pgdp, pgprot_t prot,
-			     unsigned long va, phys_addr_t pa)
+int asi_map_range(struct mm_struct *mm, pgd_t *pgdp,
+		  unsigned long virt, phys_addr_t phys, pgprot_t prot,
+		  int nr_pages)
 {
-	pte_t *pte;
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
+	int i;
 
-	pgd = pgd_offset_pgd(pgdp, va);
-	if (!pgd_present(*pgd))
-		set_pgd(pgd, __pgd(pa | check_pgprot(prot)));
+	for (i = 0; i < nr_pages; i++) {
+		pte_t *pte;
+		pgd_t *pgd;
+		p4d_t *p4d;
+		pud_t *pud;
+		pmd_t *pmd;
 
-	p4d = p4d_alloc(mm, pgd, va);
-	if (!p4d)
-		return -ENOMEM;
+		pgd = pgd_offset_pgd(pgdp, virt);
+		if (!pgd_present(*pgd))
+			set_pgd(pgd, __pgd(phys | check_pgprot(prot)));
 
-	pud = pud_alloc(mm, p4d, va);
-	if (!pud)
-		return -ENOMEM;
+		p4d = p4d_alloc(mm, pgd, virt);
+		if (!p4d)
+			return -ENOMEM;
 
-	pmd = pmd_alloc(mm, pud, va);
-	if (!pmd)
-		return -ENOMEM;
+		pud = pud_alloc(mm, p4d, virt);
+		if (!pud)
+			return -ENOMEM;
 
-	pte = pte_alloc_map(mm, pmd, va);
-	set_pte(pte, __pte(pa | check_pgprot(prot)));
+		pmd = pmd_alloc(mm, pud, virt);
+		if (!pmd)
+			return -ENOMEM;
 
-	return 0;
-}
-
-int asi_map_phys_range(struct mm_struct *mm, pgd_t *pgd, pgprot_t prot,
-		       unsigned long va, phys_addr_t pa, int n)
-{
-	int i, err;
-
-	for (i = 0; i < n; i++) {
-		err = asi_map_phys_page(mm, pgd, prot,
-					va + i * PAGE_SIZE,
-					pa + i * PAGE_SIZE);
-
-		if (err)
-			return err;
+		pte = pte_alloc_map(mm, pmd, virt);
+		set_pte(pte, __pte(phys | check_pgprot(prot)));
 	}
 
 	return 0;
