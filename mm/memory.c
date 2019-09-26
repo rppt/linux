@@ -71,6 +71,7 @@
 #include <linux/dax.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/pagewalk.h>
 
 #include <asm/io.h>
 #include <asm/mmu_context.h>
@@ -2001,17 +2002,24 @@ int vm_iomap_memory(struct vm_area_struct *vma, phys_addr_t start, unsigned long
 }
 EXPORT_SYMBOL(vm_iomap_memory);
 
-static int apply_to_pte_range(struct mm_struct *mm, pmd_t *pmd,
-				     unsigned long addr, unsigned long end,
-				     pte_fn_t fn, void *data)
+struct apply_page_range_walk {
+	pte_fn_t fn;
+	void *data;
+};
+
+static int apply_to_pte_range(pmd_t *pmd, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
 {
+	struct apply_page_range_walk *walk_data = walk->private;
+	void *data = walk_data->data;
+	pte_fn_t fn = walk_data->fn;
 	pte_t *pte;
 	int err;
 	spinlock_t *uninitialized_var(ptl);
 
-	pte = (mm == &init_mm) ?
+	pte = (walk->mm == &init_mm) ?
 		pte_alloc_kernel(pmd, addr) :
-		pte_alloc_map_lock(mm, pmd, addr, &ptl);
+		pte_alloc_map_lock(walk->mm, pmd, addr, &ptl);
 	if (!pte)
 		return -ENOMEM;
 
@@ -2023,76 +2031,59 @@ static int apply_to_pte_range(struct mm_struct *mm, pmd_t *pmd,
 		err = fn(pte++, addr, data);
 		if (err)
 			break;
-	} while (addr += PAGE_SIZE, addr != end);
+	} while (addr += PAGE_SIZE, addr != next);
 
 	arch_leave_lazy_mmu_mode();
 
-	if (mm != &init_mm)
+	if (walk->mm != &init_mm)
 		pte_unmap_unlock(pte-1, ptl);
+
 	return err;
 }
 
-static int apply_to_pmd_range(struct mm_struct *mm, pud_t *pud,
-				     unsigned long addr, unsigned long end,
-				     pte_fn_t fn, void *data)
+static int apply_to_pmd_range(pud_t *pud, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
 {
 	pmd_t *pmd;
-	unsigned long next;
-	int err;
 
 	BUG_ON(pud_huge(*pud));
 
-	pmd = pmd_alloc(mm, pud, addr);
+	pmd = pmd_alloc(walk->mm, pud, addr);
 	if (!pmd)
 		return -ENOMEM;
-	do {
-		next = pmd_addr_end(addr, end);
-		err = apply_to_pte_range(mm, pmd, addr, next, fn, data);
-		if (err)
-			break;
-	} while (pmd++, addr = next, addr != end);
-	return err;
+
+	return 0;
 }
 
-static int apply_to_pud_range(struct mm_struct *mm, p4d_t *p4d,
-				     unsigned long addr, unsigned long end,
-				     pte_fn_t fn, void *data)
+static int apply_to_pud_range(p4d_t *p4d, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
 {
-	pud_t *pud;
-	unsigned long next;
-	int err;
+	pud_t *pud = pud_alloc(walk->mm, p4d, addr);
 
-	pud = pud_alloc(mm, p4d, addr);
 	if (!pud)
 		return -ENOMEM;
-	do {
-		next = pud_addr_end(addr, end);
-		err = apply_to_pmd_range(mm, pud, addr, next, fn, data);
-		if (err)
-			break;
-	} while (pud++, addr = next, addr != end);
-	return err;
+
+	return 0;
 }
 
-static int apply_to_p4d_range(struct mm_struct *mm, pgd_t *pgd,
-				     unsigned long addr, unsigned long end,
-				     pte_fn_t fn, void *data)
+static int apply_to_p4d_range(pgd_t *pgd, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
 {
-	p4d_t *p4d;
-	unsigned long next;
-	int err;
+	p4d_t *p4d = p4d_alloc(walk->mm, pgd, addr);
 
-	p4d = p4d_alloc(mm, pgd, addr);
 	if (!p4d)
 		return -ENOMEM;
-	do {
-		next = p4d_addr_end(addr, end);
-		err = apply_to_pud_range(mm, p4d, addr, next, fn, data);
-		if (err)
-			break;
-	} while (p4d++, addr = next, addr != end);
-	return err;
+
+	return 0;
 }
+
+static const struct mm_walk_ops apply_page_range_walk_ops = {
+	.pgd_entry = apply_to_p4d_range,
+	.p4d_entry = apply_to_pud_range,
+	.pud_entry = apply_to_pmd_range,
+	.pmd_entry = apply_to_pte_range,
+	.flags = PAGEWALK_ALLOC_P4D | PAGEWALK_ALLOC_PUD | PAGEWALK_ALLOC_PMD,
+};
 
 /*
  * Scan a region of virtual memory, filling in page tables as necessary
@@ -2101,23 +2092,17 @@ static int apply_to_p4d_range(struct mm_struct *mm, pgd_t *pgd,
 int apply_to_page_range(struct mm_struct *mm, unsigned long addr,
 			unsigned long size, pte_fn_t fn, void *data)
 {
-	pgd_t *pgd;
-	unsigned long next;
+	struct apply_page_range_walk walk_data = {
+		.fn = fn,
+		.data = data,
+	};
 	unsigned long end = addr + size;
-	int err;
 
 	if (WARN_ON(addr >= end))
 		return -EINVAL;
 
-	pgd = pgd_offset(mm, addr);
-	do {
-		next = pgd_addr_end(addr, end);
-		err = apply_to_p4d_range(mm, pgd, addr, next, fn, data);
-		if (err)
-			break;
-	} while (pgd++, addr = next, addr != end);
-
-	return err;
+	return walk_page_range(mm, addr, end, &apply_page_range_walk_ops,
+			       &walk_data);
 }
 EXPORT_SYMBOL_GPL(apply_to_page_range);
 

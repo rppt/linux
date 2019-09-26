@@ -6,6 +6,11 @@
 
 struct mm_walk;
 
+#define PAGEWALK_ALLOC_PTE (1UL << 0)
+#define PAGEWALK_ALLOC_PMD (1UL << 1)
+#define PAGEWALK_ALLOC_PUD (1UL << 2)
+#define PAGEWALK_ALLOC_P4D (1UL << 3)
+
 /**
  * mm_walk_ops - callbacks for walk_page_range
  * @pgd_entry:		if set, called for each non-empty PGD (top-level) entry
@@ -31,6 +36,7 @@ struct mm_walk;
  * @test_p4d:		similar to test_walk(), but called for every p4d.
  *			Returning 0 means walk this part of the page tables,
  *			returning 1 means to skip this range.
+ * @flags:		used to specify options for the page walk.
  */
 struct mm_walk_ops {
 	int (*pgd_entry)(pgd_t *pgd, unsigned long addr,
@@ -56,6 +62,7 @@ struct mm_walk_ops {
 			pud_t *pud_start, struct mm_walk *walk);
 	int (*test_p4d)(unsigned long addr, unsigned long next,
 			p4d_t *p4d_start, struct mm_walk *walk);
+	unsigned long flags;
 };
 
 /**
