@@ -36,8 +36,6 @@ void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 /*
  * These are used to make use of C type-checking..
  */
-#define STRICT_MM_TYPECHECKS
-#ifdef STRICT_MM_TYPECHECKS
 typedef struct { unsigned long pte; } pte_t; /* either 32 or 64bit */
 
 /* NOTE: even on 64 bits, these entries are __u32 because we allocate
@@ -59,30 +57,6 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 
 #define __pmd_val_set(x,n) (x).pmd = (n)
 #define __pgd_val_set(x,n) (x).pgd = (n)
-
-#else
-/*
- * .. while these make it easier on the compiler
- */
-typedef unsigned long pte_t;
-typedef         __u32 pmd_t;
-typedef         __u32 pgd_t;
-typedef unsigned long pgprot_t;
-
-#define pte_val(x)      (x)
-#define pmd_val(x)      (x)
-#define pgd_val(x)      (x)
-#define pgprot_val(x)   (x)
-
-#define __pte(x)        (x)
-#define __pmd(x)	(x)
-#define __pgd(x)        (x)
-#define __pgprot(x)     (x)
-
-#define __pmd_val_set(x,n) (x) = (n)
-#define __pgd_val_set(x,n) (x) = (n)
-
-#endif /* STRICT_MM_TYPECHECKS */
 
 typedef struct page *pgtable_t;
 
