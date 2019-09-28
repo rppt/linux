@@ -233,10 +233,10 @@ static void tlb_entry_erase(unsigned int vaddr_n_asid)
 static void tlb_entry_insert(unsigned int pd0, pte_t pd1)
 {
 	write_aux_reg(ARC_REG_TLBPD0, pd0);
-	write_aux_reg(ARC_REG_TLBPD1, pd1);
+	write_aux_reg(ARC_REG_TLBPD1, pte_val(pd1));
 
 	if (is_pae40_enabled())
-		write_aux_reg(ARC_REG_TLBPD1HI, (u64)pd1 >> 32);
+		write_aux_reg(ARC_REG_TLBPD1HI, (u64)pte_val(pd1) >> 32);
 
 	write_aux_reg(ARC_REG_TLBCOMMAND, TLBInsertEntry);
 }
@@ -577,7 +577,7 @@ void create_tlb(struct vm_area_struct *vma, unsigned long vaddr, pte_t *ptep)
 	else
 		rwx |= (rwx << 3);	/* r w x => Kr Kw Kx Ur Uw Ux */
 
-	pd1 = rwx | (pte_val(*ptep) & PTE_BITS_NON_RWX_IN_PD1);
+	pd1 = __pte(rwx | (pte_val(*ptep) & PTE_BITS_NON_RWX_IN_PD1));
 
 	tlb_entry_insert(pd0, pd1);
 
