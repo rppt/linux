@@ -60,7 +60,6 @@
 # define __pa(x)		((x) - PAGE_OFFSET)
 # define __va(x)		((x) + PAGE_OFFSET)
 #else /* !__ASSEMBLY */
-#  define STRICT_MM_TYPECHECKS
 
 extern void clear_page (void *page);
 extern void copy_page (void *to, void *from);
@@ -167,20 +166,17 @@ get_order (unsigned long size)
 	return order;
 }
 
-#endif /* !__ASSEMBLY__ */
-
-#ifdef STRICT_MM_TYPECHECKS
-  /*
-   * These are used to make use of C type-checking..
-   */
-  typedef struct { unsigned long pte; } pte_t;
-  typedef struct { unsigned long pmd; } pmd_t;
+/*
+ * These are used to make use of C type-checking..
+ */
+typedef struct { unsigned long pte; } pte_t;
+typedef struct { unsigned long pmd; } pmd_t;
 #if CONFIG_PGTABLE_LEVELS == 4
-  typedef struct { unsigned long pud; } pud_t;
+typedef struct { unsigned long pud; } pud_t;
 #endif
-  typedef struct { unsigned long pgd; } pgd_t;
-  typedef struct { unsigned long pgprot; } pgprot_t;
-  typedef struct page *pgtable_t;
+typedef struct { unsigned long pgd; } pgd_t;
+typedef struct { unsigned long pgprot; } pgprot_t;
+typedef struct page *pgtable_t;
 
 # define pte_val(x)	((x).pte)
 # define pmd_val(x)	((x).pmd)
@@ -194,27 +190,7 @@ get_order (unsigned long size)
 # define __pmd(x)	((pmd_t) { (x) } )
 # define __pgprot(x)	((pgprot_t) { (x) } )
 
-#else /* !STRICT_MM_TYPECHECKS */
-  /*
-   * .. while these make it easier on the compiler
-   */
-# ifndef __ASSEMBLY__
-    typedef unsigned long pte_t;
-    typedef unsigned long pmd_t;
-    typedef unsigned long pgd_t;
-    typedef unsigned long pgprot_t;
-    typedef struct page *pgtable_t;
-# endif
-
-# define pte_val(x)	(x)
-# define pmd_val(x)	(x)
-# define pgd_val(x)	(x)
-# define pgprot_val(x)	(x)
-
-# define __pte(x)	(x)
-# define __pgd(x)	(x)
-# define __pgprot(x)	(x)
-#endif /* !STRICT_MM_TYPECHECKS */
+#endif /* !__ASSEMBLY__ */
 
 #define PAGE_OFFSET			RGN_BASE(RGN_KERNEL)
 
