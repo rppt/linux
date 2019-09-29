@@ -206,7 +206,7 @@ GLOBAL_ENTRY(ia64_switch_to)
 
 .map:
 	RSM_PSR_IC(r25)			// interrupts (psr.i) are already disabled here
-	movl r25=PAGE_KERNEL
+	movl r25=__PAGE_KERNEL
 	;;
 	srlz.d
 	or r23=r25,r20			// construct PA | page properties

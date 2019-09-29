@@ -173,7 +173,7 @@ ia64_reload_tr:
 	mov cr.ifa=r17
         mov r16=IA64_TR_KERNEL
 	mov r19=ip
-	movl r18=PAGE_KERNEL
+	movl r18=__PAGE_KERNEL
 	;;
         dep r17=0,r19,0, KERNEL_TR_PAGE_SHIFT
 	;;
@@ -211,7 +211,7 @@ ia64_reload_tr:
 	movl r19=PAGE_OFFSET
 	;;
 	add r18=r19,r16
-	movl r20=PAGE_KERNEL
+	movl r20=__PAGE_KERNEL
 	;;
 	add r16=r20,r16
 	mov r19=IA64_GRANULE_SHIFT<<2
@@ -874,7 +874,7 @@ ia64_state_restore:
 
 	extr.u r19=r13,61,3			// r13 = prev_IA64_KR_CURRENT
 	shl r20=r16,IA64_GRANULE_SHIFT		// r16 = prev_IA64_KR_CURRENT_STACK
-	movl r21=PAGE_KERNEL			// page properties
+	movl r21=__PAGE_KERNEL			// page properties
 	;;
 	mov IA64_KR(CURRENT_STACK)=r16
 	cmp.ne p6,p0=RGN_KERNEL,r19		// new stack is in the kernel region?
@@ -1048,7 +1048,7 @@ ia64_set_kernel_registers:
 	srlz.d
 
 	shr.u r16=r20,IA64_GRANULE_SHIFT	// r20 = physical start of MCA/INIT stack
-	movl r21=PAGE_KERNEL			// page properties
+	movl r21=__PAGE_KERNEL			// page properties
 	;;
 	mov IA64_KR(CURRENT_STACK)=r16
 	or r21=r20,r21				// construct PA | page properties

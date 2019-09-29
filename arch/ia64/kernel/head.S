@@ -243,7 +243,7 @@ start_ap:
 	mov cr.ifa=r17
 	mov r16=IA64_TR_KERNEL
 	mov r3=ip
-	movl r18=PAGE_KERNEL
+	movl r18=__PAGE_KERNEL
 	;;
 	dep r2=0,r3,0,KERNEL_TR_PAGE_SHIFT
 	;;
@@ -318,7 +318,7 @@ start_ap:
 
 	// load mapping for stack (virtaddr in r2, physaddr in r3)
 	rsm psr.ic
-	movl r17=PAGE_KERNEL
+	movl r17=__PAGE_KERNEL
 	;;
 	srlz.d
 	dep r18=0,r3,0,12

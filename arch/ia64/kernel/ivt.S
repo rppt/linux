@@ -340,7 +340,7 @@ END(dtlb_miss)
 ENTRY(alt_itlb_miss)
 	DBG_FAULT(3)
 	MOV_FROM_IFA(r16)	// get address that caused the TLB miss
-	movl r17=PAGE_KERNEL
+	movl r17=__PAGE_KERNEL
 	MOV_FROM_IPSR(p0, r21)
 	movl r19=(((1 << IA64_MAX_PHYS_BITS) - 1) & ~0xfff)
 	mov r31=pr
@@ -378,7 +378,7 @@ END(alt_itlb_miss)
 ENTRY(alt_dtlb_miss)
 	DBG_FAULT(4)
 	MOV_FROM_IFA(r16)	// get address that caused the TLB miss
-	movl r17=PAGE_KERNEL
+	movl r17=__PAGE_KERNEL
 	MOV_FROM_ISR(r20)
 	movl r19=(((1 << IA64_MAX_PHYS_BITS) - 1) & ~0xfff)
 	MOV_FROM_IPSR(p0, r21)

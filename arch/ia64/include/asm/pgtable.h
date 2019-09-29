@@ -130,6 +130,15 @@
 #define USER_PTRS_PER_PGD	(5*PTRS_PER_PGD/8)	/* regions 0-4 are user regions */
 #define FIRST_USER_ADDRESS	0UL
 
+#define __PAGE_KERNEL		(__DIRTY_BITS  | _PAGE_PL_0 | _PAGE_AR_RWX)
+
+# ifndef __ASSEMBLY__
+
+#include <linux/sched/mm.h>	/* for mm_struct */
+#include <linux/bitops.h>
+#include <asm/cacheflush.h>
+#include <asm/mmu_context.h>
+
 /*
  * All the normal masks have the "page accessed" bits on, as any time
  * they are used, the page is accessed. They are cleared only by the
@@ -141,17 +150,10 @@
 #define PAGE_COPY	__pgprot(__ACCESS_BITS | _PAGE_PL_3 | _PAGE_AR_R)
 #define PAGE_COPY_EXEC	__pgprot(__ACCESS_BITS | _PAGE_PL_3 | _PAGE_AR_RX)
 #define PAGE_GATE	__pgprot(__ACCESS_BITS | _PAGE_PL_0 | _PAGE_AR_X_RX)
-#define PAGE_KERNEL	__pgprot(__DIRTY_BITS  | _PAGE_PL_0 | _PAGE_AR_RWX)
+#define PAGE_KERNEL	__pgprot(__PAGE_KERNEL)
 #define PAGE_KERNELRX	__pgprot(__ACCESS_BITS | _PAGE_PL_0 | _PAGE_AR_RX)
 #define PAGE_KERNEL_UC	__pgprot(__DIRTY_BITS  | _PAGE_PL_0 | _PAGE_AR_RWX | \
 				 _PAGE_MA_UC)
-
-# ifndef __ASSEMBLY__
-
-#include <linux/sched/mm.h>	/* for mm_struct */
-#include <linux/bitops.h>
-#include <asm/cacheflush.h>
-#include <asm/mmu_context.h>
 
 /*
  * Next come the mappings that determine how mmap() protection bits
