@@ -1299,7 +1299,12 @@ static inline struct mem_cgroup *page_memcg_rcu(struct page *page)
 
 static __always_inline void *lowmem_page_address(const struct page *page)
 {
-	return page_to_virt(page);
+	void *addr = page_to_virt(page);
+
+	if (PageExclusive((struct page*)page))
+		addr -= EXCLUSIVE_START;
+
+	return addr;
 }
 
 #if defined(CONFIG_HIGHMEM) && !defined(WANT_PAGE_VIRTUAL)
