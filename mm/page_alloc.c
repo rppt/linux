@@ -68,7 +68,6 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
-#include <linux/set_memory.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1125,44 +1124,6 @@ static void kernel_init_free_pages(struct page *page, int numpages)
 		clear_highpage(page + i);
 }
 
-struct page_excl_data {
-	struct page **page;
-	pgprot_t prot;
-};
-
-static int unmake_fn(pte_t *pte, unsigned long addr, void *data)
-{
-	struct page_excl_data *ped = data;
-	struct page *page = *(ped->page);
-
-	__ClearPageExclusive(page);
-	pte_clear(current->mm, addr, pte);
-	set_direct_map_default_noflush(page);
-	ped->page++;
-
-	return 0;
-}
-
-static inline void page_unmake_exclusive(struct page *page, unsigned int order)
-{
-	struct page_excl_data ped = {
-		.page = &page,
-		.prot = PAGE_KERNEL,
-	};
-	unsigned long addr = (unsigned long)page_address(page);
-	unsigned long end = addr + (order << PAGE_SHIFT);
-	int err;
-
-	if (!current->mm)
-		return;
-
-	err = apply_to_page_range(current->mm, addr, end, unmake_fn, &ped);
-	if (err)
-		return;
-
-	flush_tlb_kernel_range(addr, end);
-}
-
 static __always_inline bool free_pages_prepare(struct page *page,
 					unsigned int order, bool check_free)
 {
@@ -1198,8 +1159,6 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageKmemcg(page))
 		__memcg_kmem_uncharge(page, order);
-	if (PageExclusive(page))
-		page_unmake_exclusive(page, order);
 	if (check_free)
 		bad += free_pages_check(page);
 	if (bad)
@@ -4717,50 +4676,6 @@ static inline void finalise_ac(gfp_t gfp_mask, struct alloc_context *ac)
 					ac->high_zoneidx, ac->nodemask);
 }
 
-static int make_fn(pte_t *pte, unsigned long addr, void *data)
-{
-	struct page_excl_data *ped = data;
-	struct page *page = *(ped->page);
-	pgprot_t prot = ped->prot;
-	int err;
-
-	set_pte_at(current->mm, addr, pte, mk_pte(page, prot));
-
-	err = set_direct_map_invalid_noflush(page);
-        if (err) {
-                pte_clear(current->mm, addr, pte);
-		return err;
-	}
-
-	__SetPageExclusive(page);
-	ped->page++;
-
-	return 0;
-}
-
-static inline int page_make_exclusive(struct page *page, unsigned int order)
-{
-	struct page_excl_data ped = {
-		.page = &page,
-		.prot = PAGE_KERNEL,
-	};
-	unsigned long addr = (unsigned long)page_address(page) +
-		EXCLUSIVE_START;
-	unsigned long end = addr + (order << PAGE_SHIFT);
-	int err;
-
-	if (!current->mm)
-		return -ESRCH;
-
-	err = apply_to_page_range(current->mm, addr, end, make_fn, &ped);
-	if (err)
-		return err;
-
-	flush_tlb_kernel_range(addr, end);
-
-	return 0;
-}
-
 /*
  * This is the 'heart' of the zoned buddy allocator.
  */
@@ -4821,12 +4736,6 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 out:
 	if (memcg_kmem_enabled() && (gfp_mask & __GFP_ACCOUNT) && page &&
 	    unlikely(__memcg_kmem_charge(page, gfp_mask, order) != 0)) {
-		__free_pages(page, order);
-		page = NULL;
-	}
-
-	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
-	    page_make_exclusive(page, order) != 0) {
 		__free_pages(page, order);
 		page = NULL;
 	}
