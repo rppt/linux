@@ -71,6 +71,7 @@
 #include <linux/dax.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/page_excl.h>
 
 #include <asm/io.h>
 #include <asm/mmu_context.h>
@@ -1062,6 +1063,8 @@ again:
 			page_remove_rmap(page, false);
 			if (unlikely(page_mapcount(page) < 0))
 				print_bad_pte(vma, addr, ptent, page);
+			if (page_is_user_exclusive(page))
+				__clear_page_user_exclusive(page);
 			if (unlikely(__tlb_remove_page(tlb, page))) {
 				force_flush = 1;
 				addr += PAGE_SIZE;

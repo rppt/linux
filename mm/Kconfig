@@ -736,4 +736,7 @@ config ARCH_HAS_PTE_SPECIAL
 config ARCH_HAS_HUGEPD
 	bool
 
+config EXCLUSIVE_USER_PAGES
+        def_bool ARCH_USES_HIGH_VMA_FLAGS && ARCH_HAS_SET_DIRECT_MAP
+
 endmenu

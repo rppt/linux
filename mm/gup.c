@@ -17,6 +17,7 @@
 #include <linux/migrate.h>
 #include <linux/mm_inline.h>
 #include <linux/sched/mm.h>
+#include <linux/page_excl.h>
 
 #include <asm/mmu_context.h>
 #include <asm/pgtable.h>
@@ -868,6 +869,10 @@ retry:
 			ret = PTR_ERR(page);
 			goto out;
 		}
+
+		if (gup_flags & FOLL_EXCLUSIVE)
+			__set_page_user_exclusive(page);
+
 		if (pages) {
 			pages[i] = page;
 			flush_anon_page(vma, page, start);
@@ -1215,6 +1220,9 @@ long populate_vma_page_range(struct vm_area_struct *vma,
 	 */
 	if (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC))
 		gup_flags |= FOLL_FORCE;
+
+	if (vma->vm_flags & VM_EXCLUSIVE)
+		gup_flags |= FOLL_EXCLUSIVE;
 
 	/*
 	 * We made sure addr is within a VMA, so the following will

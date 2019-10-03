@@ -17,6 +17,7 @@
 #include <linux/context_tracking.h>	/* exception_enter(), ...	*/
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_recover_from_page_fault()*/
+#include <linux/page_excl.h>		/* page_is_user_exclusive()	*/
 #include <linux/mm_types.h>
 
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
@@ -1218,6 +1219,13 @@ static int fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
+static bool fault_in_user_exclusive_page(unsigned long address)
+{
+	struct page *page = virt_to_page(address);
+
+	return page_is_user_exclusive(page);
+}
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1260,6 +1268,12 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	/* Was the fault spurious, caused by lazy TLB invalidation? */
 	if (spurious_kernel_fault(hw_error_code, address))
 		return;
+
+	/* FIXME: warn and handle gracefully */
+	if (unlikely(fault_in_user_exclusive_page(address))) {
+		pr_err("page fault in user exclusive page at %lx", address);
+		force_sig_fault(SIGSEGV, SEGV_MAPERR, (void __user *)address);
+	}
 
 	/* kprobes don't want to hook the spurious faults: */
 	if (kprobe_page_fault(regs, X86_TRAP_PF))

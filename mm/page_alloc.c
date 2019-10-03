@@ -68,6 +68,7 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
+#include <linux/page_excl.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -4778,6 +4779,10 @@ out:
 		__free_pages(page, order);
 		page = NULL;
 	}
+
+	/* FIXME: should not happen! */
+	if (WARN_ON(page_is_user_exclusive(page)))
+		__clear_page_user_exclusive(page);
 
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
 

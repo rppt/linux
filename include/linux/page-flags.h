@@ -131,6 +131,9 @@ enum pageflags {
 	PG_young,
 	PG_idle,
 #endif
+#if defined(CONFIG_EXCLUSIVE_USER_PAGES)
+	PG_user_exclusive,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -429,6 +432,10 @@ TESTPAGEFLAG(Young, young, PF_ANY)
 SETPAGEFLAG(Young, young, PF_ANY)
 TESTCLEARFLAG(Young, young, PF_ANY)
 PAGEFLAG(Idle, idle, PF_ANY)
+#endif
+
+#ifdef CONFIG_EXCLUSIVE_USER_PAGES
+__PAGEFLAG(UserExclusive, user_exclusive, PF_ANY)
 #endif
 
 /*
