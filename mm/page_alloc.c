@@ -68,6 +68,7 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
+#include <linux/set_memory.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -4738,6 +4739,15 @@ out:
 	    unlikely(__memcg_kmem_charge(page, gfp_mask, order) != 0)) {
 		__free_pages(page, order);
 		page = NULL;
+	}
+
+	/* FIXME: should not happen! */
+	if (PageExclusive(page)) {
+		unsigned long page_addr = (unsigned long)page_address(page);
+		pr_info("%s: excl: p: %px\n", __func__, page);
+		set_direct_map_default_noflush(page);
+		__ClearPageExclusive(page);
+		flush_tlb_kernel_range(page_addr, page_addr + PAGE_SIZE);
 	}
 
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);

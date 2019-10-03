@@ -71,6 +71,7 @@
 #include <linux/dax.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/set_memory.h>
 
 #include <asm/io.h>
 #include <asm/mmu_context.h>
@@ -1059,6 +1060,12 @@ again:
 			page_remove_rmap(page, false);
 			if (unlikely(page_mapcount(page) < 0))
 				print_bad_pte(vma, addr, ptent, page);
+#ifdef CONFIG_EXCLUSIVE_PAGES
+			if (PageExclusive(page)) {
+				set_direct_map_default_noflush(page);
+				__ClearPageExclusive(page);
+			}
+#endif
 			if (unlikely(__tlb_remove_page(tlb, page))) {
 				force_flush = 1;
 				addr += PAGE_SIZE;
