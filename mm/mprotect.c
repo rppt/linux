@@ -28,7 +28,6 @@
 #include <linux/ksm.h>
 #include <linux/uaccess.h>
 #include <linux/mm_inline.h>
-#include <linux/set_memory.h>
 #include <asm/pgtable.h>
 #include <asm/cacheflush.h>
 #include <asm/mmu_context.h>
@@ -438,9 +437,8 @@ success:
 	 * Private VM_LOCKED VMA becoming writable: trigger COW to avoid major
 	 * fault on access.
 	 */
-	if (((oldflags & (VM_WRITE | VM_SHARED | VM_LOCKED)) == VM_LOCKED &&
-	     (newflags & VM_WRITE)) ||
-	    (newflags & VM_EXCLUSIVE)) {
+	if ((oldflags & (VM_WRITE | VM_SHARED | VM_LOCKED)) == VM_LOCKED &&
+			(newflags & VM_WRITE)) {
 		populate_vma_page_range(vma, start, end, NULL);
 	}
 
@@ -464,14 +462,11 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	struct vm_area_struct *vma, *prev;
 	int error = -EINVAL;
 	const int grows = prot & (PROT_GROWSDOWN|PROT_GROWSUP);
-	const int exclusive = prot & PROT_EXCLUSIVE;
 	const bool rier = (current->personality & READ_IMPLIES_EXEC) &&
 				(prot & PROT_READ);
 
-	prot &= ~(PROT_GROWSDOWN|PROT_GROWSUP|PROT_EXCLUSIVE);
+	prot &= ~(PROT_GROWSDOWN|PROT_GROWSUP);
 	if (grows == (PROT_GROWSDOWN|PROT_GROWSUP)) /* can't be both */
-		return -EINVAL;
-	if (grows && exclusive)
 		return -EINVAL;
 
 	if (start & ~PAGE_MASK)
@@ -545,13 +540,6 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		new_vma_pkey = arch_override_mprotect_pkey(vma, prot, pkey);
 		newflags = calc_vm_prot_bits(prot, new_vma_pkey);
 		newflags |= (vma->vm_flags & ~mask_off_old_flags);
-		if (exclusive) {
-			if (!vma_is_anonymous(vma)) {
-				error = -ENOMEM;
-				goto out;
-			}
-			newflags |= VM_EXCLUSIVE;
-		}
 
 		/* newflags >> 4 shift VM_MAY% in place of VM_% */
 		if ((newflags & ~(newflags >> 4)) & (VM_READ | VM_WRITE | VM_EXEC)) {

@@ -11,13 +11,9 @@ config ARCH_SUPPORTS_EXCLUSIVE_MAPPINGS
 	bool
 	default n
 
-config EXCLUSIVE_PAGES
-        def_bool n
-
 config EXCLUSIVE_MAPPINGS
 	bool "Support exlusive mappings in the kernel"
 	depends on ARCH_SUPPORTS_EXCLUSIVE_MAPPINGS
-	select EXCLUSIVE_PAGES
 	default n
 	help
 	  This feature allows subsystems in the kernel to allocate

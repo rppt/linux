@@ -87,8 +87,8 @@ static inline void vm_unacct_memory(long pages)
 
 #ifndef arch_validate_prot
 /*
- * This is called from mprotect().
- * PROT_GROWSDOWN, PROT_GROWSUP and PROT_EXCLUSIVE have already been masked out.
+ * This is called from mprotect().  PROT_GROWSDOWN and PROT_GROWSUP have
+ * already been masked out.
  *
  * Returns true if the prot flags are valid
  */
