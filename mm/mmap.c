@@ -1558,6 +1558,9 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 			vm_flags |= VM_NORESERVE;
 	}
 
+	if (flags & MAP_EXCLUSIVE)
+		vm_flags |= VM_EXCLUSIVE;
+
 	addr = mmap_region(file, addr, len, vm_flags, pgoff, uf);
 	if (!IS_ERR_VALUE(addr) &&
 	    ((vm_flags & VM_LOCKED) ||
@@ -1572,6 +1575,19 @@ unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 {
 	struct file *file = NULL;
 	unsigned long retval;
+
+	if (flags & MAP_EXCLUSIVE) {
+		/*
+		 * MAP_EXCLUSIVE is only supported for private
+		 * anonymous memory not backed by hugetlbfs
+		 */
+		if (!(flags & MAP_ANONYMOUS) || !(flags & MAP_PRIVATE) ||
+		    (flags & MAP_HUGETLB))
+			return -EINVAL;
+
+		/* and impies MAP_LOCKED and MAP_POPULATE */
+		flags |= (MAP_LOCKED | MAP_POPULATE);
+	}
 
 	if (!(flags & MAP_ANONYMOUS)) {
 		audit_mmap_fd(fd, flags);
