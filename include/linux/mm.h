@@ -342,7 +342,7 @@ extern unsigned int kobjsize(const void *objp);
 # define VM_MPX		VM_NONE
 #endif
 
-#if defined(CONFIG_EXCLUSIVE_MAPPINGS)
+#ifdef CONFIG_ARCH_USES_HIGH_VMA_FLAGS
 # define VM_EXCLUSIVE	VM_HIGH_ARCH_5
 #else
 # define VM_EXCLUSIVE	VM_NONE

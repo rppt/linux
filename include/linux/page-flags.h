@@ -131,8 +131,8 @@ enum pageflags {
 	PG_young,
 	PG_idle,
 #endif
-#ifdef CONFIG_EXCLUSIVE_PAGES
-	PG_exclusive,
+#if defined(CONFIG_EXCLUSIVE_USER_PAGES)
+	PG_user_exclusive,
 #endif
 	__NR_PAGEFLAGS,
 
@@ -434,10 +434,15 @@ TESTCLEARFLAG(Young, young, PF_ANY)
 PAGEFLAG(Idle, idle, PF_ANY)
 #endif
 
-#ifdef CONFIG_EXCLUSIVE_PAGES
-PAGEFLAG(Exclusive, exclusive, PF_ANY)
-__CLEARPAGEFLAG(Exclusive, exclusive, PF_ANY)
-__SETPAGEFLAG(Exclusive, exclusive, PF_ANY)
+#ifdef CONFIG_EXCLUSIVE_USER_PAGES
+__PAGEFLAG(UserExclusive, user_exclusive, PF_ANY)
+#else
+static inline int PageUserExclusive(struct page *page)
+{
+	return 0;
+}
+static inline void __SetPageUserExclusive(struct page *page) {}
+static inline void __ClearPageUserExclusive(struct page *page) {}
 #endif
 
 /*

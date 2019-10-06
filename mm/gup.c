@@ -879,10 +879,9 @@ retry:
 			goto out;
 		}
 		if (gup_flags & FOLL_EXCLUSIVE) {
-			__SetPageExclusive(page);
+			__SetPageUserExclusive(page);
 			set_direct_map_invalid_noflush(page);
-			pr_info("%s: page: %px, addr: %px\n", __func__, page, page_address(page));
-			dump_page(page, "gup");
+			/* FIXME: flush tlb */
 		}
 		if (pages) {
 			pages[i] = page;

@@ -1060,12 +1060,10 @@ again:
 			page_remove_rmap(page, false);
 			if (unlikely(page_mapcount(page) < 0))
 				print_bad_pte(vma, addr, ptent, page);
-#ifdef CONFIG_EXCLUSIVE_PAGES
-			if (PageExclusive(page)) {
+			if (PageUserExclusive(page)) {
 				set_direct_map_default_noflush(page);
-				__ClearPageExclusive(page);
+				__ClearPageUserExclusive(page);
 			}
-#endif
 			if (unlikely(__tlb_remove_page(tlb, page))) {
 				force_flush = 1;
 				addr += PAGE_SIZE;

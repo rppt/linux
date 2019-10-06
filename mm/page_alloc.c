@@ -4742,12 +4742,9 @@ out:
 	}
 
 	/* FIXME: should not happen! */
-	if (PageExclusive(page)) {
-		unsigned long page_addr = (unsigned long)page_address(page);
-		pr_info("%s: excl: p: %px\n", __func__, page);
+	if (WARN_ON(PageUserExclusive(page))) {
 		set_direct_map_default_noflush(page);
-		__ClearPageExclusive(page);
-		flush_tlb_kernel_range(page_addr, page_addr + PAGE_SIZE);
+		__ClearPageUserExclusive(page);
 	}
 
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
