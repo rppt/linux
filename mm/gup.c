@@ -870,8 +870,10 @@ retry:
 			goto out;
 		}
 
-		if (gup_flags & FOLL_EXCLUSIVE)
+		if (gup_flags & FOLL_EXCLUSIVE) {
 			__set_page_user_exclusive(page);
+			pr_info("gup: page %px (%px)\n", page, page_address(page));
+		}
 
 		if (pages) {
 			pages[i] = page;

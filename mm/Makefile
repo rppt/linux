@@ -109,3 +109,4 @@ obj-$(CONFIG_HMM_MIRROR) += hmm.o
 obj-$(CONFIG_MEMFD_CREATE) += memfd.o
 obj-$(CONFIG_ADDRESS_SPACE_ISOLATION) += asi.o
 obj-$(CONFIG_EXCLUSIVE_KERNEL_PAGES) += page_excl.o
+obj-$(CONFIG_EXCLUSIVE_KERNEL_PAGES) += page_excl_test.o
