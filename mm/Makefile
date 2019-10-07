@@ -122,3 +122,4 @@ obj-$(CONFIG_PTDUMP_CORE) += ptdump.o
 obj-$(CONFIG_PAGE_REPORTING) += page_reporting.o
 obj-$(CONFIG_ADDRESS_SPACE_ISOLATION) += asi.o
 obj-$(CONFIG_EXCLUSIVE_KERNEL_PAGES) += page_excl.o
+obj-$(CONFIG_EXCLUSIVE_KERNEL_PAGES) += page_excl_test.o
