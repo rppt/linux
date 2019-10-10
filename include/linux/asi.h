@@ -28,4 +28,6 @@ static inline int asi_map_page(struct mm_struct *mm, pgd_t *pgd,
 	return asi_map_range(mm, pgd, virt, phys, prot, 1);
 }
 
+void asi_exit(struct mm_struct *mm);
+
 #endif /* _INCLUDE_LINUX_ASI_H */

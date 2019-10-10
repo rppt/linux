@@ -20,6 +20,121 @@
 #undef pr_fmt
 #define pr_fmt(fmt)     "ASI: " fmt
 
+#define ASI_PRIVATE_PT 0xacacacacacacacac;
+
+static bool asi_private_pt(struct page *page)
+{
+	return page->_pt_pad_2 == ASI_PRIVATE_PT;
+}
+
+static void asi_set_private_pt(struct page *page)
+{
+	page->_pt_pad_2 = ASI_PRIVATE_PT;
+}
+
+static void asi_clear_private_pt(struct page *page)
+{
+	page->_pt_pad_2 = 0;
+}
+
+static void asi_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
+{
+	pte_t *pte, *ptep = pte_offset_kernel(pmd, 0);
+	struct page *page;
+	int i;
+
+	page = pmd_page(*pmd);
+	if (!asi_private_pt(page))
+		return;
+
+	asi_clear_private_pt(page);
+	pmd_clear(pmd);
+	pte_free(mm, virt_to_page(ptep));
+	mm_dec_nr_ptes(mm);
+}
+
+static void asi_free_pmd_range(struct mm_struct *mm, pud_t *pud)
+{
+	pmd_t *pmd, *pmdp;
+	struct page *page;
+	int i;
+
+	pmdp = pmd_offset(pud, 0);
+
+	for (i = 0, pmd = pmdp; i < PTRS_PER_PMD; i++, pmd++)
+		if (!pmd_none(*pmd) && !pmd_large(*pmd))
+			asi_free_pte_range(mm, pmd);
+
+	page = pud_page(*pud);
+	if (!asi_private_pt(page))
+		return;
+
+	asi_clear_private_pt(page);
+	pud_clear(pud);
+	pmd_free(mm, pmdp);
+	mm_dec_nr_pmds(mm);
+}
+
+static void asi_free_pud_range(struct mm_struct *mm, p4d_t *p4d)
+{
+	pud_t *pud, *pudp;
+	struct page *page;
+	int i;
+
+	pudp = pud_offset(p4d, 0);
+
+	for (i = 0, pud = pudp; i < PTRS_PER_PUD; i++, pud++)
+		if (!pud_none(*pud))
+			asi_free_pmd_range(mm, pud);
+
+	page = p4d_page(*p4d);
+	if (!asi_private_pt(page))
+		return;
+
+	asi_clear_private_pt(page);
+	p4d_clear(p4d);
+	pud_free(mm, pudp);
+	mm_dec_nr_puds(mm);
+}
+
+static void asi_free_p4d_range(struct mm_struct *mm, pgd_t *pgd)
+{
+	p4d_t *p4d, *p4dp;
+	struct page *page;
+	int i;
+
+	p4dp = p4d_offset(pgd, 0);
+
+	for (i = 0, p4d = p4dp; i < PTRS_PER_P4D; i++, p4d++)
+		if (!p4d_none(*p4d))
+			asi_free_pud_range(mm, p4d);
+
+	page = pgd_page(*pgd);
+	if (!asi_private_pt(page))
+		return;
+
+	asi_clear_private_pt(page);
+	pgd_clear(pgd);
+	p4d_free(mm, p4dp);
+}
+
+static int asi_free_pagetable(struct mm_struct *mm)
+{
+	pgd_t *pgd, *pgdp = mm->pgd;
+
+	for (pgd = pgdp + KERNEL_PGD_BOUNDARY; pgd < pgdp + PTRS_PER_PGD; pgd++)
+		if (!pgd_none(*pgd))
+			asi_free_p4d_range(mm, pgd);
+
+
+	return 0;
+}
+
+void asi_exit(struct mm_struct *mm)
+{
+	asi_free_pagetable(mm);
+}
+
 static int asi_clone_pte_range(struct mm_struct *dst_mm,
 			       struct mm_struct *src_mm,
 			       pmd_t *dst_pmd, pmd_t *src_pmd,
@@ -30,6 +145,8 @@ static int asi_clone_pte_range(struct mm_struct *dst_mm,
 	dst_pte = pte_alloc_map(dst_mm, dst_pmd, addr);
 	if (!dst_pte)
 		return -ENOMEM;
+
+	asi_set_private_pt(pmd_page(*dst_pmd));
 
 	addr &= PAGE_MASK;
 	src_pte = pte_offset_map(src_pmd, addr);
@@ -54,6 +171,8 @@ static int asi_clone_pmd_range(struct mm_struct *dst_mm,
 	dst_pmd = pmd_alloc(dst_mm, dst_pud, addr);
 	if (!dst_pmd)
 		return -ENOMEM;
+
+	asi_set_private_pt(pud_page(*dst_pud));
 
 	src_pmd = pmd_offset(src_pud, addr);
 
@@ -99,6 +218,8 @@ static int asi_clone_pud_range(struct mm_struct *dst_mm,
 	if (!dst_pud)
 		return -ENOMEM;
 
+	asi_set_private_pt(p4d_page(*dst_p4d));
+
 	src_pud = pud_offset(src_p4d, addr);
 
 	do {
@@ -135,6 +256,8 @@ static int asi_clone_p4d_range(struct mm_struct *dst_mm,
 	dst_p4d = p4d_alloc(dst_mm, dst_pgd, addr);
 	if (!dst_p4d)
 		return -ENOMEM;
+
+	asi_set_private_pt(pgd_page(*dst_pgd));
 
 	src_p4d = p4d_offset(src_pgd, addr);
 
@@ -212,16 +335,20 @@ int asi_map_range(struct mm_struct *mm, pgd_t *pgdp,
 		p4d = p4d_alloc(mm, pgd, virt);
 		if (!p4d)
 			return -ENOMEM;
+		asi_set_private_pt(pgd_page(*pgd));
 
 		pud = pud_alloc(mm, p4d, virt);
 		if (!pud)
 			return -ENOMEM;
+		asi_set_private_pt(p4d_page(*p4d));
 
 		pmd = pmd_alloc(mm, pud, virt);
 		if (!pmd)
 			return -ENOMEM;
+		asi_set_private_pt(pud_page(*pud));
 
 		pte = pte_alloc_map(mm, pmd, virt);
+		asi_set_private_pt(pmd_page(*pmd));
 		set_pte(pte, __pte(phys | check_pgprot(prot)));
 	}
 
