@@ -73,6 +73,8 @@
 #include <linux/khugepaged.h>
 #include <linux/buffer_head.h>
 #include <linux/set_memory.h>
+#include <linux/page_excl.h>
+#include <linux/asi.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1244,6 +1246,8 @@ static __always_inline bool free_pages_prepare(struct page *page,
 
 	if (PageUnmapped(page))
 		page_make_mapped(page, order);
+	if (PageExclusive(page))
+		page_unmake_exclusive(page, order);
 
 	/*
 	 * Check tail pages before head page information is cleared to
@@ -5057,6 +5061,12 @@ out:
 
 	if (memcg_kmem_enabled() && (gfp_mask & __GFP_ACCOUNT) && page &&
 	    unlikely(__memcg_kmem_charge_page(page, gfp_mask, order) != 0)) {
+		__free_pages(page, order);
+		page = NULL;
+	}
+
+	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
+	    page_make_exclusive(page, order) != 0) {
 		__free_pages(page, order);
 		page = NULL;
 	}

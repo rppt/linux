@@ -872,6 +872,9 @@ config MAPPING_DIRTY_HELPERS
 config KMAP_LOCAL
 	bool
 
+config EXCLUSIVE_KERNEL_PAGES
+        bool
+
 config ADDRESS_SPACE_ISOLATION
         bool
 

@@ -68,6 +68,17 @@ struct vm_area_struct;
 #define ___GFP_UNMAP		0
 #endif
 
+/* EXCLUSIVE implies UNMAPPED */
+#ifdef CONFIG_EXCLUSIVE_MAPPINGS
+# ifndef CONFIG_LOCKDEP
+#  define ___GFP_EXCLUSIVE	0x1000000u
+# else
+#  define ___GFP_EXCLUSIVE	0x2000000u
+# endif
+#else
+#define ___GFP_EXCLUSIVE	0
+#endif
+
 /* If the above are modified, __GFP_BITS_SHIFT may need updating */
 
 /*
@@ -253,8 +264,12 @@ struct vm_area_struct;
  */
 #define __GFP_UNMAP ((__force gfp_t)___GFP_UNMAP)
 
+/* Map allocated pages only in the active pgd */
+#define __GFP_EXCLUSIVE ((__force gfp_t)___GFP_EXCLUSIVE)
+
 /* Room for N __GFP_FOO bits */
-#define __GFP_BITS_SHIFT (23 + IS_ENABLED(CONFIG_LOCKDEP) + IS_ENABLED(CONFIG_ARCH_HAS_SET_DIRECT_MAP))
+#define __GFP_BITS_SHIFT (23 + IS_ENABLED(CONFIG_LOCKDEP) + IS_ENABLED(CONFIG_ARCH_HAS_SET_DIRECT_MAP) + IS_ENABLED(CONFIG_EXCLUSIVE_MAPPINGS))
+
 #define __GFP_BITS_MASK ((__force gfp_t)((1 << __GFP_BITS_SHIFT) - 1))
 
 /**

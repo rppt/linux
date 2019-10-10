@@ -48,6 +48,13 @@ static void asi_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
 	if (!asi_private_pt(page))
 		return;
 
+	for (i = 0, pte = ptep; i < PTRS_PER_PTE; i++, pte++)
+		if (pte_present(*pte)) {
+			struct page *p = pfn_to_page(pte_pfn(*pte));
+			if (PageExclusive(p))
+				page_unmake_exclusive(p, 0);
+		}
+
 	asi_clear_private_pt(page);
 	pmd_clear(pmd);
 	pte_free(mm, virt_to_page(ptep));
