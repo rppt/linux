@@ -176,6 +176,12 @@ struct page {
 
 		/** @rcu_head: You can use this to free a page by RCU. */
 		struct rcu_head rcu_head;
+
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+		struct {	/* PageExclusive */
+			struct asi_ctx *asi_ctx;
+		};
+#endif
 	};
 
 	union {		/* This union is 4 bytes in size. */
@@ -561,6 +567,9 @@ struct mm_struct {
 
 #ifdef CONFIG_IOMMU_SUPPORT
 		u32 pasid;
+#endif
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+		struct asi_ctx *asi_ctx;
 #endif
 	} __randomize_layout;
 

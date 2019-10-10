@@ -34,4 +34,8 @@ static inline int asi_map_page(struct asi_ctx *asi_ctx,
 	return asi_map_range(asi_ctx, virt, phys, prot, 1);
 }
 
+int asi_mm_init(struct mm_struct *mm);
+void asi_mm_fini(struct mm_struct *mm);
+void asi_exit(struct mm_struct *mm);
+
 #endif /* _INCLUDE_LINUX_ASI_H */

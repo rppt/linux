@@ -96,6 +96,7 @@
 #include <linux/kasan.h>
 #include <linux/scs.h>
 #include <linux/io_uring.h>
+#include <linux/asi.h>
 
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
@@ -1051,6 +1052,10 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	if (mm_alloc_pgd(mm))
 		goto fail_nopgd;
 
+	/* must be after mm_alloc_pgd() */
+	if (asi_mm_init(mm))
+		goto fail_no_asi;
+
 	if (init_new_context(p, mm))
 		goto fail_nocontext;
 
@@ -1058,6 +1063,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	return mm;
 
 fail_nocontext:
+	asi_mm_fini(mm);
+fail_no_asi:
 	mm_free_pgd(mm);
 fail_nopgd:
 	free_mm(mm);
@@ -1090,6 +1097,7 @@ static inline void __mmput(struct mm_struct *mm)
 	exit_mmap(mm);
 	mm_put_huge_zero_page(mm);
 	set_mm_exe_file(mm, NULL);
+	asi_exit(mm);
 	if (!list_empty(&mm->mmlist)) {
 		spin_lock(&mmlist_lock);
 		list_del(&mm->mmlist);
