@@ -134,6 +134,9 @@ enum pageflags {
 #if defined(CONFIG_EXCLUSIVE_USER_PAGES)
 	PG_user_exclusive,
 #endif
+#if defined(CONFIG_EXCLUSIVE_KERNEL_PAGES)
+	PG_kernel_exclusive,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -436,6 +439,10 @@ PAGEFLAG(Idle, idle, PF_ANY)
 
 #ifdef CONFIG_EXCLUSIVE_USER_PAGES
 __PAGEFLAG(UserExclusive, user_exclusive, PF_ANY)
+#endif
+
+#ifdef CONFIG_EXCLUSIVE_KERNEL_PAGES
+__PAGEFLAG(KernelExclusive, kernel_exclusive, PF_ANY)
 #endif
 
 /*

@@ -1161,6 +1161,8 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageKmemcg(page))
 		__memcg_kmem_uncharge(page, order);
+	if (page_is_kernel_exclusive(page))
+		page_unmake_exclusive(page, order);
 	if (check_free)
 		bad += free_pages_check(page);
 	if (bad)
@@ -4775,6 +4777,12 @@ out:
 	/* FIXME: should not happen! */
 	if (WARN_ON(page_is_user_exclusive(page)))
 		__clear_page_user_exclusive(page);
+
+	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
+	    page_make_exclusive(page, order) != 0) {
+		__free_pages(page, order);
+		page = NULL;
+	}
 
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
 
