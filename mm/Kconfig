@@ -872,4 +872,7 @@ config MAPPING_DIRTY_HELPERS
 config KMAP_LOCAL
 	bool
 
+config ADDRESS_SPACE_ISOLATION
+        bool
+
 endmenu
