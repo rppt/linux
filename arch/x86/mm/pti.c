@@ -28,6 +28,7 @@
 #include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/cpu.h>
+#include <linux/asi.h>
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
@@ -52,9 +53,9 @@
  * and 64 bit.
  */
 #ifdef CONFIG_X86_64
-#define	PTI_LEVEL_KERNEL_IMAGE	PTI_CLONE_PMD
+#define	PTI_LEVEL_KERNEL_IMAGE	ASI_LEVEL_PMD
 #else
-#define	PTI_LEVEL_KERNEL_IMAGE	PTI_CLONE_PTE
+#define	PTI_LEVEL_KERNEL_IMAGE	ASI_LEVEL_PTE
 #endif
 
 static void __init pti_print_if_insecure(const char *reason)
@@ -162,132 +163,23 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 	return pgd;
 }
 
-/*
- * Walk the user copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.
- *
- * Returns a pointer to a P4D on success, or NULL on failure.
- */
-static p4d_t *pti_user_pagetable_walk_p4d(unsigned long address)
-{
-	pgd_t *pgd = kernel_to_user_pgdp(pgd_offset_k(address));
-	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
-
-	if (address < PAGE_OFFSET) {
-		WARN_ONCE(1, "attempt to walk user address\n");
-		return NULL;
-	}
-
-	if (pgd_none(*pgd)) {
-		unsigned long new_p4d_page = __get_free_page(gfp);
-		if (WARN_ON_ONCE(!new_p4d_page))
-			return NULL;
-
-		set_pgd(pgd, __pgd(_KERNPG_TABLE | __pa(new_p4d_page)));
-	}
-	BUILD_BUG_ON(pgd_large(*pgd) != 0);
-
-	return p4d_offset(pgd, address);
-}
-
-/*
- * Walk the user copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.
- *
- * Returns a pointer to a PMD on success, or NULL on failure.
- */
-static pmd_t *pti_user_pagetable_walk_pmd(unsigned long address)
-{
-	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
-	p4d_t *p4d;
-	pud_t *pud;
-
-	p4d = pti_user_pagetable_walk_p4d(address);
-	if (!p4d)
-		return NULL;
-
-	BUILD_BUG_ON(p4d_large(*p4d) != 0);
-	if (p4d_none(*p4d)) {
-		unsigned long new_pud_page = __get_free_page(gfp);
-		if (WARN_ON_ONCE(!new_pud_page))
-			return NULL;
-
-		set_p4d(p4d, __p4d(_KERNPG_TABLE | __pa(new_pud_page)));
-	}
-
-	pud = pud_offset(p4d, address);
-	/* The user page tables do not use large mappings: */
-	if (pud_large(*pud)) {
-		WARN_ON(1);
-		return NULL;
-	}
-	if (pud_none(*pud)) {
-		unsigned long new_pmd_page = __get_free_page(gfp);
-		if (WARN_ON_ONCE(!new_pmd_page))
-			return NULL;
-
-		set_pud(pud, __pud(_KERNPG_TABLE | __pa(new_pmd_page)));
-	}
-
-	return pmd_offset(pud, address);
-}
-
-/*
- * Walk the shadow copy of the page tables (optionally) trying to allocate
- * page table pages on the way down.  Does not support large pages.
- *
- * Note: this is only used when mapping *new* kernel data into the
- * user/shadow page tables.  It is never used for userspace data.
- *
- * Returns a pointer to a PTE on success, or NULL on failure.
- */
-static pte_t *pti_user_pagetable_walk_pte(unsigned long address)
-{
-	gfp_t gfp = (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO);
-	pmd_t *pmd;
-	pte_t *pte;
-
-	pmd = pti_user_pagetable_walk_pmd(address);
-	if (!pmd)
-		return NULL;
-
-	/* We can't do anything sensible if we hit a large mapping. */
-	if (pmd_large(*pmd)) {
-		WARN_ON(1);
-		return NULL;
-	}
-
-	if (pmd_none(*pmd)) {
-		unsigned long new_pte_page = __get_free_page(gfp);
-		if (!new_pte_page)
-			return NULL;
-
-		set_pmd(pmd, __pmd(_KERNPG_TABLE | __pa(new_pte_page)));
-	}
-
-	pte = pte_offset_kernel(pmd, address);
-	if (pte_flags(*pte) & _PAGE_USER) {
-		WARN_ONCE(1, "attempt to walk to user pte\n");
-		return NULL;
-	}
-	return pte;
-}
-
 #ifdef CONFIG_X86_VSYSCALL_EMULATION
 static void __init pti_setup_vsyscall(void)
 {
-	pte_t *pte, *target_pte;
 	unsigned int level;
+	pte_t *pte;
+	int err;
 
 	pte = lookup_address(VSYSCALL_ADDR, &level);
 	if (!pte || WARN_ON(level != PG_LEVEL_4K) || pte_none(*pte))
 		return;
 
-	target_pte = pti_user_pagetable_walk_pte(VSYSCALL_ADDR);
-	if (WARN_ON(!target_pte))
+	err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+			   VSYSCALL_ADDR, PFN_PHYS(pte_pfn(*pte)),
+			   __pgprot(pte_flags(*pte)));
+	if (WARN_ON(err))
 		return;
 
-	*target_pte = *pte;
 	set_vsyscall_pgtable_user_bits(kernel_to_user_pgdp(swapper_pg_dir));
 }
 #else
@@ -301,112 +193,15 @@ enum pti_clone_level {
 
 static void
 pti_clone_pgtable(unsigned long start, unsigned long end,
-		  enum pti_clone_level level)
+		  enum asi_clone_level level)
 {
-	unsigned long addr;
+	int err;
 
-	/*
-	 * Clone the populated PMDs which cover start to end. These PMD areas
-	 * can have holes.
-	 */
-	for (addr = start; addr < end;) {
-		pte_t *pte, *target_pte;
-		pmd_t *pmd, *target_pmd;
-		pgd_t *pgd;
-		p4d_t *p4d;
-		pud_t *pud;
-
-		/* Overflow check */
-		if (addr < start)
-			break;
-
-		pgd = pgd_offset_k(addr);
-		if (WARN_ON(pgd_none(*pgd)))
-			return;
-		p4d = p4d_offset(pgd, addr);
-		if (WARN_ON(p4d_none(*p4d)))
-			return;
-
-		pud = pud_offset(p4d, addr);
-		if (pud_none(*pud)) {
-			WARN_ON_ONCE(addr & ~PUD_MASK);
-			addr = round_up(addr + 1, PUD_SIZE);
-			continue;
-		}
-
-		pmd = pmd_offset(pud, addr);
-		if (pmd_none(*pmd)) {
-			WARN_ON_ONCE(addr & ~PMD_MASK);
-			addr = round_up(addr + 1, PMD_SIZE);
-			continue;
-		}
-
-		if (pmd_large(*pmd) || level == PTI_CLONE_PMD) {
-			target_pmd = pti_user_pagetable_walk_pmd(addr);
-			if (WARN_ON(!target_pmd))
-				return;
-
-			/*
-			 * Only clone present PMDs.  This ensures only setting
-			 * _PAGE_GLOBAL on present PMDs.  This should only be
-			 * called on well-known addresses anyway, so a non-
-			 * present PMD would be a surprise.
-			 */
-			if (WARN_ON(!(pmd_flags(*pmd) & _PAGE_PRESENT)))
-				return;
-
-			/*
-			 * Setting 'target_pmd' below creates a mapping in both
-			 * the user and kernel page tables.  It is effectively
-			 * global, so set it as global in both copies.  Note:
-			 * the X86_FEATURE_PGE check is not _required_ because
-			 * the CPU ignores _PAGE_GLOBAL when PGE is not
-			 * supported.  The check keeps consistentency with
-			 * code that only set this bit when supported.
-			 */
-			if (boot_cpu_has(X86_FEATURE_PGE))
-				*pmd = pmd_set_flags(*pmd, _PAGE_GLOBAL);
-
-			/*
-			 * Copy the PMD.  That is, the kernelmode and usermode
-			 * tables will share the last-level page tables of this
-			 * address range
-			 */
-			*target_pmd = *pmd;
-
-			addr += PMD_SIZE;
-
-		} else if (level == PTI_CLONE_PTE) {
-
-			/* Walk the page-table down to the pte level */
-			pte = pte_offset_kernel(pmd, addr);
-			if (pte_none(*pte)) {
-				addr += PAGE_SIZE;
-				continue;
-			}
-
-			/* Only clone present PTEs */
-			if (WARN_ON(!(pte_flags(*pte) & _PAGE_PRESENT)))
-				return;
-
-			/* Allocate PTE in the user page-table */
-			target_pte = pti_user_pagetable_walk_pte(addr);
-			if (WARN_ON(!target_pte))
-				return;
-
-			/* Set GLOBAL bit in both PTEs */
-			if (boot_cpu_has(X86_FEATURE_PGE))
-				*pte = pte_set_flags(*pte, _PAGE_GLOBAL);
-
-			/* Clone the PTE */
-			*target_pte = *pte;
-
-			addr += PAGE_SIZE;
-
-		} else {
-			BUG();
-		}
-	}
+	err = asi_clone_pgd_range(&init_mm, &init_mm,
+				  kernel_to_user_pgdp(init_mm.pgd),
+				  init_mm.pgd,
+				  start, end, level);
+	WARN_ON(err);
 }
 
 #ifdef CONFIG_X86_64
@@ -416,16 +211,13 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
  */
 static void __init pti_clone_p4d(unsigned long addr)
 {
-	p4d_t *kernel_p4d, *user_p4d;
-	pgd_t *kernel_pgd;
+	int err;
 
-	user_p4d = pti_user_pagetable_walk_p4d(addr);
-	if (!user_p4d)
-		return;
-
-	kernel_pgd = pgd_offset_k(addr);
-	kernel_p4d = p4d_offset(kernel_pgd, addr);
-	*user_p4d = *kernel_p4d;
+	err = asi_clone_pgd_range(&init_mm, &init_mm,
+				  kernel_to_user_pgdp(init_mm.pgd),
+				  init_mm.pgd, addr, addr + 1,
+				  ASI_LEVEL_P4D);
+	BUG_ON(err);
 }
 
 /*
@@ -451,13 +243,12 @@ static void __init pti_clone_user_shared(void)
 
 		unsigned long va = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
 		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
-		pte_t *target_pte;
+		int err;
 
-		target_pte = pti_user_pagetable_walk_pte(va);
-		if (WARN_ON(!target_pte))
+		err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+				   va, pa, PAGE_KERNEL);
+		if (WARN_ON(err))
 			return;
-
-		*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
 	}
 }
 
@@ -476,7 +267,7 @@ static void __init pti_clone_user_shared(void)
 	start = CPU_ENTRY_AREA_BASE;
 	end   = start + (PAGE_SIZE * CPU_ENTRY_AREA_PAGES);
 
-	pti_clone_pgtable(start, end, PTI_CLONE_PMD);
+	pti_clone_pgtable(start, end, ASI_LEVEL_PMD);
 }
 #endif /* CONFIG_X86_64 */
 
@@ -497,7 +288,7 @@ static void pti_clone_entry_text(void)
 {
 	pti_clone_pgtable((unsigned long) __entry_text_start,
 			  (unsigned long) __entry_text_end,
-			  PTI_CLONE_PMD);
+			  ASI_LEVEL_PMD);
 }
 
 /*
