@@ -14,6 +14,7 @@
 #include <linux/random.h>
 #include <linux/cpu.h>
 #include <linux/asi.h>
+#include <linux/page_excl.h>
 
 #include <asm/pgalloc.h>
 
@@ -46,6 +47,13 @@ static void asi_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
 	page = pmd_page(*pmd);
 	if (!asi_private_pt(page))
 		return;
+
+	for (i = 0, pte = ptep; i < PTRS_PER_PTE; i++, pte++)
+		if (pte_present(*pte)) {
+			struct page *p = pfn_to_page(pte_pfn(*pte));
+			if (page_is_kernel_exclusive(p))
+				page_unmake_exclusive(p, 0);
+		}
 
 	asi_clear_private_pt(page);
 	pmd_clear(pmd);

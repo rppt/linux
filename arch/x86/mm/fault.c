@@ -19,6 +19,7 @@
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_crash_gracefully_on_page_fault()*/
 #include <linux/mm_types.h>
+#include <linux/page_excl.h>
 
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
@@ -1134,7 +1135,15 @@ bool fault_in_kernel_space(unsigned long address)
 static int fault_in_exclusive_mapping(unsigned long address)
 {
 #ifdef CONFIG_EXCLUSIVE_MAPPINGS
-	return address >= EXCLUSIVE_START && address < (EXCLUSIVE_START + EXCLUSIVE_SIZE);
+	struct page *page;
+
+	if (address >= EXCLUSIVE_START &&
+	    address < (EXCLUSIVE_START + EXCLUSIVE_SIZE))
+		return true;
+
+	page = virt_to_page(address);
+
+	return page_is_kernel_exclusive(page);
 #else
 	return false;
 #endif
@@ -1202,12 +1211,14 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (unlikely(fault_in_exclusive_mapping(address))) {
 		pr_err("page fault in EXCLUSIVE at %lx", address);
 		force_sig_fault(SIGSEGV, SEGV_MAPERR, (void __user *)address);
+		goto bad_area_nosem;
 	}
 
 	/* kprobes don't want to hook the spurious faults: */
 	if (kprobe_page_fault(regs, X86_TRAP_PF))
 		return;
 
+bad_area_nosem:
 	/*
 	 * Note, despite being a "bad area", there are quite a few
 	 * acceptable reasons to get here, such as erratum fixups

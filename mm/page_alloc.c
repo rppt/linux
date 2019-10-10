@@ -72,6 +72,7 @@
 #include <linux/padata.h>
 #include <linux/khugepaged.h>
 #include <linux/buffer_head.h>
+#include <linux/page_excl.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1261,6 +1262,8 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageMemcgKmem(page))
 		__memcg_kmem_uncharge_page(page, order);
+	if (page_is_kernel_exclusive(page))
+		page_unmake_exclusive(page, order);
 	if (check_free)
 		bad += check_free_page(page);
 	if (bad)
@@ -5017,6 +5020,12 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 out:
 	if (memcg_kmem_enabled() && (gfp_mask & __GFP_ACCOUNT) && page &&
 	    unlikely(__memcg_kmem_charge_page(page, gfp_mask, order) != 0)) {
+		__free_pages(page, order);
+		page = NULL;
+	}
+
+	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
+	    page_make_exclusive(page, order) != 0) {
 		__free_pages(page, order);
 		page = NULL;
 	}

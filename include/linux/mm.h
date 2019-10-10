@@ -1525,7 +1525,14 @@ static inline void set_page_links(struct page *page, enum zone_type zone,
 
 static __always_inline void *lowmem_page_address(const struct page *page)
 {
-	return page_to_virt(page);
+	void *addr = page_to_virt(page);
+
+#ifdef CONFIG_EXCLUSIVE_KERNEL_PAGES
+	if (PageKernelExclusive((struct page*)page))
+		addr += EXCLUSIVE_OFFSET;
+#endif
+
+	return addr;
 }
 
 #if defined(CONFIG_HIGHMEM) && !defined(WANT_PAGE_VIRTUAL)

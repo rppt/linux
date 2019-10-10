@@ -138,6 +138,9 @@ enum pageflags {
 #ifdef CONFIG_64BIT
 	PG_arch_2,
 #endif
+#if defined(CONFIG_EXCLUSIVE_KERNEL_PAGES)
+	PG_kernel_exclusive,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -450,6 +453,10 @@ PAGEFLAG(Idle, idle, PF_ANY)
  * any possible races on the setting or clearing of the bit.
  */
 __PAGEFLAG(Reported, reported, PF_NO_COMPOUND)
+
+#ifdef CONFIG_EXCLUSIVE_KERNEL_PAGES
+__PAGEFLAG(KernelExclusive, kernel_exclusive, PF_ANY)
+#endif
 
 /*
  * On an anonymous page mapped into a user virtual memory area,
