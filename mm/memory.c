@@ -1260,6 +1260,9 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 	if (unlikely(vma->vm_flags & VM_PFNMAP))
 		untrack_pfn(vma, 0, 0);
 
+	if (unlikely(vma->vm_ops && vma->vm_ops->unmap))
+		vma->vm_ops->unmap(vma, start, end);
+
 	if (start != end) {
 		if (unlikely(is_vm_hugetlb_page(vma))) {
 			/*
