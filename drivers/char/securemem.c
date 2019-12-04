@@ -65,25 +65,6 @@ static vm_fault_t exclusivemem_fault(struct vm_fault *vmf)
 	return  VM_FAULT_LOCKED;
 }
 
-static void exclusivemem_unmap(struct vm_area_struct *vma, unsigned long start,
-			       unsigned long end)
-{
-	struct securemem_state *state = vma->vm_file->private_data;
-	struct address_space *mapping = &state->mapping;
-	struct page *page;
-	pgoff_t index;
-
-	pr_info("%s: \n", __func__ );
-
-	xa_for_each(&mapping->i_pages, index, page) {
-		unsigned long addr;
-
-		addr = (unsigned long)page_address(page);
-		pr_info("%s: p: %px, addr: %lx\n", __func__, page, addr);
-		dump_page(page, "excl_unmap");
-	}
-}
-
 static void exclusivemem_close(struct vm_area_struct *vma)
 {
 	struct securemem_state *state = vma->vm_file->private_data;
@@ -118,7 +99,6 @@ static void exclusivemem_close(struct vm_area_struct *vma)
 
 static const struct vm_operations_struct exclusivemem_vm_ops = {
 	.fault = exclusivemem_fault,
-	.unmap = exclusivemem_unmap,
 	.close = exclusivemem_close,
 };
 

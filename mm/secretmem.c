@@ -66,24 +66,6 @@ static vm_fault_t exclusivemem_fault(struct vm_fault *vmf)
 	return  VM_FAULT_LOCKED;
 }
 
-static void exclusivemem_unmap(struct vm_area_struct *vma, unsigned long start,
-			       unsigned long end)
-{
-	struct address_space *mapping = vma->vm_file->f_mapping;
-	struct page *page;
-	pgoff_t index;
-
-	pr_info("%s: \n", __func__ );
-
-	xa_for_each(&mapping->i_pages, index, page) {
-		unsigned long addr;
-
-		addr = (unsigned long)page_address(page);
-		pr_info("%s: p: %px, addr: %lx\n", __func__, page, addr);
-		dump_page(page, "EX_unmap");
-	}
-}
-
 static void exclusivemem_close(struct vm_area_struct *vma)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
@@ -117,7 +99,6 @@ static void exclusivemem_close(struct vm_area_struct *vma)
 
 static const struct vm_operations_struct exclusivemem_vm_ops = {
 	.fault = exclusivemem_fault,
-	.unmap = exclusivemem_unmap,
 	.close = exclusivemem_close,
 };
 
@@ -149,8 +130,7 @@ static vm_fault_t uncached_fault(struct vm_fault *vmf)
 	/* return 0; */
 }
 
-static void uncached_unmap(struct vm_area_struct *vma, unsigned long start,
-			   unsigned long end)
+static void uncached_close(struct vm_area_struct *vma)
 {
 	struct address_space *mapping = vma->vm_file->f_mapping;
 	struct page *page;
@@ -160,20 +140,30 @@ static void uncached_unmap(struct vm_area_struct *vma, unsigned long start,
 
 	xa_for_each(&mapping->i_pages, index, page) {
 		unsigned long addr;
-		unsigned int level;
-		pte_t *pte;
 
 		addr = (unsigned long)page_address(page);
 		pr_info("%s: p: %px, addr: %lx\n", __func__, page, addr);
-		dump_page(page, "UC_close 1");
-		pte = lookup_address(addr, &level);
-		pr_info("%s: level:%d, pte: %lx\n", __func__, level, pte_val(*pte));
+		get_page(page);
+		lock_page(page);
+		dump_page(page, "EX_close 1");
+		set_memory_wb(addr, 1);
+		delete_from_page_cache(page);
+		unlock_page(page);
+		put_page(page);
+		dump_page(page, "EX_close 2");
+
+		{
+			unsigned int level;
+
+			lookup_address(addr, &level);
+			pr_info("%s: level:%d\n", __func__, level);
+		}
 	}
 }
 
 static const struct vm_operations_struct uncached_vm_ops = {
 	.fault = uncached_fault,
-	.unmap = uncached_unmap,
+	.close = uncached_close,
 };
 
 static int secretmem_mmap(struct file *file, struct vm_area_struct *vma)
