@@ -26,14 +26,6 @@ struct secretmem_state {
 	unsigned int mode;
 };
 
-/* static struct page *exclusivemem_get_page(struct secretmem_state *state) */
-/* { */
-/* 	/\* */
-/* 	 * FIXME: implement a pool of huge pages to minimize direct map splits */
-/* 	 *\/ */
-/* 	return alloc_page(GFP_KERNEL); */
-/* } */
-
 static vm_fault_t exclusivemem_fault(struct vm_fault *vmf)
 {
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
@@ -45,22 +37,15 @@ static vm_fault_t exclusivemem_fault(struct vm_fault *vmf)
 	if (!page)
 		return vmf_error(-ENOMEM);
 	addr = (unsigned long)page_address(page);
-	/* get_page(page); */
 	pr_info("%s: p: %px, addr: %lx\n", __func__, page, addr);
 	dump_page(page, "EX_fault");
 
-/* #if 0 */
-	/*
-	 * FIXME: we cannot really drop the page from the direct map
-	 * until we have a way to reinstate it there
-	 */
 	if (set_direct_map_invalid_noflush(page)) {
 		delete_from_page_cache(page);
 		return vmf_error(-ENOMEM);
 	}
 
 	flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
-/* #endif */
 
 	vmf->page = page;
 	return  VM_FAULT_LOCKED;
@@ -113,21 +98,18 @@ static vm_fault_t uncached_fault(struct vm_fault *vmf)
 	if (!page)
 		return vmf_error(-ENOMEM);
 	addr = (unsigned long)page_address(page);
-	/* get_page(page); */
 	pr_info("%s: p: %px, addr: %lx\n", __func__, page, addr);
 	dump_page(page, "UC_fault");
 
+	if (set_memory_uc(addr, 1)) {
+		delete_from_page_cache(page);
+		return vmf_error(-ENOMEM);
+	}
+
+	flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
+
 	vmf->page = page;
 	return  VM_FAULT_LOCKED;
-
-	/* struct page *page; */
-
-	/* page = alloc_page(GFP_HIGHUSER_MOVABLE); */
-	/* if (!page) */
-	/* 	return vmf_error(-ENOMEM); */
-
-	/* vmf->page = page; */
-	/* return 0; */
 }
 
 static void uncached_close(struct vm_area_struct *vma)
