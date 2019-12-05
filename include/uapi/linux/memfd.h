@@ -10,9 +10,10 @@
 #define MFD_HUGETLB		0x0004U
 #define MFD_SECRET		0x0008U
 
-/* flags for secret memory */
-#define MFD_SECRET_UNCACHED	0x10000U
-#define MFD_SECRET_EXCLUSIVE	0x20000U
+/* ioctls for secret memory */
+#define MFD_SECRET_IOCTL '-'
+#define MFD_SECRET_EXCLUSIVE	_IOW(MFD_SECRET_IOCTL, 0x13, unsigned long)
+#define MFD_SECRET_UNCACHED	_IOW(MFD_SECRET_IOCTL, 0x14, unsigned long)
 
 /*
  * Huge page size encoding when MFD_HUGETLB is specified, and a huge page
