@@ -736,4 +736,7 @@ config ARCH_HAS_PTE_SPECIAL
 config ARCH_HAS_HUGEPD
 	bool
 
+config MEMFD_SECRETMEM
+        def_bool MEMFD_CREATE && ARCH_HAS_SET_DIRECT_MAP
+
 endmenu
