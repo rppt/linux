@@ -20,17 +20,6 @@ struct secretmem_state {
 	unsigned int mode;
 };
 
-void smem_dump_page(struct page *page, const char *msg)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-	unsigned int level;
-	pte_t *pte;
-
-	pte = lookup_address(addr, &level);
-	pr_info("%s: addr: %lx, pte: %lx, level: %d\n", msg, addr, pte_val(*pte), level);
-	dump_page(page, msg);
-}
-
 static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 {
 	struct secretmem_state *state = vmf->vma->vm_file->private_data;
@@ -40,12 +29,17 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 	struct page *page;
 	int err;
 
-	page = find_or_create_page(mapping, offset, mapping_gfp_mask(mapping));
-	if (!page)
-		return vmf_error(-ENOMEM);
-	addr = (unsigned long)page_address(page);
+	/* page = find_or_create_page(mapping, offset, mapping_gfp_mask(mapping)); */
+	page = find_get_page(mapping, offset);
+	if (!page) {
+		page = pagecache_get_page(mapping, offset,
+					  FGP_CREAT|FGP_FOR_MMAP,
+					  vmf->gfp_mask);
+		if (!page)
+			return vmf_error(-ENOMEM);
 
-	smem_dump_page(page, "S_fault start");
+		__SetPageUptodate(page);
+	}
 
 	if (state->mode == SECRETMEM_EXCLUSIVE)
 		err = set_direct_map_invalid_noflush(page);
@@ -59,12 +53,11 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 		return vmf_error(err);
 	}
 
+	addr = (unsigned long)page_address(page);
 	flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
 
-	smem_dump_page(page, "S_fault end");
-
 	vmf->page = page;
-	return  VM_FAULT_LOCKED;
+	return  0;
 }
 
 static void secretmem_close(struct vm_area_struct *vma)
@@ -74,15 +67,7 @@ static void secretmem_close(struct vm_area_struct *vma)
 	struct page *page;
 	pgoff_t index;
 
-	pr_info("%s: \n", __func__ );
-
 	xa_for_each(&mapping->i_pages, index, page) {
-		unsigned long addr;
-
-		addr = (unsigned long)page_address(page);
-
-		smem_dump_page(page, "S_close start");
-
 		get_page(page);
 		lock_page(page);
 
@@ -93,12 +78,11 @@ static void secretmem_close(struct vm_area_struct *vma)
 		else
 			BUG();
 
+		__ClearPageDirty(page);
 		delete_from_page_cache(page);
 
 		unlock_page(page);
 		put_page(page);
-
-		smem_dump_page(page, "S_close end");
 	}
 }
 
@@ -162,14 +146,33 @@ static int secretmem_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-/* static const struct address_space_operations secretmem_aops = { */
-/* }; */
-
 const struct file_operations secretmem_fops = {
 	.release	= secretmem_release,
 	.mmap		= secretmem_mmap,
 	.unlocked_ioctl = secretmem_ioctl,
 	.compat_ioctl	= secretmem_ioctl,
+};
+
+static bool secretmem_isolate_page(struct page *page, isolate_mode_t mode)
+{
+	return false;
+}
+
+static int secretmem_migratepage(struct address_space *mapping,
+				 struct page *newpage, struct page *page,
+				 enum migrate_mode mode)
+{
+	return -EBUSY;
+}
+
+static void secretmem_putback_page(struct page *page)
+{
+}
+
+static const struct address_space_operations secretmem_aops = {
+	.migratepage	= secretmem_migratepage,
+	.isolate_page	= secretmem_isolate_page,
+	.putback_page	= secretmem_putback_page,
 };
 
 struct file *secretmem_file_create(const char *name, unsigned int flags)
@@ -192,7 +195,9 @@ struct file *secretmem_file_create(const char *name, unsigned int flags)
 
 	mapping_set_unevictable(inode->i_mapping);
 
-	file->f_flags |= O_LARGEFILE;
+	inode->i_mapping->private_data = state;
+	inode->i_mapping->a_ops = &secretmem_aops;
+
 	file->private_data = state;
 
 	return file;
