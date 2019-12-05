@@ -8,13 +8,12 @@
 #include <linux/pseudo_fs.h>
 #include <linux/set_memory.h>
 #include <uapi/linux/memfd.h>
+#include <uapi/linux/magic.h>
 
 #include <asm/tlb.h>
 
 #define SECRETMEM_EXCLUSIVE	0x1
 #define SECRETMEM_UNCACHED	0x2
-
-static struct vfsmount *secretmem_mnt;
 
 struct secretmem_state {
 	unsigned int mode;
@@ -29,7 +28,6 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 	struct page *page;
 	int err;
 
-	/* page = find_or_create_page(mapping, offset, mapping_gfp_mask(mapping)); */
 	page = find_get_page(mapping, offset);
 	if (!page) {
 		page = pagecache_get_page(mapping, offset,
@@ -175,6 +173,8 @@ static const struct address_space_operations secretmem_aops = {
 	.putback_page	= secretmem_putback_page,
 };
 
+static struct vfsmount *secretmem_mnt;
+
 struct file *secretmem_file_create(const char *name, unsigned int flags)
 {
 	struct inode *inode = alloc_anon_inode(secretmem_mnt->mnt_sb);
@@ -208,8 +208,6 @@ err_free_inode:
 	iput(inode);
 	return file;
 }
-
-#define SECRETMEM_MAGIC 0x44
 
 static int secretmem_init_fs_context(struct fs_context *fc)
 {
