@@ -13,6 +13,7 @@
 #include <linux/sizes.h>
 #include <linux/random.h>
 #include <linux/cpu.h>
+#include <linux/sched/task.h>
 #include <linux/ass.h>
 
 #include <asm/pgalloc.h>
@@ -361,26 +362,38 @@ static void dump_pgd(pgd_t *pgdp, const char *name)
 			pr_info("%d: %lx\n", i, pgd_val(*pgdp));
 }
 
-struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm)
+struct ns_pgd *ass_create_ns_pgd(void)
 {
 	struct ns_pgd *ns_pgd;
+	struct mm_struct *mm;
+	int err = -ENOMEM;
 	pgd_t *pgd;
 	p4d_t *p4d;
+	unsigned long addr;
 
-	pgd = pgd_offset_pgd(mm->pgd, PAGE_OFFSET);
-	p4d = p4d_offset(pgd, PAGE_OFFSET);
-
-	p4d_clear(p4d);
-	pgd_clear(pgd);
-
-	ass_clone_range(mm, ass_pgd_shadow, mm->pgd,
-			PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+	mm = copy_init_mm();
+	if (!mm)
+		return ERR_PTR(err);
 
 	ns_pgd = kzalloc(sizeof(*ns_pgd), GFP_KERNEL);
 	if (!ns_pgd)
-		return NULL;
+		goto err_free_mm;
 
-	ns_pgd->pgd = mm->pgd;
+	for (addr = DIRECT_MAP_START; addr < DIRECT_MAP_END;
+	     addr = pgd_addr_end(addr, DIRECT_MAP_END)) {
+		pgd = pgd_offset_pgd(mm->pgd, addr);
+		p4d = p4d_offset(pgd, addr);
+
+		p4d_clear(p4d);
+		pgd_clear(pgd);
+	}
+
+	err = ass_clone_range(&init_mm, init_mm.pgd, mm->pgd,
+			      DIRECT_MAP_START, DIRECT_MAP_END);
+	if (err)
+		goto err_free_ns_pgd;
+
+	ns_pgd->mm = mm;
 	INIT_LIST_HEAD(&ns_pgd->l);
 	INIT_LIST_HEAD(&ns_pgd->caches);
 
@@ -388,6 +401,23 @@ struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm)
 	list_add_tail(&ns_pgd->l, &asses);
 
 	return ns_pgd;
+
+err_free_ns_pgd:
+	kfree(ns_pgd);
+err_free_mm:
+	mmput(mm);
+
+	return ERR_PTR(err);
+}
+
+void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd)
+{
+	int start = pgd_index(DIRECT_MAP_START);
+	int end = pgd_index(DIRECT_MAP_END);
+	int nr = (end - start);
+
+	clone_pgd_range(mm->pgd + start, ns_pgd->mm->pgd + start, nr);
+	mm->ns_pgd = ns_pgd;
 }
 
 static int ass_init_pgd_shadow(void)
@@ -512,17 +542,18 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 
 	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
 
-	if (WARN_ON(PageCompound(page)))
-		split_page(page, page_order(page));
+	dump_page(page, "ass");
+	if (PageCompound(page))
+		split_page(page, compound_order(page));
 
 	for (i = 0; i < nr_pages; i++)
 		ass_make_page_exclusive(mm, ns_pgd, page + i);
 
 	list_for_each_entry(p, &asses, l) {
 		if (p != ns_pgd) {
-			pr_info("==> make_EX: unmapping in %px\n", p->pgd);
-			kernel_map_pages_pgd(p->pgd, page, nr_pages, 0);
-			dump_pagetable(p->pgd, (unsigned long)page_address(page));
+			pr_info("==> make_EX: unmapping in %px\n", p->mm->pgd);
+			kernel_map_pages_pgd(p->mm->pgd, page, nr_pages, 0);
+			dump_pagetable(p->mm->pgd, (unsigned long)page_address(page));
 		}
 	}
 
@@ -531,7 +562,7 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 
 	pr_info("---> owner PGD\n");
-	dump_pagetable(ns_pgd->pgd, (unsigned long)page_address(page));
+	dump_pagetable(ns_pgd->mm->pgd, (unsigned long)page_address(page));
 
 	return 0;
 }
@@ -551,7 +582,7 @@ static void ass_unmake_page_exclusive(struct page *page)
 	owner = page_excl->owner;
 	list_for_each_entry(p, &asses, l)
 		if (p != owner)
-			kernel_map_pages_pgd(p->pgd, page, 1, 1);
+			kernel_map_pages_pgd(p->mm->pgd, page, 1, 1);
 
 	__ClearPageExclusive(page);
 	page_excl->owner = NULL;
@@ -585,7 +616,7 @@ static struct kmem_cache *ass_kmem_create_cache(struct ns_pgd *ns_pgd,
 	struct ass_kmem_cache *ns_cache;
 	char *cache_name;
 
-	pr_info("%s: PGD: %px, cache: %s\n", __func__, ns_pgd->pgd, cachep->name);
+	pr_info("%s: PGD: %px, cache: %s\n", __func__, ns_pgd->mm->pgd, cachep->name);
 
 	get_online_cpus();
 	get_online_mems();
@@ -595,7 +626,7 @@ static struct kmem_cache *ass_kmem_create_cache(struct ns_pgd *ns_pgd,
 	ns_pgd->inside_add_cache = 1;
 
 	cache_name = kasprintf(GFP_KERNEL, "%s(%px)", cachep->name,
-			       ns_pgd->pgd);
+			       ns_pgd->mm->pgd);
 	if (!cache_name)
 		goto out_unlock;
 
@@ -679,7 +710,7 @@ static int ass_pgds_show(struct seq_file *m, void *unused)
 	struct ns_pgd *ns_pgd;
 
 	list_for_each_entry(ns_pgd, &asses, l)
-		seq_printf(m, "%px: %px\n", ns_pgd, ns_pgd->pgd);
+		seq_printf(m, "%px: %px\n", ns_pgd, ns_pgd->mm->pgd);
 
 	return 0;
 }

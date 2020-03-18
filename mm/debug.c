@@ -71,7 +71,7 @@ void __dump_page(struct page *page, const char *reason)
 		  page, page_ref_count(page), mapcount,
 		  page->mapping, page_to_pgoff(page));
 	if (PageCompound(page))
-		pr_cont(" compound_mapcount: %d", compound_mapcount(page));
+		pr_cont(" compound_mapcount: %d compound_order %d", compound_mapcount(page), compound_order(page));
 	pr_cont("\n");
 	if (PageAnon(page))
 		pr_warn("anon ");

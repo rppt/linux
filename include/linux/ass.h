@@ -13,7 +13,9 @@ int ass_free_pagetable(struct task_struct *tsk, pgd_t *ass_pgd);
 int ass_make_pages_exclusive(struct page *page, unsigned int order);
 void ass_unmake_pages_exclusive(struct page *page, unsigned int order);
 
-struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm);
+struct ns_pgd *ass_create_ns_pgd(void);
+
+void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd);
 
 struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep);
 
@@ -26,7 +28,7 @@ struct ass_kmem_cache {
 struct ns_pgd {
 	struct list_head l; /* for list of all ns_pgd's */
 	struct list_head caches; /* list of ns_pgd specific caches */
-	pgd_t *pgd;
+	struct mm_struct *mm;
 	int inside_add_cache;	/* FIXME: synchronization */
 	int id;
 };

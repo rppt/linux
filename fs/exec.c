@@ -63,6 +63,7 @@
 #include <linux/oom.h>
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
+#include <linux/ass.h>
 
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1017,12 +1018,8 @@ static int exec_mmap(struct mm_struct *mm)
 	old_mm = current->mm;
 
 #ifdef CONFIG_NET_NS_MM
-	if (old_mm) {
-		clone_pgd_range(mm->pgd + KERNEL_PGD_BOUNDARY,
-				old_mm->pgd + KERNEL_PGD_BOUNDARY,
-				KERNEL_PGD_PTRS);
-		mm->ns_pgd = old_mm->ns_pgd;
-	}
+	if (old_mm && old_mm->ns_pgd)
+		ass_update_pgd_from_ns(mm, old_mm->ns_pgd);
 #endif
 
 	mm_release(tsk, old_mm);

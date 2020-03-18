@@ -45,9 +45,9 @@ EXPORT_SYMBOL_GPL(net_rwsem);
 struct net init_net = {
 	.count		= REFCOUNT_INIT(1),
 	.dev_base_head	= LIST_HEAD_INIT(init_net.dev_base_head),
-#ifdef CONFIG_NET_NS_MM
-	.mm		= &init_mm,
-#endif
+/* #ifdef CONFIG_NET_NS_MM */
+/* 	.mm		= &init_mm, */
+/* #endif */
 };
 EXPORT_SYMBOL(init_net);
 
@@ -405,22 +405,20 @@ static struct net *net_alloc(void)
 		goto out_free_ng;
 
 #ifdef CONFIG_NET_NS_MM
-	net->mm = copy_init_mm();
-	if (!net->mm)
-		goto out_free_net;
-
 	pr_info("%s: init_net: %px, new_net: %px\n", __func__, &init_net, net);
 
-	net->ns_pgd = ass_create_ns_pgd(net->mm); /* FIXME: may fail, handle errors */
+	net->ns_pgd = ass_create_ns_pgd();
+	if (IS_ERR(net->ns_pgd))
+		goto out_free_net;
 
 	dump_pgd(&init_mm, "init mm");
-	dump_pgd(net->mm, "net mm");
+	dump_pgd(net->ns_pgd->mm, "net mm");
 
 	net->ass_test_cache = kmem_cache_create("netns-ass", sizeof(struct net),
 						SMP_CACHE_BYTES,
 						0, NULL);
 	if (!net->ass_test_cache)
-		goto out_free_mm;
+		goto out_free_ns_pgd;
 #endif
 
 	rcu_assign_pointer(net->gen, ng);
@@ -428,10 +426,12 @@ out:
 	return net;
 
 #ifdef CONFIG_NET_NS_MM
-out_free_mm:
-	mmput(net->mm);	/* FIXME: mmdrop? */
+out_free_ns_pgd:
+	mmput(net->ns_pgd->mm);	/* FIXME: mmdrop? */
+	kfree(net->ns_pgd);
 out_free_net:
 	kmem_cache_free(net_cachep, net);
+	net = NULL;
 #endif
 out_free_ng:
 	kfree(ng);
@@ -443,7 +443,8 @@ static void net_free(struct net *net)
 	kfree(rcu_access_pointer(net->gen));
 #ifdef CONFIG_NET_NS_MM
 	kmem_cache_destroy(net->ass_test_cache);
-	mmput(net->mm);	/* FIXME: mmdrop? */
+	mmput(net->ns_pgd->mm);	/* FIXME: mmdrop? */
+	kfree(net->ns_pgd);
 #endif
 	kmem_cache_free(net_cachep, net);
 }
@@ -1357,9 +1358,7 @@ static int netns_install(struct nsproxy *nsproxy, struct ns_common *ns)
 	put_net(nsproxy->net_ns);
 	nsproxy->net_ns = get_net(net);
 #ifdef CONFIG_NET_NS_MM
-	clone_pgd_range(current->active_mm->pgd + KERNEL_PGD_BOUNDARY,
-			net->mm->pgd + KERNEL_PGD_BOUNDARY,
-			KERNEL_PGD_PTRS);
+	ass_update_pgd_from_ns(current->mm, net->ns_pgd);
 	/* memcpy(current->active_mm->pgd + 256, net->mm->pgd + 256, 256 * sizeof(pgd_t)); */
 #endif
 	return 0;
@@ -1393,7 +1392,7 @@ static int mm_ctx_show(struct seq_file *m, void *v)
 		if (pgd_val(*pgdp) != 0)
 			seq_printf(m, "%d: %lx\n", i, pgd_val(*pgdp));
 
-	pgdp = current->nsproxy->net_ns->mm->pgd;
+	pgdp = current->nsproxy->net_ns->ns_pgd->mm->pgd;
 	seq_printf(m, "===> %px\n", pgdp);
 	for (i = 0; i < 512; i++, pgdp++)
 		if (pgd_val(*pgdp) != 0)
@@ -1416,25 +1415,25 @@ static int netns_debugfs_init(void)
 }
 late_initcall(netns_debugfs_init);
 
-void switch_net_ns_ctx(struct task_struct *p)
+void switch_net_ns_ctx(struct task_struct *tsk)
 {
 #ifdef CONFIG_NET_NS_MM
-	struct net *new_net;
+	struct net *net;
 
-	if (!p->nsproxy)
+	if (!tsk->nsproxy)
 		return;
 
-	new_net = p->nsproxy->net_ns;
-	if (!new_net)
+	net = tsk->nsproxy->net_ns;
+	if (!net)
 		return;
 
-	if (new_net == &init_net)
+	if (net == &init_net)
 		return;
 
-	clone_pgd_range(p->mm->pgd + KERNEL_PGD_BOUNDARY,
-			new_net->mm->pgd + KERNEL_PGD_BOUNDARY,
-			KERNEL_PGD_PTRS);
-	p->mm->ns_pgd = new_net->ns_pgd;
+	if (!tsk->mm || (tsk->flags & PF_KTHREAD))
+		return;
+
+	ass_update_pgd_from_ns(tsk->mm, net->ns_pgd);
 #endif
 }
 
@@ -1555,7 +1554,7 @@ static int noinline netns_ass_test_print(unsigned long pid)
 	struct net *net = get_net_ns_by_pid(pid);
 	struct net *obj;
 
-	dump_pgd(net->mm, "test");
+	dump_pgd(net->ns_pgd->mm, "test");
 	put_net(net);
 
 	if (nr_test_objects < 1)

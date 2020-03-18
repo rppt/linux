@@ -169,9 +169,8 @@ struct net {
 	struct sock		*diag_nlsk;
 	atomic_t		fnhe_genid;
 #ifdef CONFIG_NET_NS_MM
-	struct mm_struct	*mm;
-	struct kmem_cache	*ass_test_cache;
 	struct ns_pgd		*ns_pgd;
+	struct kmem_cache	*ass_test_cache;
 #endif
 } __randomize_layout;
 
