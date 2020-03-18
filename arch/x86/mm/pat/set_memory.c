@@ -16,6 +16,7 @@
 #include <linux/pci.h>
 #include <linux/vmalloc.h>
 #include <linux/libnvdimm.h>
+#include <linux/kvm_para.h>
 
 #include <asm/e820/api.h>
 #include <asm/processor.h>
@@ -1976,6 +1977,15 @@ static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
 {
 	struct cpa_data cpa;
 	int ret;
+
+	if (kvm_mem_protected()) {
+		/* TODO: Unsharing memory back */
+		if (WARN_ON_ONCE(enc))
+			return -ENOSYS;
+
+		return kvm_hypercall2(KVM_HC_MEM_SHARE,
+				      __pa(addr) >> PAGE_SHIFT, numpages);
+	}
 
 	/* Nothing to do if memory encryption is not active */
 	if (!mem_encrypt_active())
