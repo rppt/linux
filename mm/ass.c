@@ -20,6 +20,29 @@
 #include "internal.h"
 #include "slab.h"
 
+#define DIRECT_MAP_START PAGE_OFFSET
+#define DIRECT_MAP_END (PAGE_OFFSET + PFN_PHYS((max_pfn) + 1))
+/*
+ * Walk the shadow copy of the page tables to PUD level (optionally)
+ * trying to allocate page table pages on the way down.
+ *
+ * Allocation failures are not handled here because the entire page
+ * table will be freed in ass_free_pagetable.
+ *
+ * Returns a pointer to a PUD on success, or NULL on failure.
+ */
+static pud_t *ass_pagetable_walk_pud(struct mm_struct *mm,
+				     pgd_t *pgd, unsigned long address)
+{
+	p4d_t *p4d;
+
+	p4d = p4d_alloc(mm, pgd, address);
+	if (!p4d)
+		return NULL;
+
+	return pud_alloc(mm, p4d, address);
+}
+
 /*
  * Walk the shadow copy of the page tables to PMD level (optionally)
  * trying to allocate page table pages on the way down.
@@ -32,14 +55,9 @@
 static pmd_t *ass_pagetable_walk_pmd(struct mm_struct *mm,
 				     pgd_t *pgd, unsigned long address)
 {
-	p4d_t *p4d;
 	pud_t *pud;
 
-	p4d = p4d_alloc(mm, pgd, address);
-	if (!p4d)
-		return NULL;
-
-	pud = pud_alloc(mm, p4d, address);
+	pud = ass_pagetable_walk_pud(mm, pgd, address);
 	if (!pud)
 		return NULL;
 
@@ -146,11 +164,11 @@ int ass_clone_range(struct mm_struct *mm,
 	 * can have holes.
 	 */
 	for (addr = start; addr < end;) {
-		pte_t *pte, *target_pte;
 		pgd_t *pgd, *target_pgd;
-		pmd_t *pmd, *target_pmd;
 		p4d_t *p4d;
-		pud_t *pud;
+		pud_t *pud, *target_pud;
+		pmd_t *pmd, *target_pmd;
+		pte_t *pte, *target_pte;
 
 		/* Overflow check */
 		if (addr < start)
@@ -166,17 +184,32 @@ int ass_clone_range(struct mm_struct *mm,
 
 		pud = pud_offset(p4d, addr);
 		if (pud_none(*pud)) {
+			addr &= PUD_MASK;
+			addr += PUD_SIZE;
+			continue;
+		}
+
+		target_pgd = pgd_offset_pgd(target_pgdp, addr);
+
+		if (pud_large(*pud)) {
+			target_pud = ass_pagetable_walk_pud(mm, target_pgd,
+							    addr);
+			if (!target_pud)
+				return -ENOMEM;
+
+			*target_pud = *pud;
+
+			addr &= PUD_MASK;
 			addr += PUD_SIZE;
 			continue;
 		}
 
 		pmd = pmd_offset(pud, addr);
 		if (pmd_none(*pmd)) {
+			addr &= PMD_MASK;
 			addr += PMD_SIZE;
 			continue;
 		}
-
-		target_pgd = pgd_offset_pgd(target_pgdp, addr);
 
 		if (pmd_large(*pmd)) {
 			target_pmd = ass_pagetable_walk_pmd(mm, target_pgd,
@@ -186,6 +219,7 @@ int ass_clone_range(struct mm_struct *mm,
 
 			*target_pmd = *pmd;
 
+			addr &= PMD_MASK;
 			addr += PMD_SIZE;
 			continue;
 		} else {
