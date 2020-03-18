@@ -17,6 +17,7 @@
 
 #include <asm/pgalloc.h>
 
+#include "internal.h"
 #include "slab.h"
 
 /*
@@ -444,12 +445,27 @@ bad:
 	pr_info("BAD\n");
 }
 
-int ass_make_page_exclusive(struct page *page, unsigned int order)
+static int ass_make_page_exclusive(struct mm_struct *mm, struct ns_pgd *ns_pgd,
+				   struct page *page)
+{
+	struct page_ext *page_ext;
+	struct page_excl *page_excl;
+
+	page_ext = lookup_page_ext(page);
+	page_excl = get_page_excl(page_ext);
+
+	__SetPageExclusive(page);
+	page_excl->owner = ns_pgd;
+
+	return 0;
+}
+
+int ass_make_pages_exclusive(struct page *page, unsigned int order)
 {
 	struct mm_struct *mm;
 	struct ns_pgd *ns_pgd, *p;
-	struct page_ext *page_ext;
-	struct page_excl *page_excl;
+	int nr_pages = (1 << order);
+	int i;
 
 	if (!current->mm || (current->flags & PF_KTHREAD))
 		return 0;
@@ -462,22 +478,22 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 
 	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
 
-	page_ext = lookup_page_ext(page);
-	page_excl = get_page_excl(page_ext);
+	if (WARN_ON(PageCompound(page)))
+		split_page(page, page_order(page));
 
-	__SetPageExclusive(page);
-	page_excl->owner = ns_pgd;
+	for (i = 0; i < nr_pages; i++)
+		ass_make_page_exclusive(mm, ns_pgd, page + i);
 
 	list_for_each_entry(p, &asses, l) {
 		if (p != ns_pgd) {
 			pr_info("==> make_EX: unmapping in %px\n", p->pgd);
-			kernel_map_pages_pgd(p->pgd, page, (1 << order), 0);
+			kernel_map_pages_pgd(p->pgd, page, nr_pages, 0);
 			dump_pagetable(p->pgd, (unsigned long)page_address(page));
 		}
 	}
 
 	pr_info("---> shadow PGD\n");
-	kernel_map_pages_pgd(ass_pgd_shadow, page, (1 << order), 0);
+	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
 	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 
 	pr_info("---> owner PGD\n");
@@ -486,7 +502,7 @@ int ass_make_page_exclusive(struct page *page, unsigned int order)
 	return 0;
 }
 
-void ass_unmake_page_exclusive(struct page *page, unsigned int order)
+static void ass_unmake_page_exclusive(struct page *page)
 {
 	struct page_ext *page_ext;
 	struct page_excl *page_excl;
@@ -501,12 +517,23 @@ void ass_unmake_page_exclusive(struct page *page, unsigned int order)
 	owner = page_excl->owner;
 	list_for_each_entry(p, &asses, l)
 		if (p != owner)
-			kernel_map_pages_pgd(p->pgd, page, (1 << order), 1);
-
-	kernel_map_pages_pgd(ass_pgd_shadow, page, (1 << order), 1);
+			kernel_map_pages_pgd(p->pgd, page, 1, 1);
 
 	__ClearPageExclusive(page);
 	page_excl->owner = NULL;
+
+	return;
+}
+
+void ass_unmake_pages_exclusive(struct page *page, unsigned int order)
+{
+	int nr_pages = (1 << order);
+	int i;
+
+	for (i = 0; i < nr_pages; i++)
+		ass_unmake_page_exclusive(page);
+
+	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 1);
 
 	return;
 }

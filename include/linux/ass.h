@@ -10,8 +10,8 @@ int ass_clone_range(struct mm_struct *mm,
 		    unsigned long start, unsigned long end);
 int ass_free_pagetable(struct task_struct *tsk, pgd_t *ass_pgd);
 
-int ass_make_page_exclusive(struct page *page, unsigned int order);
-void ass_unmake_page_exclusive(struct page *page, unsigned int order);
+int ass_make_pages_exclusive(struct page *page, unsigned int order);
+void ass_unmake_pages_exclusive(struct page *page, unsigned int order);
 
 struct ns_pgd *ass_create_ns_pgd(struct mm_struct *mm);
 

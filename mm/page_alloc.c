@@ -1128,7 +1128,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		__memcg_kmem_uncharge(page, order);
 #ifdef CONFIG_NET_NS_MM
 	if (PageExclusive(page))
-		ass_unmake_page_exclusive(page, order);
+		ass_unmake_pages_exclusive(page, order);
 #endif
 	if (check_free)
 		bad += free_pages_check(page);
@@ -4690,12 +4690,19 @@ out:
 	}
 
 #ifdef CONFIG_NET_NS_MM
-	if (page && (gfp_mask & __GFP_EXCLUSIVE) &&
-	    ass_make_page_exclusive(page, order) != 0) {
-		__free_pages(page, order);
-		page = NULL;
+	if (page) {
+		/* free didn't clear Exclusive for us, warn and fix */
+		if (WARN_ON(PageExclusive(page)))
+			ass_unmake_pages_exclusive(page, order);
+		/* mark pages exclusive for GFP_EXCLUSIVE allocation */
+		else if ((gfp_mask & __GFP_EXCLUSIVE) &&
+			 (ass_make_pages_exclusive(page, order) != 0)) {
+				__free_pages(page, order);
+				page = NULL;
+		}
 	}
 #endif
+
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
 
 	return page;
