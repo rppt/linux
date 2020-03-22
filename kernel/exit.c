@@ -63,6 +63,7 @@
 #include <linux/random.h>
 #include <linux/rcuwait.h>
 #include <linux/compat.h>
+#include <linux/ass.h>
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
@@ -776,6 +777,7 @@ void __noreturn do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
+	int has_ass = 0;
 
 	profile_task_exit(tsk);
 	kcov_task_exit(tsk);
@@ -861,6 +863,11 @@ void __noreturn do_exit(long code)
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
 
+	if (tsk->mm && tsk->mm->ns_pgd) {
+		switch_mm(NULL, tsk->mm->ns_pgd->mm, NULL);
+		has_ass = 1;
+	}
+
 	exit_mm();
 
 	if (group_dead)
@@ -930,6 +937,9 @@ void __noreturn do_exit(long code)
 		__this_cpu_add(dirty_throttle_leaks, tsk->nr_dirtied);
 	exit_rcu();
 	exit_tasks_rcu_finish();
+
+	if (has_ass)
+		switch_mm(NULL, &init_mm, NULL);
 
 	lockdep_free_task(tsk);
 	do_task_dead();
