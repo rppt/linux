@@ -416,8 +416,9 @@ void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd)
 {
 	int start = pgd_index(DIRECT_MAP_START);
 	int end = pgd_index(DIRECT_MAP_END);
-	int nr = (end - start);
+	int nr = (end - start) + 1;
 
+	pr_info("UPD: %d: copy %px to %px->%px, start: %d, end: %d, nr: %d\n", current->pid, ns_pgd->mm->pgd, mm, mm->pgd, start, end, nr);
 	clone_pgd_range(mm->pgd + start, ns_pgd->mm->pgd + start, nr);
 	mm->ns_pgd = ns_pgd;
 }
