@@ -85,6 +85,7 @@ static pte_t *ass_pagetable_walk_pte(struct mm_struct *mm,
 	return pte_offset_kernel(pmd, address);
 }
 
+#if 0
 /*
  * Clone a single page mapping
  *
@@ -148,6 +149,7 @@ pte_t *ass_clone_page(struct mm_struct *mm,
 
 	return target_pte;
 }
+#endif
 
 /*
  * Clone a range keeping the same leaf mappings
