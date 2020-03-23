@@ -3660,7 +3660,7 @@ static void __tcp_alloc_md5sig_pool(void)
 		if (!scratch) {
 			scratch = kmalloc_node(sizeof(union tcp_md5sum_block) +
 					       sizeof(struct tcphdr),
-					       GFP_KERNEL,
+					       GFP_KERNEL_EXCLUSIVE,
 					       cpu_to_node(cpu));
 			if (!scratch)
 				return;
@@ -3669,7 +3669,7 @@ static void __tcp_alloc_md5sig_pool(void)
 		if (per_cpu(tcp_md5sig_pool, cpu).md5_req)
 			continue;
 
-		req = ahash_request_alloc(hash, GFP_KERNEL);
+		req = ahash_request_alloc(hash, GFP_KERNEL_EXCLUSIVE);
 		if (!req)
 			return;
 
@@ -3877,8 +3877,8 @@ void __init tcp_init(void)
 	BUILD_BUG_ON(sizeof(struct tcp_skb_cb) >
 		     FIELD_SIZEOF(struct sk_buff, cb));
 
-	percpu_counter_init(&tcp_sockets_allocated, 0, GFP_KERNEL);
-	percpu_counter_init(&tcp_orphan_count, 0, GFP_KERNEL);
+	percpu_counter_init(&tcp_sockets_allocated, 0, GFP_KERNEL_EXCLUSIVE);
+	percpu_counter_init(&tcp_orphan_count, 0, GFP_KERNEL_EXCLUSIVE);
 	inet_hashinfo_init(&tcp_hashinfo);
 	inet_hashinfo2_init(&tcp_hashinfo, "tcp_listen_portaddr_hash",
 			    thash_entries, 21,  /* one slot per 2 MB*/

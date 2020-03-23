@@ -476,7 +476,7 @@ int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo,
 	if (IS_ERR(sk))
 		return PTR_ERR(sk);
 
-	rep = nlmsg_new(inet_sk_attr_size(sk, req, net_admin), GFP_KERNEL);
+	rep = nlmsg_new(inet_sk_attr_size(sk, req, net_admin), GFP_KERNEL_EXCLUSIVE);
 	if (!rep) {
 		err = -ENOMEM;
 		goto out;
@@ -1281,7 +1281,7 @@ static int __init inet_diag_init(void)
 					  sizeof(struct inet_diag_handler *));
 	int err = -ENOMEM;
 
-	inet_diag_table = kzalloc(inet_diag_table_size, GFP_KERNEL);
+	inet_diag_table = kzalloc(inet_diag_table_size, GFP_KERNEL_EXCLUSIVE);
 	if (!inet_diag_table)
 		goto out;
 

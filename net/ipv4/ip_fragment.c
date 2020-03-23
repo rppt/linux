@@ -596,7 +596,7 @@ static int __net_init ip4_frags_ns_ctl_register(struct net *net)
 
 	table = ip4_frags_ns_ctl_table;
 	if (!net_eq(net, &init_net)) {
-		table = kmemdup(table, sizeof(ip4_frags_ns_ctl_table), GFP_KERNEL);
+		table = kmemdup(table, sizeof(ip4_frags_ns_ctl_table), GFP_KERNEL_EXCLUSIVE);
 		if (!table)
 			goto err_alloc;
 

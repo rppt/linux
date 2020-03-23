@@ -1642,7 +1642,7 @@ static void sk_prot_free(struct proto *prot, struct sock *sk)
  *	sk_alloc - All socket objects are allocated here
  *	@net: the applicable net namespace
  *	@family: protocol family
- *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
+ *	@priority: for allocation (%GFP_KERNEL_EXCLUSIVE, %GFP_ATOMIC, etc)
  *	@prot: struct proto associated with this new sock instance
  *	@kern: is this to be a kernel socket?
  */
@@ -1778,7 +1778,7 @@ static void sk_init_common(struct sock *sk)
 /**
  *	sk_clone_lock - clone a socket, and lock its clone
  *	@sk: the socket to clone
- *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
+ *	@priority: for allocation (%GFP_KERNEL_EXCLUSIVE, %GFP_ATOMIC, etc)
  *
  *	Caller must unlock socket even in error path (bh_unlock_sock(newsk))
  */
@@ -2834,7 +2834,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	timer_setup(&sk->sk_timer, NULL, 0);
 
-	sk->sk_allocation	=	GFP_KERNEL;
+	sk->sk_allocation	=	GFP_KERNEL_EXCLUSIVE;
 	sk->sk_rcvbuf		=	sysctl_rmem_default;
 	sk->sk_sndbuf		=	sysctl_wmem_default;
 	sk->sk_state		=	TCP_CLOSE;
@@ -3323,7 +3323,7 @@ static int req_prot_init(const struct proto *prot)
 	if (!rsk_prot)
 		return 0;
 
-	rsk_prot->slab_name = kasprintf(GFP_KERNEL, "request_sock_%s",
+	rsk_prot->slab_name = kasprintf(GFP_KERNEL_EXCLUSIVE, "request_sock_%s",
 					prot->name);
 	if (!rsk_prot->slab_name)
 		return -ENOMEM;
@@ -3361,7 +3361,7 @@ int proto_register(struct proto *prot, int alloc_slab)
 			goto out_free_request_sock_slab;
 
 		if (prot->twsk_prot != NULL) {
-			prot->twsk_prot->twsk_slab_name = kasprintf(GFP_KERNEL, "tw_sock_%s", prot->name);
+			prot->twsk_prot->twsk_slab_name = kasprintf(GFP_KERNEL_EXCLUSIVE, "tw_sock_%s", prot->name);
 
 			if (prot->twsk_prot->twsk_slab_name == NULL)
 				goto out_free_request_sock_slab;

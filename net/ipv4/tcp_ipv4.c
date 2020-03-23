@@ -1165,7 +1165,7 @@ static int tcp_v4_parse_md5_keys(struct sock *sk, int optname,
 
 	return tcp_md5_do_add(sk, (union tcp_md5_addr *)&sin->sin_addr.s_addr,
 			      AF_INET, prefixlen, cmd.tcpm_key, cmd.tcpm_keylen,
-			      GFP_KERNEL);
+			      GFP_KERNEL_EXCLUSIVE);
 }
 
 static int tcp_v4_md5_hash_headers(struct tcp_md5sig_pool *hp,

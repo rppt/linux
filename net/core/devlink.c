@@ -491,7 +491,7 @@ static void devlink_notify(struct devlink *devlink, enum devlink_command cmd)
 
 	WARN_ON(cmd != DEVLINK_CMD_NEW && cmd != DEVLINK_CMD_DEL);
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return;
 
@@ -502,7 +502,7 @@ static void devlink_notify(struct devlink *devlink, enum devlink_command cmd)
 	}
 
 	genlmsg_multicast_netns(&devlink_nl_family, devlink_net(devlink),
-				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL);
+				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL_EXCLUSIVE);
 }
 
 static int devlink_nl_port_attrs_put(struct sk_buff *msg,
@@ -593,7 +593,7 @@ static void devlink_port_notify(struct devlink_port *devlink_port,
 
 	WARN_ON(cmd != DEVLINK_CMD_PORT_NEW && cmd != DEVLINK_CMD_PORT_DEL);
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return;
 
@@ -604,7 +604,7 @@ static void devlink_port_notify(struct devlink_port *devlink_port,
 	}
 
 	genlmsg_multicast_netns(&devlink_nl_family, devlink_net(devlink),
-				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL);
+				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL_EXCLUSIVE);
 }
 
 static int devlink_nl_cmd_get_doit(struct sk_buff *skb, struct genl_info *info)
@@ -613,7 +613,7 @@ static int devlink_nl_cmd_get_doit(struct sk_buff *skb, struct genl_info *info)
 	struct sk_buff *msg;
 	int err;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -665,7 +665,7 @@ static int devlink_nl_cmd_port_get_doit(struct sk_buff *skb,
 	struct sk_buff *msg;
 	int err;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -853,7 +853,7 @@ static int devlink_nl_cmd_sb_get_doit(struct sk_buff *skb,
 	struct sk_buff *msg;
 	int err;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -967,7 +967,7 @@ static int devlink_nl_cmd_sb_pool_get_doit(struct sk_buff *skb,
 	if (!devlink->ops->sb_pool_get)
 		return -EOPNOTSUPP;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1159,7 +1159,7 @@ static int devlink_nl_cmd_sb_port_pool_get_doit(struct sk_buff *skb,
 	if (!devlink->ops->sb_port_pool_get)
 		return -EOPNOTSUPP;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1364,7 +1364,7 @@ static int devlink_nl_cmd_sb_tc_pool_bind_get_doit(struct sk_buff *skb,
 	if (!devlink->ops->sb_tc_pool_bind_get)
 		return -EOPNOTSUPP;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1604,7 +1604,7 @@ static int devlink_nl_cmd_eswitch_get_doit(struct sk_buff *skb,
 	struct sk_buff *msg;
 	int err;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1807,7 +1807,7 @@ static int devlink_dpipe_send_and_alloc_skb(struct sk_buff **pskb,
 		if (err)
 			return err;
 	}
-	*pskb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	*pskb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!*pskb)
 		return -ENOMEM;
 	return 0;
@@ -2980,7 +2980,7 @@ static void devlink_param_notify(struct devlink *devlink,
 		cmd != DEVLINK_CMD_PORT_PARAM_NEW &&
 		cmd != DEVLINK_CMD_PORT_PARAM_DEL);
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return;
 	err = devlink_nl_param_fill(msg, devlink, port_index, param_item, cmd,
@@ -2991,7 +2991,7 @@ static void devlink_param_notify(struct devlink *devlink,
 	}
 
 	genlmsg_multicast_netns(&devlink_nl_family, devlink_net(devlink),
-				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL);
+				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL_EXCLUSIVE);
 }
 
 static int devlink_nl_cmd_param_get_dumpit(struct sk_buff *msg,
@@ -3126,7 +3126,7 @@ static int devlink_nl_cmd_param_get_doit(struct sk_buff *skb,
 	if (!param_item)
 		return -EINVAL;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -3224,7 +3224,7 @@ static int devlink_param_register_one(struct devlink *devlink,
 	else
 		WARN_ON(!param->get || !param->set);
 
-	param_item = kzalloc(sizeof(*param_item), GFP_KERNEL);
+	param_item = kzalloc(sizeof(*param_item), GFP_KERNEL_EXCLUSIVE);
 	if (!param_item)
 		return -ENOMEM;
 	param_item->param = param;
@@ -3307,7 +3307,7 @@ static int devlink_nl_cmd_port_param_get_doit(struct sk_buff *skb,
 	if (!param_item)
 		return -EINVAL;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -3433,7 +3433,7 @@ static void devlink_nl_region_notify(struct devlink_region *region,
 
 	WARN_ON(cmd != DEVLINK_CMD_REGION_NEW && cmd != DEVLINK_CMD_REGION_DEL);
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return;
 
@@ -3464,7 +3464,7 @@ static void devlink_nl_region_notify(struct devlink_region *region,
 	genlmsg_end(msg, hdr);
 
 	genlmsg_multicast_netns(&devlink_nl_family, devlink_net(devlink),
-				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL);
+				msg, 0, DEVLINK_MCGRP_CONFIG, GFP_KERNEL_EXCLUSIVE);
 
 	return;
 
@@ -3491,7 +3491,7 @@ static int devlink_nl_cmd_region_get_doit(struct sk_buff *skb,
 	if (!region)
 		return -EINVAL;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -3667,7 +3667,7 @@ static int devlink_nl_cmd_region_read_dumpit(struct sk_buff *skb,
 
 	start_offset = *((u64 *)&cb->args[0]);
 
-	attrs = kmalloc_array(DEVLINK_ATTR_MAX + 1, sizeof(*attrs), GFP_KERNEL);
+	attrs = kmalloc_array(DEVLINK_ATTR_MAX + 1, sizeof(*attrs), GFP_KERNEL_EXCLUSIVE);
 	if (!attrs)
 		return -ENOMEM;
 
@@ -3882,7 +3882,7 @@ static int devlink_nl_cmd_info_get_doit(struct sk_buff *skb,
 	if (!devlink->ops->info_get)
 		return -EOPNOTSUPP;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -3951,7 +3951,7 @@ static struct devlink_fmsg *devlink_fmsg_alloc(void)
 {
 	struct devlink_fmsg *fmsg;
 
-	fmsg = kzalloc(sizeof(*fmsg), GFP_KERNEL);
+	fmsg = kzalloc(sizeof(*fmsg), GFP_KERNEL_EXCLUSIVE);
 	if (!fmsg)
 		return NULL;
 
@@ -3976,7 +3976,7 @@ static int devlink_fmsg_nest_common(struct devlink_fmsg *fmsg,
 {
 	struct devlink_fmsg_item *item;
 
-	item = kzalloc(sizeof(*item), GFP_KERNEL);
+	item = kzalloc(sizeof(*item), GFP_KERNEL_EXCLUSIVE);
 	if (!item)
 		return -ENOMEM;
 
@@ -4012,7 +4012,7 @@ static int devlink_fmsg_put_name(struct devlink_fmsg *fmsg, const char *name)
 	if (strlen(name) + 1 > DEVLINK_FMSG_MAX_SIZE)
 		return -EMSGSIZE;
 
-	item = kzalloc(sizeof(*item) + strlen(name) + 1, GFP_KERNEL);
+	item = kzalloc(sizeof(*item) + strlen(name) + 1, GFP_KERNEL_EXCLUSIVE);
 	if (!item)
 		return -ENOMEM;
 
@@ -4089,7 +4089,7 @@ static int devlink_fmsg_put_value(struct devlink_fmsg *fmsg,
 	if (value_len > DEVLINK_FMSG_MAX_SIZE)
 		return -EMSGSIZE;
 
-	item = kzalloc(sizeof(*item) + value_len, GFP_KERNEL);
+	item = kzalloc(sizeof(*item) + value_len, GFP_KERNEL_EXCLUSIVE);
 	if (!item)
 		return -ENOMEM;
 
@@ -4375,7 +4375,7 @@ static int devlink_fmsg_snd(struct devlink_fmsg *fmsg,
 	while (!last) {
 		int tmp_index = index;
 
-		skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+		skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 		if (!skb)
 			return -ENOMEM;
 
@@ -4398,7 +4398,7 @@ static int devlink_fmsg_snd(struct devlink_fmsg *fmsg,
 			return err;
 	}
 
-	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return -ENOMEM;
 	nlh = nlmsg_put(skb, info->snd_portid, info->snd_seq,
@@ -4481,7 +4481,7 @@ devlink_health_reporter_create(struct devlink *devlink,
 		goto unlock;
 	}
 
-	reporter = kzalloc(sizeof(*reporter), GFP_KERNEL);
+	reporter = kzalloc(sizeof(*reporter), GFP_KERNEL_EXCLUSIVE);
 	if (!reporter) {
 		reporter = ERR_PTR(-ENOMEM);
 		goto unlock;
@@ -4743,7 +4743,7 @@ static int devlink_nl_cmd_health_reporter_get_doit(struct sk_buff *skb,
 	if (!reporter)
 		return -EINVAL;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg) {
 		err = -ENOMEM;
 		goto out;
@@ -5316,7 +5316,7 @@ struct devlink *devlink_alloc(const struct devlink_ops *ops, size_t priv_size)
 	if (WARN_ON(!ops))
 		return NULL;
 
-	devlink = kzalloc(sizeof(*devlink) + priv_size, GFP_KERNEL);
+	devlink = kzalloc(sizeof(*devlink) + priv_size, GFP_KERNEL_EXCLUSIVE);
 	if (!devlink)
 		return NULL;
 	devlink->ops = ops;
@@ -5606,7 +5606,7 @@ int devlink_sb_register(struct devlink *devlink, unsigned int sb_index,
 		goto unlock;
 	}
 
-	devlink_sb = kzalloc(sizeof(*devlink_sb), GFP_KERNEL);
+	devlink_sb = kzalloc(sizeof(*devlink_sb), GFP_KERNEL_EXCLUSIVE);
 	if (!devlink_sb) {
 		err = -ENOMEM;
 		goto unlock;
@@ -5723,7 +5723,7 @@ int devlink_dpipe_table_register(struct devlink *devlink,
 	if (WARN_ON(!table_ops->size_get))
 		return -EINVAL;
 
-	table = kzalloc(sizeof(*table), GFP_KERNEL);
+	table = kzalloc(sizeof(*table), GFP_KERNEL_EXCLUSIVE);
 	if (!table)
 		return -ENOMEM;
 
@@ -5795,7 +5795,7 @@ int devlink_resource_register(struct devlink *devlink,
 		goto out;
 	}
 
-	resource = kzalloc(sizeof(*resource), GFP_KERNEL);
+	resource = kzalloc(sizeof(*resource), GFP_KERNEL_EXCLUSIVE);
 	if (!resource) {
 		err = -ENOMEM;
 		goto out;
@@ -6393,7 +6393,7 @@ struct devlink_region *devlink_region_create(struct devlink *devlink,
 		goto unlock;
 	}
 
-	region = kzalloc(sizeof(*region), GFP_KERNEL);
+	region = kzalloc(sizeof(*region), GFP_KERNEL_EXCLUSIVE);
 	if (!region) {
 		err = -ENOMEM;
 		goto unlock;
@@ -6496,7 +6496,7 @@ int devlink_region_snapshot_create(struct devlink_region *region, u64 data_len,
 		goto unlock;
 	}
 
-	snapshot = kzalloc(sizeof(*snapshot), GFP_KERNEL);
+	snapshot = kzalloc(sizeof(*snapshot), GFP_KERNEL_EXCLUSIVE);
 	if (!snapshot) {
 		err = -ENOMEM;
 		goto unlock;
@@ -6530,7 +6530,7 @@ static void __devlink_compat_running_version(struct devlink *devlink,
 	struct sk_buff *msg;
 	int rem, err;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return;
 

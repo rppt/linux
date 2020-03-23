@@ -338,7 +338,7 @@ static int rt_acct_proc_show(struct seq_file *m, void *v)
 	struct ip_rt_acct *dst, *src;
 	unsigned int i, j;
 
-	dst = kcalloc(256, sizeof(struct ip_rt_acct), GFP_KERNEL);
+	dst = kcalloc(256, sizeof(struct ip_rt_acct), GFP_KERNEL_EXCLUSIVE);
 	if (!dst)
 		return -ENOMEM;
 
@@ -2830,7 +2830,7 @@ static struct sk_buff *inet_rtm_getroute_build_skb(__be32 src, __be32 dst,
 	struct sk_buff *skb;
 	struct iphdr *iph;
 
-	skb = alloc_skb(NLMSG_GOODSIZE, GFP_KERNEL);
+	skb = alloc_skb(NLMSG_GOODSIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return NULL;
 
@@ -3246,7 +3246,7 @@ static __net_init int sysctl_route_net_init(struct net *net)
 
 	tbl = ipv4_route_flush_table;
 	if (!net_eq(net, &init_net)) {
-		tbl = kmemdup(tbl, sizeof(ipv4_route_flush_table), GFP_KERNEL);
+		tbl = kmemdup(tbl, sizeof(ipv4_route_flush_table), GFP_KERNEL_EXCLUSIVE);
 		if (!tbl)
 			goto err_dup;
 
@@ -3298,7 +3298,7 @@ static __net_initdata struct pernet_operations rt_genid_ops = {
 
 static int __net_init ipv4_inetpeer_init(struct net *net)
 {
-	struct inet_peer_base *bp = kmalloc(sizeof(*bp), GFP_KERNEL);
+	struct inet_peer_base *bp = kmalloc(sizeof(*bp), GFP_KERNEL_EXCLUSIVE);
 
 	if (!bp)
 		return -ENOMEM;
@@ -3330,13 +3330,13 @@ int __init ip_rt_init(void)
 	int cpu;
 
 	ip_idents = kmalloc_array(IP_IDENTS_SZ, sizeof(*ip_idents),
-				  GFP_KERNEL);
+				  GFP_KERNEL_EXCLUSIVE);
 	if (!ip_idents)
 		panic("IP: failed to allocate ip_idents\n");
 
 	prandom_bytes(ip_idents, IP_IDENTS_SZ * sizeof(*ip_idents));
 
-	ip_tstamps = kcalloc(IP_IDENTS_SZ, sizeof(*ip_tstamps), GFP_KERNEL);
+	ip_tstamps = kcalloc(IP_IDENTS_SZ, sizeof(*ip_tstamps), GFP_KERNEL_EXCLUSIVE);
 	if (!ip_tstamps)
 		panic("IP: failed to allocate ip_tstamps\n");
 

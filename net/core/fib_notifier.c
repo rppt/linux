@@ -142,7 +142,7 @@ fib_notifier_ops_register(const struct fib_notifier_ops *tmpl, struct net *net)
 	struct fib_notifier_ops *ops;
 	int err;
 
-	ops = kmemdup(tmpl, sizeof(*ops), GFP_KERNEL);
+	ops = kmemdup(tmpl, sizeof(*ops), GFP_KERNEL_EXCLUSIVE);
 	if (!ops)
 		return ERR_PTR(-ENOMEM);
 

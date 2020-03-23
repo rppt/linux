@@ -342,7 +342,7 @@ int ip_ra_control(struct sock *sk, unsigned char on,
 	if (sk->sk_type != SOCK_RAW || inet_sk(sk)->inet_num == IPPROTO_RAW)
 		return -EINVAL;
 
-	new_ra = on ? kmalloc(sizeof(*new_ra), GFP_KERNEL) : NULL;
+	new_ra = on ? kmalloc(sizeof(*new_ra), GFP_KERNEL_EXCLUSIVE) : NULL;
 	if (on && !new_ra)
 		return -ENOMEM;
 
@@ -1107,7 +1107,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 			goto mc_msf_out;
 		}
 		msize = IP_MSFILTER_SIZE(gsf->gf_numsrc);
-		msf = kmalloc(msize, GFP_KERNEL);
+		msf = kmalloc(msize, GFP_KERNEL_EXCLUSIVE);
 		if (!msf) {
 			err = -ENOBUFS;
 			goto mc_msf_out;

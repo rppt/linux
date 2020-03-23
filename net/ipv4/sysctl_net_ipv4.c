@@ -291,7 +291,7 @@ static int proc_tcp_fastopen_key(struct ctl_table *table, int write,
 	__le32 key[4];
 	int ret, i;
 
-	tbl.data = kmalloc(tbl.maxlen, GFP_KERNEL);
+	tbl.data = kmalloc(tbl.maxlen, GFP_KERNEL_EXCLUSIVE);
 	if (!tbl.data)
 		return -ENOMEM;
 
@@ -1281,7 +1281,7 @@ static __net_init int ipv4_sysctl_init_net(struct net *net)
 	if (!net_eq(net, &init_net)) {
 		int i;
 
-		table = kmemdup(table, sizeof(ipv4_net_table), GFP_KERNEL);
+		table = kmemdup(table, sizeof(ipv4_net_table), GFP_KERNEL_EXCLUSIVE);
 		if (!table)
 			goto err_alloc;
 
@@ -1294,7 +1294,7 @@ static __net_init int ipv4_sysctl_init_net(struct net *net)
 	if (!net->ipv4.ipv4_hdr)
 		goto err_reg;
 
-	net->ipv4.sysctl_local_reserved_ports = kzalloc(65536 / 8, GFP_KERNEL);
+	net->ipv4.sysctl_local_reserved_ports = kzalloc(65536 / 8, GFP_KERNEL_EXCLUSIVE);
 	if (!net->ipv4.sysctl_local_reserved_ports)
 		goto err_ports;
 

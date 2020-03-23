@@ -40,7 +40,7 @@ static int page_pool_init(struct page_pool *pool,
 	    (pool->p.dma_dir != DMA_BIDIRECTIONAL))
 		return -EINVAL;
 
-	if (ptr_ring_init(&pool->ring, ring_qsize, GFP_KERNEL) < 0)
+	if (ptr_ring_init(&pool->ring, ring_qsize, GFP_KERNEL_EXCLUSIVE) < 0)
 		return -ENOMEM;
 
 	return 0;
@@ -51,7 +51,7 @@ struct page_pool *page_pool_create(const struct page_pool_params *params)
 	struct page_pool *pool;
 	int err = 0;
 
-	pool = kzalloc_node(sizeof(*pool), GFP_KERNEL, params->nid);
+	pool = kzalloc_node(sizeof(*pool), GFP_KERNEL_EXCLUSIVE, params->nid);
 	if (!pool)
 		return ERR_PTR(-ENOMEM);
 

@@ -73,7 +73,7 @@ static struct net_generic *net_alloc_generic(void)
 	struct net_generic *ng;
 	unsigned int generic_size = offsetof(struct net_generic, ptr[max_gen_ptrs]);
 
-	ng = kzalloc(generic_size, GFP_KERNEL);
+	ng = kzalloc(generic_size, GFP_KERNEL_EXCLUSIVE);
 	if (ng)
 		ng->s.len = max_gen_ptrs;
 
@@ -123,7 +123,7 @@ static int ops_init(const struct pernet_operations *ops, struct net *net)
 	void *data = NULL;
 
 	if (ops->id && ops->size) {
-		data = kzalloc(ops->size, GFP_KERNEL);
+		data = kzalloc(ops->size, GFP_KERNEL_EXCLUSIVE);
 		if (!data)
 			goto out;
 
@@ -400,7 +400,7 @@ static struct net *net_alloc(void)
 	if (!ng)
 		goto out;
 
-	net = kmem_cache_zalloc(net_cachep, GFP_KERNEL);
+	net = kmem_cache_zalloc(net_cachep, GFP_KERNEL_EXCLUSIVE);
 	if (!net)
 		goto out_free_ng;
 
@@ -919,7 +919,7 @@ static int rtnl_net_getid(struct sk_buff *skb, struct nlmsghdr *nlh,
 		fillargs.ref_nsid = peernet2id(net, peer);
 	}
 
-	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL);
+	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!msg) {
 		err = -ENOMEM;
 		goto out;
@@ -1065,7 +1065,7 @@ static void rtnl_net_notifyid(struct net *net, int cmd, int id)
 	struct sk_buff *msg;
 	int err = -ENOMEM;
 
-	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL);
+	msg = nlmsg_new(rtnl_net_get_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		goto out;
 
@@ -1202,7 +1202,7 @@ static int register_pernet_operations(struct list_head *list,
 
 	if (ops->id) {
 		error = ida_alloc_min(&net_generic_ids, MIN_PERNET_OPS_ID,
-				GFP_KERNEL);
+				GFP_KERNEL_EXCLUSIVE);
 		if (error < 0)
 			return error;
 		*ops->id = error;
@@ -1457,10 +1457,10 @@ static int noinline netns_ass_test_alloc(struct net *net, struct kmem_cache *sla
 	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
 		return -ENOSPC;
 
-	/* new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE); */
+	/* new = kmem_cache_alloc(slab, GFP_KERNEL_EXCLUSIVE | __GFP_EXCLUSIVE); */
 	/* if (!new) */
 
-	page = alloc_pages(GFP_KERNEL | __GFP_EXCLUSIVE, order);
+	page = alloc_pages(GFP_KERNEL_EXCLUSIVE, order);
 	if (!page)
 		return -ENOMEM;
 
@@ -1506,8 +1506,8 @@ static int noinline netns_ass_test_kmalloc(struct net *net, struct kmem_cache *s
 	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
 		return -ENOSPC;
 
-	/* new = kmem_cache_alloc(slab, GFP_KERNEL | __GFP_EXCLUSIVE); */
-	new = kmalloc(size, GFP_KERNEL_ACCOUNT | __GFP_EXCLUSIVE);
+	/* new = kmem_cache_alloc(slab, GFP_KERNEL_EXCLUSIVE | __GFP_EXCLUSIVE); */
+	new = kmalloc(size, GFP_KERNEL_EXCLUSIVE);
 	if (!new)
 		return -ENOMEM;
 

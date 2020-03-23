@@ -143,7 +143,7 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 	if (parm->interval < -2 || parm->interval > 3)
 		return -EINVAL;
 
-	est = kzalloc(sizeof(*est), GFP_KERNEL);
+	est = kzalloc(sizeof(*est), GFP_KERNEL_EXCLUSIVE);
 	if (!est)
 		return -ENOBUFS;
 

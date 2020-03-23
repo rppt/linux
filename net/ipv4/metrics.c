@@ -74,7 +74,7 @@ struct dst_metrics *ip_fib_metrics_init(struct net *net, struct nlattr *fc_mx,
 	if (!fc_mx)
 		return (struct dst_metrics *)&dst_default_metrics;
 
-	fib_metrics = kzalloc(sizeof(*fib_metrics), GFP_KERNEL);
+	fib_metrics = kzalloc(sizeof(*fib_metrics), GFP_KERNEL_EXCLUSIVE);
 	if (unlikely(!fib_metrics))
 		return ERR_PTR(-ENOMEM);
 

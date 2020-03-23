@@ -3046,7 +3046,7 @@ void __init udp_init(void)
 	/* 16 spinlocks per cpu */
 	udp_busylocks_log = ilog2(nr_cpu_ids) + 4;
 	udp_busylocks = kmalloc(sizeof(spinlock_t) << udp_busylocks_log,
-				GFP_KERNEL);
+				GFP_KERNEL_EXCLUSIVE);
 	if (!udp_busylocks)
 		panic("UDP: failed to alloc udp_busylocks\n");
 	for (i = 0; i < (1U << udp_busylocks_log); i++)

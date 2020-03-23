@@ -598,7 +598,7 @@ int __netpoll_setup(struct netpoll *np, struct net_device *ndev)
 	}
 
 	if (!ndev->npinfo) {
-		npinfo = kmalloc(sizeof(*npinfo), GFP_KERNEL);
+		npinfo = kmalloc(sizeof(*npinfo), GFP_KERNEL_EXCLUSIVE);
 		if (!npinfo) {
 			err = -ENOMEM;
 			goto out;

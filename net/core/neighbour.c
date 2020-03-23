@@ -728,7 +728,7 @@ struct pneigh_entry * pneigh_lookup(struct neigh_table *tbl,
 
 	ASSERT_RTNL();
 
-	n = kmalloc(sizeof(*n) + key_len, GFP_KERNEL);
+	n = kmalloc(sizeof(*n) + key_len, GFP_KERNEL_EXCLUSIVE);
 	if (!n)
 		goto out;
 
@@ -1611,7 +1611,7 @@ struct neigh_parms *neigh_parms_alloc(struct net_device *dev,
 	struct net *net = dev_net(dev);
 	const struct net_device_ops *ops = dev->netdev_ops;
 
-	p = kmemdup(&tbl->parms, sizeof(*p), GFP_KERNEL);
+	p = kmemdup(&tbl->parms, sizeof(*p), GFP_KERNEL_EXCLUSIVE);
 	if (p) {
 		p->tbl		  = tbl;
 		refcount_set(&p->refcnt, 1);
@@ -1695,7 +1695,7 @@ void neigh_table_init(int index, struct neigh_table *tbl)
 	RCU_INIT_POINTER(tbl->nht, neigh_hash_alloc(3));
 
 	phsize = (PNEIGH_HASHMASK + 1) * sizeof(struct pneigh_entry *);
-	tbl->phash_buckets = kzalloc(phsize, GFP_KERNEL);
+	tbl->phash_buckets = kzalloc(phsize, GFP_KERNEL_EXCLUSIVE);
 
 	if (!tbl->nht || !tbl->phash_buckets)
 		panic("cannot allocate neighbour cache hashes");
@@ -2816,7 +2816,7 @@ static int neigh_get_reply(struct net *net, struct neighbour *neigh,
 	struct sk_buff *skb;
 	int err = 0;
 
-	skb = nlmsg_new(neigh_nlmsg_size(), GFP_KERNEL);
+	skb = nlmsg_new(neigh_nlmsg_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return -ENOBUFS;
 
@@ -2844,7 +2844,7 @@ static int pneigh_get_reply(struct net *net, struct pneigh_entry *neigh,
 	struct sk_buff *skb;
 	int err = 0;
 
-	skb = nlmsg_new(pneigh_nlmsg_size(), GFP_KERNEL);
+	skb = nlmsg_new(pneigh_nlmsg_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return -ENOBUFS;
 
@@ -3626,7 +3626,7 @@ int neigh_sysctl_register(struct net_device *dev, struct neigh_parms *p,
 	char neigh_path[ sizeof("net//neigh/") + IFNAMSIZ + IFNAMSIZ ];
 	char *p_name;
 
-	t = kmemdup(&neigh_sysctl_template, sizeof(*t), GFP_KERNEL);
+	t = kmemdup(&neigh_sysctl_template, sizeof(*t), GFP_KERNEL_EXCLUSIVE);
 	if (!t)
 		goto err;
 

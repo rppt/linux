@@ -775,7 +775,7 @@ EXPORT_SYMBOL_GPL(inet_csk_reqsk_queue_hash_add);
  *	inet_csk_clone_lock - clone an inet socket, and lock its clone
  *	@sk: the socket to clone
  *	@req: request_sock
- *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
+ *	@priority: for allocation (%GFP_KERNEL_EXCLUSIVE, %GFP_ATOMIC, etc)
  *
  *	Caller must unlock socket even in error path (bh_unlock_sock(newsk))
  */

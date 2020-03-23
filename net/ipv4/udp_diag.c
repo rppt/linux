@@ -66,7 +66,7 @@ static int udp_dump_one(struct udp_table *tbl, struct sk_buff *in_skb,
 	err = -ENOMEM;
 	rep = nlmsg_new(sizeof(struct inet_diag_msg) +
 			sizeof(struct inet_diag_meminfo) + 64,
-			GFP_KERNEL);
+			GFP_KERNEL_EXCLUSIVE);
 	if (!rep)
 		goto out;
 

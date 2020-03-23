@@ -128,7 +128,7 @@ static void sock_diag_broadcast_destroy_work(struct work_struct *work)
 
 	WARN_ON(group == SKNLGRP_NONE);
 
-	skb = nlmsg_new(sock_diag_nlmsg_size(), GFP_KERNEL);
+	skb = nlmsg_new(sock_diag_nlmsg_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		goto out;
 
@@ -140,7 +140,7 @@ static void sock_diag_broadcast_destroy_work(struct work_struct *work)
 
 	if (!err)
 		nlmsg_multicast(sock_net(sk)->diag_nlsk, skb, 0, group,
-				GFP_KERNEL);
+				GFP_KERNEL_EXCLUSIVE);
 	else
 		kfree_skb(skb);
 out:

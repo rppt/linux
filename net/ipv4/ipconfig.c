@@ -245,7 +245,7 @@ static int __init ic_open_devs(void)
 				       dev->name);
 				continue;
 			}
-			if (!(d = kmalloc(sizeof(struct ic_device), GFP_KERNEL))) {
+			if (!(d = kmalloc(sizeof(struct ic_device), GFP_KERNEL_EXCLUSIVE))) {
 				rtnl_unlock();
 				return -ENOMEM;
 			}
@@ -804,7 +804,7 @@ static void __init ic_bootp_send_if(struct ic_device *d, unsigned long jiffies_d
 
 	/* Allocate packet */
 	skb = alloc_skb(sizeof(struct bootp_pkt) + hlen + tlen + 15,
-			GFP_KERNEL);
+			GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return;
 	skb_reserve(skb, hlen);
@@ -1342,7 +1342,7 @@ static int ipconfig_proc_net_create(const char *name,
 	if (!ipconfig_dir)
 		return -ENOMEM;
 
-	pname = kasprintf(GFP_KERNEL, "%s%s", "ipconfig/", name);
+	pname = kasprintf(GFP_KERNEL_EXCLUSIVE, "%s%s", "ipconfig/", name);
 	if (!pname)
 		return -ENOMEM;
 

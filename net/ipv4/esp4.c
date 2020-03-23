@@ -927,7 +927,7 @@ static int esp_init_authenc(struct xfrm_state *x)
 	keylen = (x->aalg ? (x->aalg->alg_key_len + 7) / 8 : 0) +
 		 (x->ealg->alg_key_len + 7) / 8 + RTA_SPACE(sizeof(*param));
 	err = -ENOMEM;
-	key = kmalloc(keylen, GFP_KERNEL);
+	key = kmalloc(keylen, GFP_KERNEL_EXCLUSIVE);
 	if (!key)
 		goto error;
 

@@ -243,7 +243,7 @@ static int ip_tun_build_state(struct nlattr *attr,
 	tun_info = lwt_tun_info(new_state);
 
 #ifdef CONFIG_DST_CACHE
-	err = dst_cache_init(&tun_info->dst_cache, GFP_KERNEL);
+	err = dst_cache_init(&tun_info->dst_cache, GFP_KERNEL_EXCLUSIVE);
 	if (err) {
 		lwtstate_free(new_state);
 		return err;

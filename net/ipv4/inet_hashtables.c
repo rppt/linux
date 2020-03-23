@@ -788,7 +788,7 @@ void __init inet_hashinfo2_init(struct inet_hashinfo *h, const char *name,
 
 int inet_hashinfo2_init_mod(struct inet_hashinfo *h)
 {
-	h->lhash2 = kmalloc_array(INET_LHTABLE_SIZE, sizeof(*h->lhash2), GFP_KERNEL);
+	h->lhash2 = kmalloc_array(INET_LHTABLE_SIZE, sizeof(*h->lhash2), GFP_KERNEL_EXCLUSIVE);
 	if (!h->lhash2)
 		return -ENOMEM;
 
@@ -814,7 +814,7 @@ int inet_ehash_locks_alloc(struct inet_hashinfo *hashinfo)
 		/* no more locks than number of hash buckets */
 		nblocks = min(nblocks, hashinfo->ehash_mask + 1);
 
-		hashinfo->ehash_locks = kvmalloc_array(nblocks, locksz, GFP_KERNEL);
+		hashinfo->ehash_locks = kvmalloc_array(nblocks, locksz, GFP_KERNEL_EXCLUSIVE);
 		if (!hashinfo->ehash_locks)
 			return -ENOMEM;
 

@@ -66,7 +66,7 @@ static int extend_netdev_table(struct net_device *dev, u32 target_idx)
 	}
 
 	/* allocate & copy */
-	new = kzalloc(new_sz, GFP_KERNEL);
+	new = kzalloc(new_sz, GFP_KERNEL_EXCLUSIVE);
 	if (!new)
 		return -ENOMEM;
 
@@ -135,7 +135,7 @@ cgrp_css_alloc(struct cgroup_subsys_state *parent_css)
 {
 	struct cgroup_subsys_state *css;
 
-	css = kzalloc(sizeof(*css), GFP_KERNEL);
+	css = kzalloc(sizeof(*css), GFP_KERNEL_EXCLUSIVE);
 	if (!css)
 		return ERR_PTR(-ENOMEM);
 

@@ -82,7 +82,7 @@ static struct sk_buff *reset_per_cpu_data(struct per_cpu_dm_data *data)
 	al += dm_hit_limit * sizeof(struct net_dm_drop_point);
 	al += sizeof(struct nlattr);
 
-	skb = genlmsg_new(al, GFP_KERNEL);
+	skb = genlmsg_new(al, GFP_KERNEL_EXCLUSIVE);
 
 	if (!skb)
 		goto err;
@@ -137,7 +137,7 @@ static void send_dm_alert(struct work_struct *work)
 
 	if (skb)
 		genlmsg_multicast(&net_drop_monitor_family, skb, 0,
-				  0, GFP_KERNEL);
+				  0, GFP_KERNEL_EXCLUSIVE);
 }
 
 /*
@@ -323,7 +323,7 @@ static int dropmon_net_event(struct notifier_block *ev_block,
 
 	switch (event) {
 	case NETDEV_REGISTER:
-		new_stat = kzalloc(sizeof(struct dm_hw_stat_delta), GFP_KERNEL);
+		new_stat = kzalloc(sizeof(struct dm_hw_stat_delta), GFP_KERNEL_EXCLUSIVE);
 
 		if (!new_stat)
 			goto out;

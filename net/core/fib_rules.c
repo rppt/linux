@@ -43,7 +43,7 @@ int fib_default_rule_add(struct fib_rules_ops *ops,
 {
 	struct fib_rule *r;
 
-	r = kzalloc(ops->rule_size, GFP_KERNEL);
+	r = kzalloc(ops->rule_size, GFP_KERNEL_EXCLUSIVE);
 	if (r == NULL)
 		return -ENOMEM;
 
@@ -152,7 +152,7 @@ fib_rules_register(const struct fib_rules_ops *tmpl, struct net *net)
 	struct fib_rules_ops *ops;
 	int err;
 
-	ops = kmemdup(tmpl, sizeof(*ops), GFP_KERNEL);
+	ops = kmemdup(tmpl, sizeof(*ops), GFP_KERNEL_EXCLUSIVE);
 	if (ops == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -511,7 +511,7 @@ static int fib_nl2rule(struct sk_buff *skb, struct nlmsghdr *nlh,
 			goto errout;
 	}
 
-	nlrule = kzalloc(ops->rule_size, GFP_KERNEL);
+	nlrule = kzalloc(ops->rule_size, GFP_KERNEL_EXCLUSIVE);
 	if (!nlrule) {
 		err = -ENOMEM;
 		goto errout;
@@ -1141,7 +1141,7 @@ static void notify_rule_change(int event, struct fib_rule *rule,
 	int err = -ENOBUFS;
 
 	net = ops->fro_net;
-	skb = nlmsg_new(fib_rule_nlmsg_size(ops, rule), GFP_KERNEL);
+	skb = nlmsg_new(fib_rule_nlmsg_size(ops, rule), GFP_KERNEL_EXCLUSIVE);
 	if (skb == NULL)
 		goto errout;
 
@@ -1153,7 +1153,7 @@ static void notify_rule_change(int event, struct fib_rule *rule,
 		goto errout;
 	}
 
-	rtnl_notify(skb, net, pid, ops->nlgroup, nlh, GFP_KERNEL);
+	rtnl_notify(skb, net, pid, ops->nlgroup, nlh, GFP_KERNEL_EXCLUSIVE);
 	return;
 errout:
 	if (err < 0)

@@ -687,7 +687,7 @@ static void *clusterip_seq_start(struct seq_file *s, loff_t *pos)
 	if (*pos >= weight)
 		return NULL;
 
-	idx = kmalloc(sizeof(struct clusterip_seq_position), GFP_KERNEL);
+	idx = kmalloc(sizeof(struct clusterip_seq_position), GFP_KERNEL_EXCLUSIVE);
 	if (!idx)
 		return ERR_PTR(-ENOMEM);
 

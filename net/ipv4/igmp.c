@@ -1318,7 +1318,7 @@ static void __igmp_group_dropped(struct ip_mc_list *im, gfp_t gfp)
 
 static void igmp_group_dropped(struct ip_mc_list *im)
 {
-	__igmp_group_dropped(im, GFP_KERNEL);
+	__igmp_group_dropped(im, GFP_KERNEL_EXCLUSIVE);
 }
 
 static void igmp_group_added(struct ip_mc_list *im)
@@ -1391,7 +1391,7 @@ static void ip_mc_hash_add(struct in_device *in_dev,
 		return;
 
 	mc_hash = kzalloc(sizeof(struct ip_mc_list *) << MC_HASH_SZ_LOG,
-			  GFP_KERNEL);
+			  GFP_KERNEL_EXCLUSIVE);
 	if (!mc_hash)
 		return;
 
@@ -2191,7 +2191,7 @@ static int __ip_mc_join_group(struct sock *sk, struct ip_mreqn *imr,
 	err = -ENOBUFS;
 	if (count >= net->ipv4.sysctl_igmp_max_memberships)
 		goto done;
-	iml = sock_kmalloc(sk, sizeof(*iml), GFP_KERNEL);
+	iml = sock_kmalloc(sk, sizeof(*iml), GFP_KERNEL_EXCLUSIVE);
 	if (!iml)
 		goto done;
 
@@ -2386,7 +2386,7 @@ int ip_mc_source(int add, int omode, struct sock *sk, struct
 
 		if (psl)
 			count += psl->sl_max;
-		newpsl = sock_kmalloc(sk, IP_SFLSIZE(count), GFP_KERNEL);
+		newpsl = sock_kmalloc(sk, IP_SFLSIZE(count), GFP_KERNEL_EXCLUSIVE);
 		if (!newpsl) {
 			err = -ENOBUFS;
 			goto done;
@@ -2473,7 +2473,7 @@ int ip_mc_msfilter(struct sock *sk, struct ip_msfilter *msf, int ifindex)
 	}
 	if (msf->imsf_numsrc) {
 		newpsl = sock_kmalloc(sk, IP_SFLSIZE(msf->imsf_numsrc),
-							   GFP_KERNEL);
+							   GFP_KERNEL_EXCLUSIVE);
 		if (!newpsl) {
 			err = -ENOBUFS;
 			goto done;

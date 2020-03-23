@@ -482,7 +482,7 @@ static int ah_init_state(struct xfrm_state *x)
 	if (x->encap)
 		goto error;
 
-	ahp = kzalloc(sizeof(*ahp), GFP_KERNEL);
+	ahp = kzalloc(sizeof(*ahp), GFP_KERNEL_EXCLUSIVE);
 	if (!ahp)
 		return -ENOMEM;
 

@@ -185,7 +185,7 @@ static int rtnl_register_internal(struct module *owner,
 	rtnl_lock();
 	tab = rtnl_msg_handlers[protocol];
 	if (tab == NULL) {
-		tab = kcalloc(RTM_NR_MSGTYPES, sizeof(void *), GFP_KERNEL);
+		tab = kcalloc(RTM_NR_MSGTYPES, sizeof(void *), GFP_KERNEL_EXCLUSIVE);
 		if (!tab)
 			goto unlock;
 
@@ -195,11 +195,11 @@ static int rtnl_register_internal(struct module *owner,
 
 	old = rtnl_dereference(tab[msgindex]);
 	if (old) {
-		link = kmemdup(old, sizeof(*old), GFP_KERNEL);
+		link = kmemdup(old, sizeof(*old), GFP_KERNEL_EXCLUSIVE);
 		if (!link)
 			goto unlock;
 	} else {
-		link = kzalloc(sizeof(*link), GFP_KERNEL);
+		link = kzalloc(sizeof(*link), GFP_KERNEL_EXCLUSIVE);
 		if (!link)
 			goto unlock;
 	}
@@ -711,7 +711,7 @@ int rtnetlink_send(struct sk_buff *skb, struct net *net, u32 pid, unsigned int g
 	NETLINK_CB(skb).dst_group = group;
 	if (echo)
 		refcount_inc(&skb->users);
-	netlink_broadcast(rtnl, skb, pid, group, GFP_KERNEL);
+	netlink_broadcast(rtnl, skb, pid, group, GFP_KERNEL_EXCLUSIVE);
 	if (echo)
 		err = netlink_unicast(rtnl, skb, pid, MSG_DONTWAIT);
 	return err;
@@ -2432,7 +2432,7 @@ static int do_setlink(const struct sk_buff *skb,
 
 		len = sizeof(sa_family_t) + max_t(size_t, dev->addr_len,
 						  sizeof(*sa));
-		sa = kmalloc(len, GFP_KERNEL);
+		sa = kmalloc(len, GFP_KERNEL_EXCLUSIVE);
 		if (!sa) {
 			err = -ENOMEM;
 			goto errout;
@@ -3238,7 +3238,7 @@ static int rtnl_newlink(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct nlattr **attr;
 	int ret;
 
-	attr = kmalloc_array(RTNL_MAX_TYPE + 1, sizeof(*attr), GFP_KERNEL);
+	attr = kmalloc_array(RTNL_MAX_TYPE + 1, sizeof(*attr), GFP_KERNEL_EXCLUSIVE);
 	if (!attr)
 		return -ENOMEM;
 
@@ -3343,7 +3343,7 @@ static int rtnl_getlink(struct sk_buff *skb, struct nlmsghdr *nlh,
 		goto out;
 
 	err = -ENOBUFS;
-	nskb = nlmsg_new(if_nlmsg_size(dev, ext_filter_mask), GFP_KERNEL);
+	nskb = nlmsg_new(if_nlmsg_size(dev, ext_filter_mask), GFP_KERNEL_EXCLUSIVE);
 	if (nskb == NULL)
 		goto out;
 
@@ -4221,7 +4221,7 @@ static int rtnl_fdb_get(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 		return -EOPNOTSUPP;
 	}
 
-	skb = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	skb = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return -ENOBUFS;
 
@@ -5028,7 +5028,7 @@ static int rtnl_stats_get(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (!filter_mask)
 		return -EINVAL;
 
-	nskb = nlmsg_new(if_nlmsg_stats_size(dev, filter_mask), GFP_KERNEL);
+	nskb = nlmsg_new(if_nlmsg_stats_size(dev, filter_mask), GFP_KERNEL_EXCLUSIVE);
 	if (!nskb)
 		return -ENOBUFS;
 
@@ -5263,7 +5263,7 @@ static int rtnetlink_event(struct notifier_block *this, unsigned long event, voi
 	case NETDEV_CHANGELOWERSTATE:
 	case NETDEV_CHANGE_TX_QUEUE_LEN:
 		rtmsg_ifinfo_event(RTM_NEWLINK, dev, 0, rtnl_get_event(event),
-				   GFP_KERNEL, NULL, 0);
+				   GFP_KERNEL_EXCLUSIVE, NULL, 0);
 		break;
 	default:
 		break;

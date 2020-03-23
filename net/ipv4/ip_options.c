@@ -521,7 +521,7 @@ void ip_options_undo(struct ip_options *opt)
 static struct ip_options_rcu *ip_options_get_alloc(const int optlen)
 {
 	return kzalloc(sizeof(struct ip_options_rcu) + ((optlen + 3) & ~3),
-		       GFP_KERNEL);
+		       GFP_KERNEL_EXCLUSIVE);
 }
 
 static int ip_options_get_finish(struct net *net, struct ip_options_rcu **optp,

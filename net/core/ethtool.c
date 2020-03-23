@@ -2383,7 +2383,7 @@ ethtool_set_per_queue_coalesce(struct net_device *dev,
 
 	bitmap_from_arr32(queue_mask, per_queue_opt->queue_mask, MAX_NUM_QUEUE);
 	n_queue = bitmap_weight(queue_mask, MAX_NUM_QUEUE);
-	tmp = backup = kmalloc_array(n_queue, sizeof(*backup), GFP_KERNEL);
+	tmp = backup = kmalloc_array(n_queue, sizeof(*backup), GFP_KERNEL_EXCLUSIVE);
 	if (!backup)
 		return -ENOMEM;
 
@@ -2864,7 +2864,7 @@ ethtool_rx_flow_rule_create(const struct ethtool_rx_flow_spec_input *input)
 	struct flow_action_entry *act;
 
 	flow = kzalloc(sizeof(struct ethtool_rx_flow_rule) +
-		       sizeof(struct ethtool_rx_flow_match), GFP_KERNEL);
+		       sizeof(struct ethtool_rx_flow_match), GFP_KERNEL_EXCLUSIVE);
 	if (!flow)
 		return ERR_PTR(-ENOMEM);
 

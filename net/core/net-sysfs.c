@@ -689,7 +689,7 @@ static ssize_t show_rps_map(struct netdev_rx_queue *queue, char *buf)
 	cpumask_var_t mask;
 	int i, len;
 
-	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&mask, GFP_KERNEL_EXCLUSIVE))
 		return -ENOMEM;
 
 	rcu_read_lock();
@@ -716,7 +716,7 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL_EXCLUSIVE))
 		return -ENOMEM;
 
 	err = bitmap_parse(buf, len, cpumask_bits(mask), nr_cpumask_bits);
@@ -727,7 +727,7 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 
 	map = kzalloc(max_t(unsigned int,
 			    RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
-		      GFP_KERNEL);
+		      GFP_KERNEL_EXCLUSIVE);
 	if (!map) {
 		free_cpumask_var(mask);
 		return -ENOMEM;
@@ -1255,7 +1255,7 @@ static ssize_t xps_cpus_show(struct netdev_queue *queue,
 			return -EINVAL;
 	}
 
-	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&mask, GFP_KERNEL_EXCLUSIVE))
 		return -ENOMEM;
 
 	rcu_read_lock();
@@ -1298,7 +1298,7 @@ static ssize_t xps_cpus_store(struct netdev_queue *queue,
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL_EXCLUSIVE))
 		return -ENOMEM;
 
 	index = get_netdev_queue_index(queue);
@@ -1334,7 +1334,7 @@ static ssize_t xps_rxqs_show(struct netdev_queue *queue, char *buf)
 		if (tc < 0)
 			return -EINVAL;
 	}
-	mask = bitmap_zalloc(dev->num_rx_queues, GFP_KERNEL);
+	mask = bitmap_zalloc(dev->num_rx_queues, GFP_KERNEL_EXCLUSIVE);
 	if (!mask)
 		return -ENOMEM;
 
@@ -1379,7 +1379,7 @@ static ssize_t xps_rxqs_store(struct netdev_queue *queue, const char *buf,
 	if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 		return -EPERM;
 
-	mask = bitmap_zalloc(dev->num_rx_queues, GFP_KERNEL);
+	mask = bitmap_zalloc(dev->num_rx_queues, GFP_KERNEL_EXCLUSIVE);
 	if (!mask)
 		return -ENOMEM;
 

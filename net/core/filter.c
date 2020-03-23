@@ -551,7 +551,7 @@ static int bpf_convert_filter(struct sock_filter *prog, int len,
 	if (new_prog) {
 		first_insn = new_prog->insnsi;
 		addrs = kcalloc(len, sizeof(*addrs),
-				GFP_KERNEL | __GFP_NOWARN);
+				GFP_KERNEL_EXCLUSIVE | __GFP_NOWARN);
 		if (!addrs)
 			return -ENOMEM;
 	}
@@ -891,7 +891,7 @@ static int check_load_and_stores(const struct sock_filter *filter, int flen)
 
 	BUILD_BUG_ON(BPF_MEMWORDS > 16);
 
-	masks = kmalloc_array(flen, sizeof(*masks), GFP_KERNEL);
+	masks = kmalloc_array(flen, sizeof(*masks), GFP_KERNEL_EXCLUSIVE);
 	if (!masks)
 		return -ENOMEM;
 
@@ -1112,7 +1112,7 @@ static int bpf_prog_store_orig_filter(struct bpf_prog *fp,
 	unsigned int fsize = bpf_classic_proglen(fprog);
 	struct sock_fprog_kern *fkprog;
 
-	fp->orig_prog = kmalloc(sizeof(*fkprog), GFP_KERNEL);
+	fp->orig_prog = kmalloc(sizeof(*fkprog), GFP_KERNEL_EXCLUSIVE);
 	if (!fp->orig_prog)
 		return -ENOMEM;
 
@@ -1120,7 +1120,7 @@ static int bpf_prog_store_orig_filter(struct bpf_prog *fp,
 	fkprog->len = fprog->len;
 
 	fkprog->filter = kmemdup(fp->insns, fsize,
-				 GFP_KERNEL | __GFP_NOWARN);
+				 GFP_KERNEL_EXCLUSIVE | __GFP_NOWARN);
 	if (!fkprog->filter) {
 		kfree(fp->orig_prog);
 		return -ENOMEM;
@@ -1234,7 +1234,7 @@ static struct bpf_prog *bpf_migrate_filter(struct bpf_prog *fp)
 	 * pass. At this time, the user BPF is stored in fp->insns.
 	 */
 	old_prog = kmemdup(fp->insns, old_len * sizeof(struct sock_filter),
-			   GFP_KERNEL | __GFP_NOWARN);
+			   GFP_KERNEL_EXCLUSIVE | __GFP_NOWARN);
 	if (!old_prog) {
 		err = -ENOMEM;
 		goto out_err;
@@ -1432,7 +1432,7 @@ static int __sk_attach_prog(struct bpf_prog *prog, struct sock *sk)
 {
 	struct sk_filter *fp, *old_fp;
 
-	fp = kmalloc(sizeof(*fp), GFP_KERNEL);
+	fp = kmalloc(sizeof(*fp), GFP_KERNEL_EXCLUSIVE);
 	if (!fp)
 		return -ENOMEM;
 
@@ -4025,7 +4025,7 @@ bpf_get_skb_set_tunnel_proto(enum bpf_func_id which)
 
 		tmp = metadata_dst_alloc_percpu(IP_TUNNEL_OPTS_MAX,
 						METADATA_IP_TUNNEL,
-						GFP_KERNEL);
+						GFP_KERNEL_EXCLUSIVE);
 		if (!tmp)
 			return NULL;
 		if (cmpxchg(&md_dst, NULL, tmp))

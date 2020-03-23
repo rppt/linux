@@ -575,7 +575,7 @@ static int fou_create(struct net *net, struct fou_cfg *cfg,
 		goto error;
 
 	/* Allocate FOU port structure */
-	fou = kzalloc(sizeof(*fou), GFP_KERNEL);
+	fou = kzalloc(sizeof(*fou), GFP_KERNEL_EXCLUSIVE);
 	if (!fou) {
 		err = -ENOMEM;
 		goto error;
@@ -863,7 +863,7 @@ static int fou_nl_cmd_get_port(struct sk_buff *skb, struct genl_info *info)
 	if (family != AF_INET && family != AF_INET6)
 		return -EINVAL;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 

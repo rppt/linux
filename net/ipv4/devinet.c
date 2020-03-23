@@ -209,7 +209,7 @@ static void devinet_sysctl_unregister(struct in_device *idev)
 
 static struct in_ifaddr *inet_alloc_ifa(void)
 {
-	return kzalloc(sizeof(struct in_ifaddr), GFP_KERNEL);
+	return kzalloc(sizeof(struct in_ifaddr), GFP_KERNEL_EXCLUSIVE);
 }
 
 static void inet_rcu_free_ifa(struct rcu_head *head)
@@ -250,7 +250,7 @@ static struct in_device *inetdev_init(struct net_device *dev)
 
 	ASSERT_RTNL();
 
-	in_dev = kzalloc(sizeof(*in_dev), GFP_KERNEL);
+	in_dev = kzalloc(sizeof(*in_dev), GFP_KERNEL_EXCLUSIVE);
 	if (!in_dev)
 		goto out;
 	memcpy(&in_dev->cnf, dev_net(dev)->ipv4.devconf_dflt,
@@ -1840,7 +1840,7 @@ static void rtmsg_ifa(int event, struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 	struct net *net;
 
 	net = dev_net(ifa->ifa_dev->dev);
-	skb = nlmsg_new(inet_nlmsg_size(), GFP_KERNEL);
+	skb = nlmsg_new(inet_nlmsg_size(), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		goto errout;
 
@@ -1851,7 +1851,7 @@ static void rtmsg_ifa(int event, struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 		kfree_skb(skb);
 		goto errout;
 	}
-	rtnl_notify(skb, net, portid, RTNLGRP_IPV4_IFADDR, nlh, GFP_KERNEL);
+	rtnl_notify(skb, net, portid, RTNLGRP_IPV4_IFADDR, nlh, GFP_KERNEL_EXCLUSIVE);
 	return;
 errout:
 	if (err < 0)
@@ -2033,7 +2033,7 @@ void inet_netconf_notify_devconf(struct net *net, int event, int type,
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
 
-	skb = nlmsg_new(inet_netconf_msgsize_devconf(type), GFP_KERNEL);
+	skb = nlmsg_new(inet_netconf_msgsize_devconf(type), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		goto errout;
 
@@ -2045,7 +2045,7 @@ void inet_netconf_notify_devconf(struct net *net, int event, int type,
 		kfree_skb(skb);
 		goto errout;
 	}
-	rtnl_notify(skb, net, 0, RTNLGRP_IPV4_NETCONF, NULL, GFP_KERNEL);
+	rtnl_notify(skb, net, 0, RTNLGRP_IPV4_NETCONF, NULL, GFP_KERNEL_EXCLUSIVE);
 	return;
 errout:
 	if (err < 0)
@@ -2140,7 +2140,7 @@ static int inet_netconf_get_devconf(struct sk_buff *in_skb,
 	}
 
 	err = -ENOBUFS;
-	skb = nlmsg_new(inet_netconf_msgsize_devconf(NETCONFA_ALL), GFP_KERNEL);
+	skb = nlmsg_new(inet_netconf_msgsize_devconf(NETCONFA_ALL), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		goto errout;
 
@@ -2503,7 +2503,7 @@ static int __devinet_sysctl_register(struct net *net, char *dev_name,
 	struct devinet_sysctl_table *t;
 	char path[sizeof("net/ipv4/conf/") + IFNAMSIZ];
 
-	t = kmemdup(&devinet_sysctl, sizeof(*t), GFP_KERNEL);
+	t = kmemdup(&devinet_sysctl, sizeof(*t), GFP_KERNEL_EXCLUSIVE);
 	if (!t)
 		goto out;
 
@@ -2595,16 +2595,16 @@ static __net_init int devinet_init_net(struct net *net)
 #endif
 
 	err = -ENOMEM;
-	all = kmemdup(&ipv4_devconf, sizeof(ipv4_devconf), GFP_KERNEL);
+	all = kmemdup(&ipv4_devconf, sizeof(ipv4_devconf), GFP_KERNEL_EXCLUSIVE);
 	if (!all)
 		goto err_alloc_all;
 
-	dflt = kmemdup(&ipv4_devconf_dflt, sizeof(ipv4_devconf_dflt), GFP_KERNEL);
+	dflt = kmemdup(&ipv4_devconf_dflt, sizeof(ipv4_devconf_dflt), GFP_KERNEL_EXCLUSIVE);
 	if (!dflt)
 		goto err_alloc_dflt;
 
 #ifdef CONFIG_SYSCTL
-	tbl = kmemdup(ctl_forward_entry, sizeof(ctl_forward_entry), GFP_KERNEL);
+	tbl = kmemdup(ctl_forward_entry, sizeof(ctl_forward_entry), GFP_KERNEL_EXCLUSIVE);
 	if (!tbl)
 		goto err_alloc_ctl;
 

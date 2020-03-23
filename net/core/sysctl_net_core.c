@@ -125,7 +125,7 @@ static int flow_limit_cpu_sysctl(struct ctl_table *table, int write,
 	cpumask_var_t mask;
 	int i, len, ret = 0;
 
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL_EXCLUSIVE))
 		return -ENOMEM;
 
 	if (write) {
@@ -144,7 +144,7 @@ static int flow_limit_cpu_sysctl(struct ctl_table *table, int write,
 				synchronize_rcu();
 				kfree(cur);
 			} else if (!cur && cpumask_test_cpu(i, mask)) {
-				cur = kzalloc_node(len, GFP_KERNEL,
+				cur = kzalloc_node(len, GFP_KERNEL_EXCLUSIVE,
 						   cpu_to_node(i));
 				if (!cur) {
 					/* not unwinding previous changes */
@@ -590,7 +590,7 @@ static __net_init int sysctl_core_net_init(struct net *net)
 
 	tbl = netns_core_table;
 	if (!net_eq(net, &init_net)) {
-		tbl = kmemdup(tbl, sizeof(netns_core_table), GFP_KERNEL);
+		tbl = kmemdup(tbl, sizeof(netns_core_table), GFP_KERNEL_EXCLUSIVE);
 		if (tbl == NULL)
 			goto err_dup;
 

@@ -318,7 +318,7 @@ lookup_protocol:
 	WARN_ON(!answer_prot->slab);
 
 	err = -ENOBUFS;
-	sk = sk_alloc(net, PF_INET, GFP_KERNEL, answer_prot, kern);
+	sk = sk_alloc(net, PF_INET, GFP_KERNEL_EXCLUSIVE, answer_prot, kern);
 	if (!sk)
 		goto out;
 
@@ -1752,7 +1752,7 @@ static __net_init int ipv4_mib_init_net(struct net *net)
 	if (!net->mib.icmp_statistics)
 		goto err_icmp_mib;
 	net->mib.icmpmsg_statistics = kzalloc(sizeof(struct icmpmsg_mib),
-					      GFP_KERNEL);
+					      GFP_KERNEL_EXCLUSIVE);
 	if (!net->mib.icmpmsg_statistics)
 		goto err_icmpmsg_mib;
 

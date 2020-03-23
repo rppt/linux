@@ -2644,7 +2644,7 @@ static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 
 				if (pkt_dev->node >= 0 && (pkt_dev->flags & F_NODE))
 					node = pkt_dev->node;
-				pkt_dev->page = alloc_pages_node(node, GFP_KERNEL | __GFP_ZERO, 0);
+				pkt_dev->page = alloc_pages_node(node, GFP_KERNEL_EXCLUSIVE | __GFP_ZERO, 0);
 				if (!pkt_dev->page)
 					break;
 			}
@@ -3601,7 +3601,7 @@ static int pktgen_add_device(struct pktgen_thread *t, const char *ifname)
 		return -EBUSY;
 	}
 
-	pkt_dev = kzalloc_node(sizeof(struct pktgen_dev), GFP_KERNEL, node);
+	pkt_dev = kzalloc_node(sizeof(struct pktgen_dev), GFP_KERNEL_EXCLUSIVE, node);
 	if (!pkt_dev)
 		return -ENOMEM;
 
@@ -3680,7 +3680,7 @@ static int __net_init pktgen_create_thread(int cpu, struct pktgen_net *pn)
 	struct proc_dir_entry *pe;
 	struct task_struct *p;
 
-	t = kzalloc_node(sizeof(struct pktgen_thread), GFP_KERNEL,
+	t = kzalloc_node(sizeof(struct pktgen_thread), GFP_KERNEL_EXCLUSIVE,
 			 cpu_to_node(cpu));
 	if (!t) {
 		pr_err("ERROR: out of memory, can't create new thread\n");

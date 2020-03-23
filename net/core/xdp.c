@@ -195,7 +195,7 @@ static int __mem_id_init_hash_table(void)
 	if (unlikely(mem_id_init))
 		return 0;
 
-	rht = kzalloc(sizeof(*rht), GFP_KERNEL);
+	rht = kzalloc(sizeof(*rht), GFP_KERNEL_EXCLUSIVE);
 	if (!rht)
 		return -ENOMEM;
 
@@ -253,7 +253,7 @@ int xdp_rxq_info_reg_mem_model(struct xdp_rxq_info *xdp_rxq,
 			       enum xdp_mem_type type, void *allocator)
 {
 	struct xdp_mem_allocator *xdp_alloc;
-	gfp_t gfp = GFP_KERNEL;
+	gfp_t gfp = GFP_KERNEL_EXCLUSIVE;
 	int id, errno, ret;
 	void *ptr;
 

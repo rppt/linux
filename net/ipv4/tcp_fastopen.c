@@ -73,7 +73,7 @@ int tcp_fastopen_reset_cipher(struct net *net, struct sock *sk,
 	struct fastopen_queue *q;
 	int err;
 
-	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL_EXCLUSIVE);
 	if (!ctx)
 		return -ENOMEM;
 	ctx->tfm = crypto_alloc_cipher("aes", 0, 0);

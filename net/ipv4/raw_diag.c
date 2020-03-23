@@ -105,7 +105,7 @@ static int raw_diag_dump_one(struct sk_buff *in_skb,
 
 	rep = nlmsg_new(sizeof(struct inet_diag_msg) +
 			sizeof(struct inet_diag_meminfo) + 64,
-			GFP_KERNEL);
+			GFP_KERNEL_EXCLUSIVE);
 	if (!rep) {
 		sock_put(sk);
 		return -ENOMEM;

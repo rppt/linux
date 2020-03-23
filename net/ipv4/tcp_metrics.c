@@ -830,7 +830,7 @@ static int tcp_metrics_nl_cmd_get(struct sk_buff *skb, struct genl_info *info)
 	if (ret < 0)
 		src = false;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL_EXCLUSIVE);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1000,7 +1000,7 @@ static int __net_init tcp_net_metrics_init(struct net *net)
 	tcp_metrics_hash_log = order_base_2(slots);
 	size = sizeof(struct tcpm_hash_bucket) << tcp_metrics_hash_log;
 
-	tcp_metrics_hash = kvzalloc(size, GFP_KERNEL);
+	tcp_metrics_hash = kvzalloc(size, GFP_KERNEL_EXCLUSIVE);
 	if (!tcp_metrics_hash)
 		return -ENOMEM;
 

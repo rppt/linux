@@ -575,7 +575,7 @@ static int rtentry_to_fib_config(struct net *net, int cmd, struct rtentry *rt,
 		struct nlattr *mx;
 		int len = 0;
 
-		mx = kcalloc(3, nla_total_size(4), GFP_KERNEL);
+		mx = kcalloc(3, nla_total_size(4), GFP_KERNEL_EXCLUSIVE);
 		if (!mx)
 			return -ENOMEM;
 
@@ -1328,7 +1328,7 @@ static void nl_fib_input(struct sk_buff *skb)
 	    nlmsg_len(nlh) < sizeof(*frn))
 		return;
 
-	skb = netlink_skb_clone(skb, GFP_KERNEL);
+	skb = netlink_skb_clone(skb, GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		return;
 	nlh = nlmsg_hdr(skb);
@@ -1481,7 +1481,7 @@ static int __net_init ip_fib_net_init(struct net *net)
 	/* Avoid false sharing : Use at least a full cache line */
 	size = max_t(size_t, size, L1_CACHE_BYTES);
 
-	net->ipv4.fib_table_hash = kzalloc(size, GFP_KERNEL);
+	net->ipv4.fib_table_hash = kzalloc(size, GFP_KERNEL_EXCLUSIVE);
 	if (!net->ipv4.fib_table_hash) {
 		err = -ENOMEM;
 		goto err_table_hash_alloc;

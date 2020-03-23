@@ -428,7 +428,7 @@ void rtmsg_fib(int event, __be32 key, struct fib_alias *fa,
 	u32 seq = info->nlh ? info->nlh->nlmsg_seq : 0;
 	int err = -ENOBUFS;
 
-	skb = nlmsg_new(fib_nlmsg_size(fa->fa_info), GFP_KERNEL);
+	skb = nlmsg_new(fib_nlmsg_size(fa->fa_info), GFP_KERNEL_EXCLUSIVE);
 	if (!skb)
 		goto errout;
 
@@ -442,7 +442,7 @@ void rtmsg_fib(int event, __be32 key, struct fib_alias *fa,
 		goto errout;
 	}
 	rtnl_notify(skb, info->nl_net, info->portid, RTNLGRP_IPV4_ROUTE,
-		    info->nlh, GFP_KERNEL);
+		    info->nlh, GFP_KERNEL_EXCLUSIVE);
 	return;
 errout:
 	if (err < 0)
@@ -528,7 +528,7 @@ int fib_nh_init(struct net *net, struct fib_nh *nh,
 	nh->fib_nh_family = AF_INET;
 
 	err = fib_nh_common_init(&nh->nh_common, cfg->fc_encap,
-				 cfg->fc_encap_type, cfg, GFP_KERNEL, extack);
+				 cfg->fc_encap_type, cfg, GFP_KERNEL_EXCLUSIVE, extack);
 	if (err)
 		return err;
 
@@ -903,7 +903,7 @@ static int fib_check_nh_v6_gw(struct net *net, struct fib_nh *nh,
 	struct fib6_nh fib6_nh = {};
 	int err;
 
-	err = ipv6_stub->fib6_nh_init(net, &fib6_nh, &cfg, GFP_KERNEL, extack);
+	err = ipv6_stub->fib6_nh_init(net, &fib6_nh, &cfg, GFP_KERNEL_EXCLUSIVE, extack);
 	if (!err) {
 		nh->fib_nh_dev = fib6_nh.fib_nh_dev;
 		dev_hold(nh->fib_nh_dev);
@@ -1117,10 +1117,10 @@ static inline unsigned int fib_laddr_hashfn(__be32 val)
 static struct hlist_head *fib_info_hash_alloc(int bytes)
 {
 	if (bytes <= PAGE_SIZE)
-		return kzalloc(bytes, GFP_KERNEL);
+		return kzalloc(bytes, GFP_KERNEL_EXCLUSIVE);
 	else
 		return (struct hlist_head *)
-			__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+			__get_free_pages(GFP_KERNEL_EXCLUSIVE | __GFP_ZERO,
 					 get_order(bytes));
 }
 
@@ -1290,7 +1290,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg,
 			goto failure;
 	}
 
-	fi = kzalloc(struct_size(fi, fib_nh, nhs), GFP_KERNEL);
+	fi = kzalloc(struct_size(fi, fib_nh, nhs), GFP_KERNEL_EXCLUSIVE);
 	if (!fi)
 		goto failure;
 	fi->fib_metrics = ip_fib_metrics_init(fi->fib_net, cfg->fc_mx,

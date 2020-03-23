@@ -173,7 +173,7 @@ static __net_init int xfrm4_net_sysctl_init(struct net *net)
 
 	table = xfrm4_policy_table;
 	if (!net_eq(net, &init_net)) {
-		table = kmemdup(table, sizeof(xfrm4_policy_table), GFP_KERNEL);
+		table = kmemdup(table, sizeof(xfrm4_policy_table), GFP_KERNEL_EXCLUSIVE);
 		if (!table)
 			goto err_alloc;
 

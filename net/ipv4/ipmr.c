@@ -977,7 +977,7 @@ static struct mfc_cache *ipmr_cache_find_parent(struct mr_table *mrt,
 /* Allocate a multicast cache entry */
 static struct mfc_cache *ipmr_cache_alloc(void)
 {
-	struct mfc_cache *c = kmem_cache_zalloc(mrt_cachep, GFP_KERNEL);
+	struct mfc_cache *c = kmem_cache_zalloc(mrt_cachep, GFP_KERNEL_EXCLUSIVE);
 
 	if (c) {
 		c->_c.mfc_un.res.last_assert = jiffies - MFC_ASSERT_THRESH - 1;
@@ -2569,7 +2569,7 @@ static int ipmr_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 		goto errout_free;
 	}
 
-	skb = nlmsg_new(mroute_msgsize(false, mrt->maxvif), GFP_KERNEL);
+	skb = nlmsg_new(mroute_msgsize(false, mrt->maxvif), GFP_KERNEL_EXCLUSIVE);
 	if (!skb) {
 		err = -ENOBUFS;
 		goto errout_free;

@@ -170,7 +170,7 @@ static int __init cipso_v4_cache_init(void)
 
 	cipso_v4_cache = kcalloc(CIPSO_V4_CACHE_BUCKETS,
 				 sizeof(struct cipso_v4_map_cache_bkt),
-				 GFP_KERNEL);
+				 GFP_KERNEL_EXCLUSIVE);
 	if (!cipso_v4_cache)
 		return -ENOMEM;
 
@@ -1861,7 +1861,7 @@ int cipso_v4_sock_setattr(struct sock *sk,
 	buf_len = ret_val;
 
 	/* We can't use ip_options_get() directly because it makes a call to
-	 * ip_options_get_alloc() which allocates memory with GFP_KERNEL and
+	 * ip_options_get_alloc() which allocates memory with GFP_KERNEL_EXCLUSIVE and
 	 * we won't always have CAP_NET_RAW even though we _always_ want to
 	 * set the IPOPT_CIPSO option. */
 	opt_len = (buf_len + 3) & ~3;
@@ -1938,7 +1938,7 @@ int cipso_v4_req_setattr(struct request_sock *req,
 	buf_len = ret_val;
 
 	/* We can't use ip_options_get() directly because it makes a call to
-	 * ip_options_get_alloc() which allocates memory with GFP_KERNEL and
+	 * ip_options_get_alloc() which allocates memory with GFP_KERNEL_EXCLUSIVE and
 	 * we won't always have CAP_NET_RAW even though we _always_ want to
 	 * set the IPOPT_CIPSO option. */
 	opt_len = (buf_len + 3) & ~3;

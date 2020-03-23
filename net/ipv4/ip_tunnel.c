@@ -1217,7 +1217,7 @@ int ip_tunnel_init(struct net_device *dev)
 	if (!dev->tstats)
 		return -ENOMEM;
 
-	err = dst_cache_init(&tunnel->dst_cache, GFP_KERNEL);
+	err = dst_cache_init(&tunnel->dst_cache, GFP_KERNEL_EXCLUSIVE);
 	if (err) {
 		free_percpu(dev->tstats);
 		return err;

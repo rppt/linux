@@ -1279,7 +1279,7 @@ int dev_set_alias(struct net_device *dev, const char *alias, size_t len)
 		return -EINVAL;
 
 	if (len) {
-		new_alias = kmalloc(sizeof(*new_alias) + len + 1, GFP_KERNEL);
+		new_alias = kmalloc(sizeof(*new_alias) + len + 1, GFP_KERNEL_EXCLUSIVE);
 		if (!new_alias)
 			return -ENOMEM;
 
@@ -1351,7 +1351,7 @@ void netdev_state_change(struct net_device *dev)
 
 		call_netdevice_notifiers_info(NETDEV_CHANGE,
 					      &change_info.info);
-		rtmsg_ifinfo(RTM_NEWLINK, dev, 0, GFP_KERNEL);
+		rtmsg_ifinfo(RTM_NEWLINK, dev, 0, GFP_KERNEL_EXCLUSIVE);
 	}
 }
 EXPORT_SYMBOL(netdev_state_change);
@@ -1442,7 +1442,7 @@ int dev_open(struct net_device *dev, struct netlink_ext_ack *extack)
 	if (ret < 0)
 		return ret;
 
-	rtmsg_ifinfo(RTM_NEWLINK, dev, IFF_UP|IFF_RUNNING, GFP_KERNEL);
+	rtmsg_ifinfo(RTM_NEWLINK, dev, IFF_UP|IFF_RUNNING, GFP_KERNEL_EXCLUSIVE);
 	call_netdevice_notifiers(NETDEV_UP, dev);
 
 	return ret;
@@ -1514,7 +1514,7 @@ void dev_close_many(struct list_head *head, bool unlink)
 	__dev_close_many(head);
 
 	list_for_each_entry_safe(dev, tmp, head, close_list) {
-		rtmsg_ifinfo(RTM_NEWLINK, dev, IFF_UP|IFF_RUNNING, GFP_KERNEL);
+		rtmsg_ifinfo(RTM_NEWLINK, dev, IFF_UP|IFF_RUNNING, GFP_KERNEL_EXCLUSIVE);
 		call_netdevice_notifiers(NETDEV_DOWN, dev);
 		if (unlink)
 			list_del_init(&dev->close_list);
@@ -2303,9 +2303,9 @@ static struct xps_map *expand_xps_map(struct xps_map *map, int attr_index,
 	 *  map
 	 */
 	if (is_rxqs_map)
-		new_map = kzalloc(XPS_MAP_SIZE(alloc_len), GFP_KERNEL);
+		new_map = kzalloc(XPS_MAP_SIZE(alloc_len), GFP_KERNEL_EXCLUSIVE);
 	else
-		new_map = kzalloc_node(XPS_MAP_SIZE(alloc_len), GFP_KERNEL,
+		new_map = kzalloc_node(XPS_MAP_SIZE(alloc_len), GFP_KERNEL_EXCLUSIVE,
 				       cpu_to_node(attr_index));
 	if (!new_map)
 		return NULL;
@@ -2366,7 +2366,7 @@ int __netif_set_xps_queue(struct net_device *dev, const unsigned long *mask,
 	for (j = -1; j = netif_attrmask_next_and(j, online_mask, mask, nr_ids),
 	     j < nr_ids;) {
 		if (!new_dev_maps)
-			new_dev_maps = kzalloc(maps_sz, GFP_KERNEL);
+			new_dev_maps = kzalloc(maps_sz, GFP_KERNEL_EXCLUSIVE);
 		if (!new_dev_maps) {
 			mutex_unlock(&xps_map_mutex);
 			return -ENOMEM;
@@ -6907,7 +6907,7 @@ static int __netdev_adjacent_dev_insert(struct net_device *dev,
 		return 0;
 	}
 
-	adj = kmalloc(sizeof(*adj), GFP_KERNEL);
+	adj = kmalloc(sizeof(*adj), GFP_KERNEL_EXCLUSIVE);
 	if (!adj)
 		return -ENOMEM;
 
@@ -8208,7 +8208,7 @@ static void rollback_registered_many(struct list_head *head)
 		if (!dev->rtnl_link_ops ||
 		    dev->rtnl_link_state == RTNL_LINK_INITIALIZED)
 			skb = rtmsg_ifinfo_build_skb(RTM_DELLINK, dev, ~0U, 0,
-						     GFP_KERNEL, NULL, 0);
+						     GFP_KERNEL_EXCLUSIVE, NULL, 0);
 
 		/*
 		 *	Flush the unicast and multicast chains
@@ -8220,7 +8220,7 @@ static void rollback_registered_many(struct list_head *head)
 			dev->netdev_ops->ndo_uninit(dev);
 
 		if (skb)
-			rtmsg_ifinfo_send(skb, dev, GFP_KERNEL);
+			rtmsg_ifinfo_send(skb, dev, GFP_KERNEL_EXCLUSIVE);
 
 		/* Notifier chain MUST detach us all upper devices. */
 		WARN_ON(netdev_has_any_upper_dev(dev));
@@ -8527,7 +8527,7 @@ static int netif_alloc_rx_queues(struct net_device *dev)
 
 	BUG_ON(count < 1);
 
-	rx = kvzalloc(sz, GFP_KERNEL | __GFP_RETRY_MAYFAIL);
+	rx = kvzalloc(sz, GFP_KERNEL_EXCLUSIVE | __GFP_RETRY_MAYFAIL);
 	if (!rx)
 		return -ENOMEM;
 
@@ -8594,7 +8594,7 @@ static int netif_alloc_netdev_queues(struct net_device *dev)
 	if (count < 1 || count > 0xffff)
 		return -EINVAL;
 
-	tx = kvzalloc(sz, GFP_KERNEL | __GFP_RETRY_MAYFAIL);
+	tx = kvzalloc(sz, GFP_KERNEL_EXCLUSIVE | __GFP_RETRY_MAYFAIL);
 	if (!tx)
 		return -ENOMEM;
 
@@ -8771,7 +8771,7 @@ int register_netdevice(struct net_device *dev)
 	 */
 	if (!dev->rtnl_link_ops ||
 	    dev->rtnl_link_state == RTNL_LINK_INITIALIZED)
-		rtmsg_ifinfo(RTM_NEWLINK, dev, ~0U, GFP_KERNEL);
+		rtmsg_ifinfo(RTM_NEWLINK, dev, ~0U, GFP_KERNEL_EXCLUSIVE);
 
 out:
 	return ret;
@@ -9070,7 +9070,7 @@ struct netdev_queue *dev_ingress_queue_create(struct net_device *dev)
 #ifdef CONFIG_NET_CLS_ACT
 	if (queue)
 		return queue;
-	queue = kzalloc(sizeof(*queue), GFP_KERNEL);
+	queue = kzalloc(sizeof(*queue), GFP_KERNEL_EXCLUSIVE);
 	if (!queue)
 		return NULL;
 	netdev_init_one_queue(dev, queue, NULL);
@@ -9141,7 +9141,7 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	/* ensure 32-byte alignment of whole construct */
 	alloc_size += NETDEV_ALIGN - 1;
 
-	p = kvzalloc(alloc_size, GFP_KERNEL | __GFP_RETRY_MAYFAIL);
+	p = kvzalloc(alloc_size, GFP_KERNEL_EXCLUSIVE | __GFP_RETRY_MAYFAIL);
 	if (!p)
 		return NULL;
 
@@ -9417,7 +9417,7 @@ int dev_change_net_namespace(struct net_device *dev, struct net *net, const char
 	else
 		new_ifindex = dev->ifindex;
 
-	rtmsg_ifinfo_newnet(RTM_DELLINK, dev, ~0U, GFP_KERNEL, &new_nsid,
+	rtmsg_ifinfo_newnet(RTM_DELLINK, dev, ~0U, GFP_KERNEL_EXCLUSIVE, &new_nsid,
 			    new_ifindex);
 
 	/*
@@ -9452,7 +9452,7 @@ int dev_change_net_namespace(struct net_device *dev, struct net *net, const char
 	 *	Prevent userspace races by waiting until the network
 	 *	device is fully setup before sending notifications.
 	 */
-	rtmsg_ifinfo(RTM_NEWLINK, dev, ~0U, GFP_KERNEL);
+	rtmsg_ifinfo(RTM_NEWLINK, dev, ~0U, GFP_KERNEL_EXCLUSIVE);
 
 	synchronize_net();
 	err = 0;
@@ -9560,7 +9560,7 @@ static struct hlist_head * __net_init netdev_create_hash(void)
 	int i;
 	struct hlist_head *hash;
 
-	hash = kmalloc_array(NETDEV_HASHENTRIES, sizeof(*hash), GFP_KERNEL);
+	hash = kmalloc_array(NETDEV_HASHENTRIES, sizeof(*hash), GFP_KERNEL_EXCLUSIVE);
 	if (hash != NULL)
 		for (i = 0; i < NETDEV_HASHENTRIES; i++)
 			INIT_HLIST_HEAD(&hash[i]);
