@@ -2299,7 +2299,10 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 void kernel_map_pages_pgd(pgd_t *pgd, struct page *page,
 			  int numpages, int enable)
 {
-	__kernel_map_pages_pgd(pgd, page, numpages, enable);
+	if (enable)
+		__set_pages_p(pgd, page, numpages);
+	else
+		__set_pages_np(pgd, page, numpages);
 }
 
 #ifdef CONFIG_HIBERNATION
