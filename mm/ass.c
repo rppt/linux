@@ -17,12 +17,15 @@
 #include <linux/ass.h>
 
 #include <asm/pgalloc.h>
+#include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
 
 #include "internal.h"
 #include "slab.h"
 
 #define DIRECT_MAP_START PAGE_OFFSET
 #define DIRECT_MAP_END (PAGE_OFFSET + PFN_PHYS((max_pfn) + 1))
+
 /*
  * Walk the shadow copy of the page tables to PUD level (optionally)
  * trying to allocate page table pages on the way down.
@@ -396,6 +399,7 @@ struct ns_pgd *ass_create_ns_pgd(void)
 		goto err_free_ns_pgd;
 
 	ns_pgd->mm = mm;
+	mm->is_ns_pgd = true;
 	INIT_LIST_HEAD(&ns_pgd->l);
 	INIT_LIST_HEAD(&ns_pgd->caches);
 
@@ -529,15 +533,15 @@ static int ass_make_page_exclusive(struct mm_struct *mm, struct ns_pgd *ns_pgd,
 
 int ass_make_pages_exclusive(struct page *page, unsigned int order)
 {
+	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 	struct mm_struct *mm;
 	struct ns_pgd *ns_pgd, *p;
 	int nr_pages = (1 << order);
-	int i;
 
-	if (!current->mm || (current->flags & PF_KTHREAD))
+	if (!loaded_mm->ns_pgd && !loaded_mm->is_ns_pgd)
 		return 0;
 
-	mm = current->mm;
+	mm = loaded_mm;
 	ns_pgd = mm->ns_pgd;
 
 	if (!ns_pgd)

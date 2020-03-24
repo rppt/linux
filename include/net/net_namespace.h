@@ -451,4 +451,15 @@ static inline void fnhe_genid_bump(struct net *net)
 	atomic_inc(&net->fnhe_genid);
 }
 
+#ifdef CONFIG_NET_NS_MM
+struct mm_struct *netns_enter_ass(struct net_device *dev);
+void netns_exit_ass(struct mm_struct *mm);
+#else
+static inline struct mm_struct *netns_enter_ass(struct net_device *dev)
+{
+	return NULL;
+}
+void netns_exit_ass(struct mm_struct *mm) {}
+#endif
+
 #endif /* __NET_NET_NAMESPACE_H */

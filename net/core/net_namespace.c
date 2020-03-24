@@ -1437,6 +1437,38 @@ void switch_net_ns_ctx(struct task_struct *tsk)
 #endif
 }
 
+
+#ifdef CONFIG_NET_NS_MM
+#include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
+
+struct mm_struct *netns_enter_ass(struct net_device *dev)
+{
+	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	struct net *net;
+
+	if (!dev)
+		goto out;
+
+	net = dev_net(dev);
+	if (net == &init_net)
+		goto out;
+
+	if (net->ns_pgd && net->ns_pgd->mm != loaded_mm)
+		switch_mm(NULL, net->ns_pgd->mm, NULL);
+
+out:
+	return loaded_mm;
+}
+
+void netns_exit_ass(struct mm_struct *mm)
+{
+	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+
+	if (loaded_mm != mm)
+		switch_mm(NULL, mm, NULL);
+}
+
 #define MAX_ASS_TEST_OBJS	1024
 #define TEST_ALLOC	150
 #define TEST_FREE	151
@@ -1616,4 +1648,7 @@ SYSCALL_DEFINE2(netns_ass_test, unsigned int, cmd, unsigned long, arg)
 {
 	return __netns_ass_test(cmd, arg);
 }
-#endif
+
+#endif /* CONFIG_NET_NS_MM */
+
+#endif /* CONFIG_NET_NS */

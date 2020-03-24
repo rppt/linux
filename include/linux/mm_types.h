@@ -467,6 +467,7 @@ struct mm_struct {
 
 #ifdef CONFIG_NET_NS_MM
 		struct ns_pgd *ns_pgd;
+		bool is_ns_pgd;
 #endif
 
 		struct user_namespace *user_ns;
