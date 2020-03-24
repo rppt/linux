@@ -546,11 +546,8 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
 
 	dump_page(page, "ass");
-	if (PageCompound(page))
-		split_page(page, compound_order(page));
 
-	for (i = 0; i < nr_pages; i++)
-		ass_make_page_exclusive(mm, ns_pgd, page + i);
+	ass_make_page_exclusive(mm, ns_pgd, page);
 
 	list_for_each_entry(p, &asses, l) {
 		if (p != ns_pgd) {
@@ -599,11 +596,8 @@ static void ass_unmake_page_exclusive(struct page *page)
 void ass_unmake_pages_exclusive(struct page *page, unsigned int order)
 {
 	int nr_pages = (1 << order);
-	int i;
 
-	for (i = 0; i < nr_pages; i++)
-		ass_unmake_page_exclusive(page);
-
+	ass_unmake_page_exclusive(page);
 	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 1);
 
 	return;
