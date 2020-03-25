@@ -66,6 +66,16 @@ static DEFINE_SPINLOCK(cpa_lock);
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
 #define CPA_NO_CHECK_ALIAS 8 /* Do not search for aliases */
+#define CPA_NO_LOCK	16
+
+static inline bool should_lock_cpa(struct cpa_data *cpa)
+{
+	if (debug_pagealloc_enabled())
+		return false;
+	if (cpa->flags & CPA_NO_LOCK)
+		return false;
+	return true;
+}
 
 #ifdef CONFIG_PROC_FS
 static unsigned long direct_pages_count[PG_LEVEL_NUM];
@@ -1037,10 +1047,10 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 {
 	struct page *base;
 
-	if (!debug_pagealloc_enabled())
+	if (should_lock_cpa(cpa))
 		spin_unlock(&cpa_lock);
 	base = alloc_pages(GFP_KERNEL, 0);
-	if (!debug_pagealloc_enabled())
+	if (should_lock_cpa(cpa))
 		spin_lock(&cpa_lock);
 	if (!base)
 		return -ENOMEM;
@@ -1621,10 +1631,10 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 		if (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))
 			cpa->numpages = 1;
 
-		if (!debug_pagealloc_enabled())
+		if (should_lock_cpa(cpa))
 			spin_lock(&cpa_lock);
 		ret = __change_page_attr(cpa, checkalias);
-		if (!debug_pagealloc_enabled())
+		if (should_lock_cpa(cpa))
 			spin_unlock(&cpa_lock);
 		if (ret)
 			goto out;
@@ -2238,6 +2248,44 @@ static int __set_pages_np(pgd_t *pgd, struct page *page, int numpages)
 				.mask_set = __pgprot(0),
 				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
 				.flags = 0};
+
+	/*
+	 * No alias checking needed for setting not present flag. otherwise,
+	 * we may need to break large pages for 64-bit kernel text
+	 * mappings (this adds to complexity if we want to do this from
+	 * atomic context especially). Let's keep it simple!
+	 */
+	return __change_page_attr_set_clr(&cpa, 0);
+}
+
+static __maybe_unused int _set_pages_p(pgd_t *pgd, struct page *page, int numpages)
+{
+	unsigned long tempaddr = (unsigned long) page_address(page);
+	struct cpa_data cpa = { .vaddr = &tempaddr,
+				.pgd = pgd,
+				.numpages = numpages,
+				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
+				.mask_clr = __pgprot(0),
+				.flags = CPA_NO_LOCK };
+
+	/*
+	 * No alias checking needed for setting present flag. otherwise,
+	 * we may need to break large pages for 64-bit kernel text
+	 * mappings (this adds to complexity if we want to do this from
+	 * atomic context especially). Let's keep it simple!
+	 */
+	return __change_page_attr_set_clr(&cpa, 0);
+}
+
+static __maybe_unused int _set_pages_np(pgd_t *pgd, struct page *page, int numpages)
+{
+	unsigned long tempaddr = (unsigned long) page_address(page);
+	struct cpa_data cpa = { .vaddr = &tempaddr,
+				.pgd = pgd,
+				.numpages = numpages,
+				.mask_set = __pgprot(0),
+				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
+				.flags = CPA_NO_LOCK };
 
 	/*
 	 * No alias checking needed for setting not present flag. otherwise,
