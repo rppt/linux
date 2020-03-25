@@ -567,8 +567,8 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 
 	pr_info("---> owner PGD\n");
 	/* unmap and map to ensure 4K granularity */
-	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
-	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 1);
+	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 0);
+	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 1);
 	dump_pagetable(ns_pgd->mm->pgd, (unsigned long)page_address(page));
 
 	return 0;
