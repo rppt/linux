@@ -144,7 +144,7 @@ static struct sk_buff *skb_set_peeked(struct sk_buff *skb)
 	if (!skb_shared(skb))
 		goto done;
 
-	nskb = skb_clone(skb, GFP_ATOMIC);
+	nskb = skb_clone(skb, GFP_ATOMIC_EXCLUSIVE);
 	if (!nskb)
 		return ERR_PTR(-ENOMEM);
 

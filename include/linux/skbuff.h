@@ -2742,7 +2742,7 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int length,
 static inline struct sk_buff *netdev_alloc_skb(struct net_device *dev,
 					       unsigned int length)
 {
-	return __netdev_alloc_skb(dev, length, GFP_ATOMIC);
+	return __netdev_alloc_skb(dev, length, GFP_ATOMIC_EXCLUSIVE);
 }
 
 /* legacy helper around __netdev_alloc_skb() */
@@ -2772,7 +2772,7 @@ static inline struct sk_buff *__netdev_alloc_skb_ip_align(struct net_device *dev
 static inline struct sk_buff *netdev_alloc_skb_ip_align(struct net_device *dev,
 		unsigned int length)
 {
-	return __netdev_alloc_skb_ip_align(dev, length, GFP_ATOMIC);
+	return __netdev_alloc_skb_ip_align(dev, length, GFP_ATOMIC_EXCLUSIVE);
 }
 
 static inline void skb_free_frag(void *addr)
@@ -2786,7 +2786,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi,
 static inline struct sk_buff *napi_alloc_skb(struct napi_struct *napi,
 					     unsigned int length)
 {
-	return __napi_alloc_skb(napi, length, GFP_ATOMIC);
+	return __napi_alloc_skb(napi, length, GFP_ATOMIC_EXCLUSIVE);
 }
 void napi_consume_skb(struct sk_buff *skb, int budget);
 
@@ -2813,7 +2813,7 @@ static inline struct page *__dev_alloc_pages(gfp_t gfp_mask,
 	 * 4.  __GFP_MEMALLOC is ignored if __GFP_NOMEMALLOC is set due to
 	 *     code in gfp_to_alloc_flags that should be enforcing this.
 	 */
-	gfp_mask |= __GFP_COMP | __GFP_MEMALLOC;
+	gfp_mask |= __GFP_COMP | __GFP_MEMALLOC | __GFP_EXCLUSIVE;
 
 	return alloc_pages_node(NUMA_NO_NODE, gfp_mask, order);
 }
@@ -3031,7 +3031,7 @@ static inline int __skb_cow(struct sk_buff *skb, unsigned int headroom,
 
 	if (delta || cloned)
 		return pskb_expand_head(skb, ALIGN(delta, NET_SKB_PAD), 0,
-					GFP_ATOMIC);
+					GFP_ATOMIC_EXCLUSIVE);
 	return 0;
 }
 
@@ -4237,7 +4237,7 @@ static inline int gso_pskb_expand_head(struct sk_buff *skb, int extra)
 	int ret;
 
 	headroom = skb_headroom(skb);
-	ret = pskb_expand_head(skb, extra, 0, GFP_ATOMIC);
+	ret = pskb_expand_head(skb, extra, 0, GFP_ATOMIC_EXCLUSIVE);
 	if (ret)
 		return ret;
 

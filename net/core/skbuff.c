@@ -189,8 +189,8 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 
 	if (sk_memalloc_socks() && (flags & SKB_ALLOC_RX))
 		gfp_mask |= __GFP_MEMALLOC;
-	else
-		gfp_mask |= __GFP_EXCLUSIVE;
+	/* else */
+	gfp_mask |= __GFP_EXCLUSIVE;
 
 	/* Get the HEAD */
 	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
@@ -306,7 +306,7 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 {
 	struct sk_buff *skb;
 
-	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC);
+	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC_EXCLUSIVE);
 	if (unlikely(!skb))
 		return NULL;
 
@@ -391,7 +391,7 @@ void *netdev_alloc_frag(unsigned int fragsz)
 {
 	fragsz = SKB_DATA_ALIGN(fragsz);
 
-	return __netdev_alloc_frag(fragsz, GFP_ATOMIC);
+	return __netdev_alloc_frag(fragsz, GFP_ATOMIC_EXCLUSIVE);
 }
 EXPORT_SYMBOL(netdev_alloc_frag);
 
@@ -406,7 +406,7 @@ void *napi_alloc_frag(unsigned int fragsz)
 {
 	fragsz = SKB_DATA_ALIGN(fragsz);
 
-	return __napi_alloc_frag(fragsz, GFP_ATOMIC);
+	return __napi_alloc_frag(fragsz, GFP_ATOMIC_EXCLUSIVE);
 }
 EXPORT_SYMBOL(napi_alloc_frag);
 
@@ -1191,7 +1191,7 @@ static int skb_zerocopy_clone(struct sk_buff *nskb, struct sk_buff *orig,
 			}
 			if (skb_uarg(nskb) == skb_uarg(orig))
 				return 0;
-			if (skb_copy_ubufs(nskb, GFP_ATOMIC))
+			if (skb_copy_ubufs(nskb, GFP_ATOMIC_EXCLUSIVE))
 				return -EIO;
 		}
 		skb_zcopy_set(nskb, skb_uarg(orig), NULL);
@@ -1581,11 +1581,11 @@ struct sk_buff *skb_realloc_headroom(struct sk_buff *skb, unsigned int headroom)
 	int delta = headroom - skb_headroom(skb);
 
 	if (delta <= 0)
-		skb2 = pskb_copy(skb, GFP_ATOMIC);
+		skb2 = pskb_copy(skb, GFP_ATOMIC_EXCLUSIVE);
 	else {
-		skb2 = skb_clone(skb, GFP_ATOMIC);
+		skb2 = skb_clone(skb, GFP_ATOMIC_EXCLUSIVE);
 		if (skb2 && pskb_expand_head(skb2, SKB_DATA_ALIGN(delta), 0,
-					     GFP_ATOMIC)) {
+					     GFP_ATOMIC_EXCLUSIVE)) {
 			kfree_skb(skb2);
 			skb2 = NULL;
 		}
@@ -1679,7 +1679,7 @@ int __skb_pad(struct sk_buff *skb, int pad, bool free_on_error)
 
 	ntail = skb->data_len + pad - (skb->end - skb->tail);
 	if (likely(skb_cloned(skb) || ntail > 0)) {
-		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
+		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC_EXCLUSIVE);
 		if (unlikely(err))
 			goto free_skb;
 	}
@@ -1809,7 +1809,7 @@ int ___pskb_trim(struct sk_buff *skb, unsigned int len)
 	int err;
 
 	if (skb_cloned(skb) &&
-	    unlikely((err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC))))
+	    unlikely((err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC_EXCLUSIVE))))
 		return err;
 
 	i = 0;
@@ -1844,7 +1844,7 @@ drop_pages:
 		if (skb_shared(frag)) {
 			struct sk_buff *nfrag;
 
-			nfrag = skb_clone(frag, GFP_ATOMIC);
+			nfrag = skb_clone(frag, GFP_ATOMIC_EXCLUSIVE);
 			if (unlikely(!nfrag))
 				return -ENOMEM;
 
@@ -1934,7 +1934,7 @@ void *__pskb_pull_tail(struct sk_buff *skb, int delta)
 
 	if (eat > 0 || skb_cloned(skb)) {
 		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
-				     GFP_ATOMIC))
+				     GFP_ATOMIC_EXCLUSIVE))
 			return NULL;
 	}
 
@@ -1980,7 +1980,7 @@ void *__pskb_pull_tail(struct sk_buff *skb, int delta)
 
 				if (skb_shared(list)) {
 					/* Sucks! We need to fork list. :-( */
-					clone = skb_clone(list, GFP_ATOMIC);
+					clone = skb_clone(list, GFP_ATOMIC_EXCLUSIVE);
 					if (!clone)
 						return NULL;
 					insp = list->next;
@@ -2839,11 +2839,11 @@ skb_zerocopy(struct sk_buff *to, struct sk_buff *from, int len, int hlen)
 	to->len += len + plen;
 	to->data_len += len + plen;
 
-	if (unlikely(skb_orphan_frags(from, GFP_ATOMIC))) {
+	if (unlikely(skb_orphan_frags(from, GFP_ATOMIC_EXCLUSIVE))) {
 		skb_tx_error(from);
 		return -ENOMEM;
 	}
-	skb_zerocopy_clone(to, from, GFP_ATOMIC);
+	skb_zerocopy_clone(to, from, GFP_ATOMIC_EXCLUSIVE);
 
 	for (i = 0; i < skb_shinfo(from)->nr_frags; i++) {
 		if (!len)
@@ -3140,7 +3140,7 @@ EXPORT_SYMBOL(skb_split);
  */
 static int skb_prepare_for_shift(struct sk_buff *skb)
 {
-	return skb_cloned(skb) && pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+	return skb_cloned(skb) && pskb_expand_head(skb, 0, 0, GFP_ATOMIC_EXCLUSIVE);
 }
 
 /**
@@ -3631,7 +3631,7 @@ normal:
 				frag++;
 			}
 
-			nskb = skb_clone(list_skb, GFP_ATOMIC);
+			nskb = skb_clone(list_skb, GFP_ATOMIC_EXCLUSIVE);
 			list_skb = list_skb->next;
 
 			if (unlikely(!nskb))
@@ -3653,7 +3653,7 @@ normal:
 			__skb_push(nskb, doffset);
 		} else {
 			nskb = __alloc_skb(hsize + doffset + headroom,
-					   GFP_ATOMIC, skb_alloc_rx_flag(head_skb),
+					   GFP_ATOMIC_EXCLUSIVE, skb_alloc_rx_flag(head_skb),
 					   NUMA_NO_NODE);
 
 			if (unlikely(!nskb))
@@ -3701,8 +3701,8 @@ normal:
 		skb_shinfo(nskb)->tx_flags |= skb_shinfo(head_skb)->tx_flags &
 					      SKBTX_SHARED_FRAG;
 
-		if (skb_orphan_frags(frag_skb, GFP_ATOMIC) ||
-		    skb_zerocopy_clone(nskb, frag_skb, GFP_ATOMIC))
+		if (skb_orphan_frags(frag_skb, GFP_ATOMIC_EXCLUSIVE) ||
+		    skb_zerocopy_clone(nskb, frag_skb, GFP_ATOMIC_EXCLUSIVE))
 			goto err;
 
 		while (pos < offset + len) {
@@ -3720,9 +3720,9 @@ normal:
 					i--;
 					frag--;
 				}
-				if (skb_orphan_frags(frag_skb, GFP_ATOMIC) ||
+				if (skb_orphan_frags(frag_skb, GFP_ATOMIC_EXCLUSIVE) ||
 				    skb_zerocopy_clone(nskb, frag_skb,
-						       GFP_ATOMIC))
+						       GFP_ATOMIC_EXCLUSIVE))
 					goto err;
 
 				list_skb = list_skb->next;
@@ -4162,7 +4162,7 @@ int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 		 * space, 128 bytes is fair. */
 
 		if (skb_tailroom(skb) < tailbits &&
-		    pskb_expand_head(skb, 0, tailbits-skb_tailroom(skb)+128, GFP_ATOMIC))
+		    pskb_expand_head(skb, 0, tailbits-skb_tailroom(skb)+128, GFP_ATOMIC_EXCLUSIVE))
 			return -ENOMEM;
 
 		/* Voila! */
@@ -4204,12 +4204,12 @@ int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 
 			/* Fuck, we are miserable poor guys... */
 			if (ntail == 0)
-				skb2 = skb_copy(skb1, GFP_ATOMIC);
+				skb2 = skb_copy(skb1, GFP_ATOMIC_EXCLUSIVE);
 			else
 				skb2 = skb_copy_expand(skb1,
 						       skb_headroom(skb1),
 						       ntail,
-						       GFP_ATOMIC);
+						       GFP_ATOMIC_EXCLUSIVE);
 			if (unlikely(skb2 == NULL))
 				return -ENOMEM;
 
@@ -4327,7 +4327,7 @@ struct sk_buff *skb_clone_sk(struct sk_buff *skb)
 	if (!sk || !refcount_inc_not_zero(&sk->sk_refcnt))
 		return NULL;
 
-	clone = skb_clone(skb, GFP_ATOMIC);
+	clone = skb_clone(skb, GFP_ATOMIC_EXCLUSIVE);
 	if (!clone) {
 		sock_put(sk);
 		return NULL;
@@ -4434,9 +4434,9 @@ void __skb_tstamp_tx(struct sk_buff *orig_skb,
 			opt_stats = true;
 		} else
 #endif
-			skb = alloc_skb(0, GFP_ATOMIC);
+			skb = alloc_skb(0, GFP_ATOMIC_EXCLUSIVE);
 	} else {
-		skb = skb_clone(orig_skb, GFP_ATOMIC);
+		skb = skb_clone(orig_skb, GFP_ATOMIC_EXCLUSIVE);
 	}
 	if (!skb)
 		return;
@@ -4777,7 +4777,7 @@ static struct sk_buff *skb_checksum_maybe_trim(struct sk_buff *skb,
 	else if (skb->len == len)
 		return skb;
 
-	skb_chk = skb_clone(skb, GFP_ATOMIC);
+	skb_chk = skb_clone(skb, GFP_ATOMIC_EXCLUSIVE);
 	if (!skb_chk)
 		return NULL;
 
@@ -5154,7 +5154,7 @@ struct sk_buff *skb_vlan_untag(struct sk_buff *skb)
 		return skb;
 	}
 
-	skb = skb_share_check(skb, GFP_ATOMIC);
+	skb = skb_share_check(skb, GFP_ATOMIC_EXCLUSIVE);
 	if (unlikely(!skb))
 		goto err_free;
 
@@ -5192,7 +5192,7 @@ int skb_ensure_writable(struct sk_buff *skb, int write_len)
 	if (!skb_cloned(skb) || skb_clone_writable(skb, write_len))
 		return 0;
 
-	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC_EXCLUSIVE);
 }
 EXPORT_SYMBOL(skb_ensure_writable);
 
@@ -5646,7 +5646,7 @@ static void *skb_ext_get_ptr(struct skb_ext *ext, enum skb_ext_id id)
 
 static struct skb_ext *skb_ext_alloc(void)
 {
-	struct skb_ext *new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC);
+	struct skb_ext *new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC_EXCLUSIVE);
 
 	if (new) {
 		memset(new->offset, 0, sizeof(new->offset));
@@ -5664,7 +5664,7 @@ static struct skb_ext *skb_ext_maybe_cow(struct skb_ext *old,
 	if (refcount_read(&old->refcnt) == 1)
 		return old;
 
-	new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC);
+	new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC_EXCLUSIVE);
 	if (!new)
 		return NULL;
 
