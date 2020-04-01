@@ -71,6 +71,7 @@ struct rcu_segcblist {
 	long len_lazy;
 };
 
+#if 0
 #define RCU_SEGCBLIST_INITIALIZER(n) \
 { \
 	.head = NULL, \
@@ -79,5 +80,6 @@ struct rcu_segcblist {
 	.tails[RCU_NEXT_READY_TAIL] = &n.head, \
 	.tails[RCU_NEXT_TAIL] = &n.head, \
 }
+#endif
 
 #endif /* __INCLUDE_LINUX_RCU_SEGCBLIST_H */

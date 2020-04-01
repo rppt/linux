@@ -87,7 +87,9 @@ static inline long rcu_segcblist_n_nonlazy_cbs(struct rcu_segcblist *rsclp)
  */
 static inline bool rcu_segcblist_is_enabled(struct rcu_segcblist *rsclp)
 {
-	return !!rsclp->tails[RCU_NEXT_TAIL];
+	struct rcu_head **ptr = val_to_ptr(rsclp->tails[RCU_NEXT_TAIL]);
+
+	return !!ptr;
 }
 
 /*
@@ -97,7 +99,9 @@ static inline bool rcu_segcblist_is_enabled(struct rcu_segcblist *rsclp)
  */
 static inline bool rcu_segcblist_restempty(struct rcu_segcblist *rsclp, int seg)
 {
-	return !*rsclp->tails[seg];
+	struct rcu_head **ptr = val_to_ptr(rsclp->tails[seg]);
+
+	return !*ptr;
 }
 
 /*
@@ -107,7 +111,7 @@ static inline bool rcu_segcblist_restempty(struct rcu_segcblist *rsclp, int seg)
  */
 static inline struct rcu_head *rcu_segcblist_head(struct rcu_segcblist *rsclp)
 {
-	return rsclp->head;
+	return val_to_ptr(rsclp->head);
 }
 
 /*
@@ -118,7 +122,7 @@ static inline struct rcu_head *rcu_segcblist_head(struct rcu_segcblist *rsclp)
 static inline struct rcu_head **rcu_segcblist_tail(struct rcu_segcblist *rsclp)
 {
 	WARN_ON_ONCE(rcu_segcblist_empty(rsclp));
-	return rsclp->tails[RCU_NEXT_TAIL];
+	return val_to_ptr(rsclp->tails[RCU_NEXT_TAIL]);
 }
 
 void rcu_segcblist_init(struct rcu_segcblist *rsclp);

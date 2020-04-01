@@ -55,7 +55,7 @@ void rcu_segcblist_init(struct rcu_segcblist *rsclp)
 	BUILD_BUG_ON(ARRAY_SIZE(rsclp->tails) != ARRAY_SIZE(rsclp->gp_seq));
 	rsclp->head = NULL;
 	for (i = 0; i < RCU_CBLIST_NSEGS; i++)
-		rsclp->tails[i] = &rsclp->head;
+		rsclp->tails[i] = ptr_to_val(&rsclp->head);
 	rsclp->len = 0;
 	rsclp->len_lazy = 0;
 }
@@ -79,7 +79,7 @@ void rcu_segcblist_disable(struct rcu_segcblist *rsclp)
 bool rcu_segcblist_ready_cbs(struct rcu_segcblist *rsclp)
 {
 	return rcu_segcblist_is_enabled(rsclp) &&
-	       &rsclp->head != rsclp->tails[RCU_DONE_TAIL];
+	       &rsclp->head != val_to_ptr(rsclp->tails[RCU_DONE_TAIL]);
 }
 
 /*
@@ -99,7 +99,7 @@ bool rcu_segcblist_pend_cbs(struct rcu_segcblist *rsclp)
 struct rcu_head *rcu_segcblist_first_cb(struct rcu_segcblist *rsclp)
 {
 	if (rcu_segcblist_is_enabled(rsclp))
-		return rsclp->head;
+		return val_to_ptr(rsclp->head);
 	return NULL;
 }
 
@@ -112,8 +112,11 @@ struct rcu_head *rcu_segcblist_first_cb(struct rcu_segcblist *rsclp)
  */
 struct rcu_head *rcu_segcblist_first_pend_cb(struct rcu_segcblist *rsclp)
 {
-	if (rcu_segcblist_is_enabled(rsclp))
-		return *rsclp->tails[RCU_DONE_TAIL];
+	if (rcu_segcblist_is_enabled(rsclp)) {
+		/* return *rsclp->tails[RCU_DONE_TAIL]; */
+		struct rcu_head **ptr = val_to_ptr(rsclp->tails[RCU_DONE_TAIL]);
+		return *ptr;
+	}
 	return NULL;
 }
 
@@ -129,13 +132,19 @@ struct rcu_head *rcu_segcblist_first_pend_cb(struct rcu_segcblist *rsclp)
 void rcu_segcblist_enqueue(struct rcu_segcblist *rsclp,
 			   struct rcu_head *rhp, bool lazy)
 {
+	struct rcu_head **ptr;
+
 	WRITE_ONCE(rsclp->len, rsclp->len + 1); /* ->len sampled locklessly. */
 	if (lazy)
 		rsclp->len_lazy++;
 	smp_mb(); /* Ensure counts are updated before callback is enqueued. */
 	rhp->next = NULL;
-	*rsclp->tails[RCU_NEXT_TAIL] = rhp;
-	rsclp->tails[RCU_NEXT_TAIL] = &rhp->next;
+
+	/* *rsclp->tails[RCU_NEXT_TAIL] = rhp; */
+	ptr = val_to_ptr(rsclp->tails[RCU_NEXT_TAIL]);
+	*ptr = rhp;
+
+	rsclp->tails[RCU_NEXT_TAIL] = ptr_to_val(&rhp->next);
 }
 
 /*
@@ -151,6 +160,7 @@ void rcu_segcblist_enqueue(struct rcu_segcblist *rsclp,
 bool rcu_segcblist_entrain(struct rcu_segcblist *rsclp,
 			   struct rcu_head *rhp, bool lazy)
 {
+	struct rcu_head **ptr;
 	int i;
 
 	if (rcu_segcblist_n_cbs(rsclp) == 0)
@@ -163,9 +173,13 @@ bool rcu_segcblist_entrain(struct rcu_segcblist *rsclp,
 	for (i = RCU_NEXT_TAIL; i > RCU_DONE_TAIL; i--)
 		if (rsclp->tails[i] != rsclp->tails[i - 1])
 			break;
-	*rsclp->tails[i] = rhp;
+
+	/* *rsclp->tails[i] = rhp; */
+	ptr = val_to_ptr(rsclp->tails[i]);
+	*ptr = rhp;
+
 	for (; i <= RCU_NEXT_TAIL; i++)
-		rsclp->tails[i] = &rhp->next;
+		rsclp->tails[i] = ptr_to_val(&rhp->next);
 	return true;
 }
 
@@ -205,15 +219,17 @@ void rcu_segcblist_extract_done_cbs(struct rcu_segcblist *rsclp,
 	ptr = val_to_ptr(rclp->tail);
 	*ptr = rsclp->head;
 
-	rsclp->head = *rsclp->tails[RCU_DONE_TAIL];
-	*rsclp->tails[RCU_DONE_TAIL] = NULL;
+	/* rsclp->head = *rsclp->tails[RCU_DONE_TAIL]; */
+	/* *rsclp->tails[RCU_DONE_TAIL] = NULL; */
+	ptr = val_to_ptr(rsclp->tails[RCU_DONE_TAIL]);
+	rsclp->head = ptr_to_val(*ptr);
+	*ptr = NULL;
 
-	/* rclp->tail = rsclp->tails[RCU_DONE_TAIL]; */
-	rclp->tail = ptr_to_val(rsclp->tails[RCU_DONE_TAIL]);
+	rclp->tail = rsclp->tails[RCU_DONE_TAIL];
 
 	for (i = RCU_CBLIST_NSEGS - 1; i >= RCU_DONE_TAIL; i--)
 		if (rsclp->tails[i] == rsclp->tails[RCU_DONE_TAIL])
-			rsclp->tails[i] = &rsclp->head;
+			rsclp->tails[i] = ptr_to_val(&rsclp->head);
 }
 
 /*
@@ -226,19 +242,21 @@ void rcu_segcblist_extract_done_cbs(struct rcu_segcblist *rsclp,
 void rcu_segcblist_extract_pend_cbs(struct rcu_segcblist *rsclp,
 				    struct rcu_cblist *rclp)
 {
-	struct rcu_head **ptr;
+	struct rcu_head **ptr1, **ptr2;
 	int i;
 
 	if (!rcu_segcblist_pend_cbs(rsclp))
 		return; /* Nothing to do. */
 
 	/* *rclp->tail = *rsclp->tails[RCU_DONE_TAIL]; */
-	ptr = val_to_ptr(rclp->tail);
-	*ptr = *rsclp->tails[RCU_DONE_TAIL];
+	ptr1 = val_to_ptr(rclp->tail);
+	ptr2 = val_to_ptr(rsclp->tails[RCU_DONE_TAIL]);
+	*ptr1 = *ptr2;
 
-	rclp->tail = ptr_to_val(rsclp->tails[RCU_NEXT_TAIL]);
+	rclp->tail = rsclp->tails[RCU_NEXT_TAIL];
 
-	*rsclp->tails[RCU_DONE_TAIL] = NULL;
+	/* *rsclp->tails[RCU_DONE_TAIL] = NULL; */
+	*ptr2 = NULL;
 
 	for (i = RCU_DONE_TAIL + 1; i < RCU_CBLIST_NSEGS; i++)
 		rsclp->tails[i] = rsclp->tails[RCU_DONE_TAIL];
@@ -273,13 +291,13 @@ void rcu_segcblist_insert_done_cbs(struct rcu_segcblist *rsclp,
 
 	/* *rclp->tail = rsclp->head; */
 	ptr = val_to_ptr(rclp->tail);
-	*ptr = ptr_to_val(rsclp->head);
+	*ptr = rsclp->head;
 
-	rsclp->head = val_to_ptr(rclp->head);
+	rsclp->head = rclp->head;
 
 	for (i = RCU_DONE_TAIL; i < RCU_CBLIST_NSEGS; i++)
-		if (&rsclp->head == rsclp->tails[i])
-			rsclp->tails[i] = val_to_ptr(rclp->tail);
+		if (&rsclp->head == val_to_ptr(rsclp->tails[i]))
+			rsclp->tails[i] = rclp->tail;
 		else
 			break;
 
@@ -294,11 +312,16 @@ void rcu_segcblist_insert_done_cbs(struct rcu_segcblist *rsclp,
 void rcu_segcblist_insert_pend_cbs(struct rcu_segcblist *rsclp,
 				   struct rcu_cblist *rclp)
 {
+	struct rcu_head **ptr;
+
 	if (!rclp->head)
 		return; /* Nothing to do. */
 
-	*rsclp->tails[RCU_NEXT_TAIL] = val_to_ptr(rclp->head);
-	rsclp->tails[RCU_NEXT_TAIL] = val_to_ptr(rclp->tail);
+	/* *rsclp->tails[RCU_NEXT_TAIL] = val_to_ptr(rclp->head); */
+	ptr = val_to_ptr(rsclp->tails[RCU_NEXT_TAIL]);
+	*ptr = rclp->head;
+
+	rsclp->tails[RCU_NEXT_TAIL] = rclp->tail;
 	rclp->head = NULL;
 	rclp->tail = ptr_to_val(&rclp->head);
 }
