@@ -2056,8 +2056,10 @@ static void rcu_do_batch(struct rcu_data *rdp)
 {
 	unsigned long flags;
 	struct rcu_head *rhp;
-	struct rcu_cblist rcl = RCU_CBLIST_INITIALIZER(rcl);
+	struct rcu_cblist rcl;
 	long bl, count;
+
+	rcu_cblist_init(&rcl);
 
 	/* If no callbacks are ready, just return. */
 	if (!rcu_segcblist_ready_cbs(&rdp->cblist)) {

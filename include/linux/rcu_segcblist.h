@@ -22,7 +22,9 @@ struct rcu_cblist {
 	long len_lazy;
 };
 
+#if 0
 #define RCU_CBLIST_INITIALIZER(n) { .head = NULL, .tail = &n.head }
+#endif
 
 /* Complicated segmented callback lists.  ;-) */
 

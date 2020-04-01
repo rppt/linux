@@ -9,6 +9,30 @@
 
 #include <linux/rcu_segcblist.h>
 
+static inline void *val_to_ptr(void *val)
+{
+	unsigned long ptr = (unsigned long)val;
+
+	if (!val)
+		return val;
+
+	ptr &= ~0x1;
+
+	return (void *)ptr;
+}
+
+static inline void *ptr_to_val(void *ptr)
+{
+	unsigned long val = (unsigned long)ptr;
+
+	if (!ptr)
+		return ptr;
+
+	val |= 0x1;
+
+	return (void *)val;
+}
+
 /*
  * Account for the fact that a previously dequeued callback turned out
  * to be marked as lazy.
