@@ -37,4 +37,9 @@ struct ns_pgd {
 
 extern struct page_ext_operations page_excl_ops;
 
+void ass_map_ptr(struct mm_struct *mm, void *ptr);
+void ass_unmap_ptr(struct mm_struct *mm, void *ptr);
+bool ass_private(void *ptr);
+void ass_check_ptr(void *ptr);
+
 #endif

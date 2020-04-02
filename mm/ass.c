@@ -516,6 +516,77 @@ bad:
 	pr_info("BAD\n");
 }
 
+static struct page *ass_ptr_page(void *ptr)
+{
+	if (is_vmalloc_addr(ptr))
+		return vmalloc_to_page(ptr);
+
+	return virt_to_head_page((void *)((unsigned long) ptr & PAGE_MASK));
+}
+
+bool ass_private(void *ptr)
+{
+	struct page *page;
+
+	if (system_state < SYSTEM_RUNNING)
+		return false;
+
+	if ((unsigned long)ptr > VMALLOC_END)
+		return false;
+
+	page = ass_ptr_page(ptr);
+
+	return PageExclusive(page);
+}
+
+void ass_map_ptr(struct mm_struct *mm, void *ptr)
+{
+	struct page *page = ass_ptr_page(ptr);
+
+	int nr_pages = 1 << compound_order(page);
+
+	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 1);
+}
+
+void ass_unmap_ptr(struct mm_struct *mm, void *ptr)
+{
+	struct page *page = ass_ptr_page(ptr);
+	int nr_pages = 1 << compound_order(page);
+
+	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 0);
+}
+
+void ass_check_ptr(void *ptr)
+{
+	int level;
+	unsigned long addr = (unsigned long)ptr;
+	pte_t *pte = lookup_address(addr, &level);
+	bool present = true;
+
+	if (level == PG_LEVEL_2M) {
+		pmd_t *pmd = (pmd_t *)pte;
+
+		if (pmd_none(*pmd) || !pmd_present(*pmd)) {
+			pr_info("%s: PMD: addr: %lx, pmd: %lx\n", __func__, addr, pmd_val(*pmd));
+			present = false;
+		}
+	} else if (level == PG_LEVEL_4K) {
+		if (pte_none(*pte) || !pte_present(*pte)) {
+			pr_info("%s: PTE: addr: %lx, pte: %lx\n", __func__, addr, pte_val(*pte));
+			present = false;
+		}
+	} else {
+		pr_info("%s: level: %d\n", __func__, level);
+	}
+	if (!present) {
+		struct page *page = is_vmalloc_addr(ptr) ?
+			vmalloc_to_page(ptr) :
+			virt_to_head_page((void *)(addr & PAGE_MASK));
+		dump_page(page, "ass-check");
+		pr_info("%s: %sprivate\n", __func__, ass_private(ptr) ? "" : "non-");
+	}
+}
+
 static int ass_make_page_exclusive(struct mm_struct *mm, struct ns_pgd *ns_pgd,
 				   struct page *page)
 {
@@ -538,7 +609,7 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	struct ns_pgd *ns_pgd, *p;
 	int nr_pages = (1 << order);
 
-	if (!loaded_mm->ns_pgd && !loaded_mm->is_ns_pgd)
+	if (!ass_active())
 		return 0;
 
 	mm = loaded_mm;
