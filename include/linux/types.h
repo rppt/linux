@@ -219,6 +219,7 @@ struct ustat {
 struct callback_head {
 	struct callback_head *next;
 	void (*func)(struct callback_head *head);
+	unsigned long flags;
 } __attribute__((aligned(sizeof(void *))));
 #define rcu_head callback_head
 
