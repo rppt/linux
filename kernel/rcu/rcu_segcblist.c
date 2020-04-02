@@ -79,7 +79,7 @@ void rcu_segcblist_disable(struct rcu_segcblist *rsclp)
 bool rcu_segcblist_ready_cbs(struct rcu_segcblist *rsclp)
 {
 	return rcu_segcblist_is_enabled(rsclp) &&
-	       &rsclp->head != val_to_ptr(rsclp->tails[RCU_DONE_TAIL]);
+	       ptr_to_val(&rsclp->head) != rsclp->tails[RCU_DONE_TAIL];
 }
 
 /*
@@ -296,7 +296,7 @@ void rcu_segcblist_insert_done_cbs(struct rcu_segcblist *rsclp,
 	rsclp->head = rclp->head;
 
 	for (i = RCU_DONE_TAIL; i < RCU_CBLIST_NSEGS; i++)
-		if (&rsclp->head == val_to_ptr(rsclp->tails[i]))
+		if (ptr_to_val(&rsclp->head) == rsclp->tails[i])
 			rsclp->tails[i] = rclp->tail;
 		else
 			break;
