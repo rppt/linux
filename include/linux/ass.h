@@ -19,6 +19,8 @@ void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd);
 
 struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep);
 
+bool ass_active(void);
+
 struct ass_kmem_cache {
 	struct list_head l;
 	struct kmem_cache *normal;

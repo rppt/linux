@@ -709,6 +709,19 @@ struct kmem_cache *ass_kmem_get_cache(struct kmem_cache *cachep)
 	return new;
 }
 
+bool ass_active(void)
+{
+       struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+
+       if (loaded_mm->ns_pgd)
+               return true;
+       if (loaded_mm->is_ns_pgd)
+               return true;
+
+       return false;
+}
+
+
 static int ass_pgds_show(struct seq_file *m, void *unused)
 {
 	struct ns_pgd *ns_pgd;
