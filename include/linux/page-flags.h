@@ -131,6 +131,7 @@ enum pageflags {
 	PG_young,
 	PG_idle,
 #endif
+	PG_exclusive,
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -427,6 +428,10 @@ TESTCLEARFLAG(Young, young, PF_ANY)
 PAGEFLAG(Idle, idle, PF_ANY)
 #endif
 
+PAGEFLAG(Exclusive, exclusive, PF_ANY)
+	__CLEARPAGEFLAG(Exclusive, exclusive, PF_ANY)
+	__SETPAGEFLAG(Exclusive, exclusive, PF_ANY)
+
 /*
  * On an anonymous page mapped into a user virtual memory area,
  * page->mapping points to its anon_vma, not to a struct address_space;
@@ -703,7 +708,6 @@ PAGEFLAG_FALSE(DoubleMap)
 #define PG_offline	0x00000100
 #define PG_kmemcg	0x00000200
 #define PG_table	0x00000400
-#define PG_exclusive	0x00000800
 
 #define PageType(page, flag)						\
 	((page->page_type & (PAGE_TYPE_BASE | flag)) == PAGE_TYPE_BASE)
@@ -755,10 +759,10 @@ PAGE_TYPE_OPS(Kmemcg, kmemcg)
  */
 PAGE_TYPE_OPS(Table, table)
 
-/*
- * Marks pages in mapped exclusively in a single ns_pgd context
- */
-PAGE_TYPE_OPS(Exclusive, exclusive)
+/* /\* */
+/*  * Marks pages in mapped exclusively in a single ns_pgd context */
+/*  *\/ */
+/* PAGE_TYPE_OPS(Exclusive, exclusive) */
 
 extern bool is_free_buddy_page(struct page *page);
 
