@@ -8,17 +8,23 @@
  */
 
 #include <linux/rcu_segcblist.h>
+#include <linux/ass.h>
 
 static inline void *val_to_ptr(void *val)
 {
-	unsigned long ptr = (unsigned long)val;
+	unsigned long _ptr = (unsigned long)val;
+	void *ptr;
 
 	if (!val)
 		return val;
 
-	ptr &= ~0x1;
+	_ptr &= ~0x1;
+	ptr = (void *)_ptr;
 
-	return (void *)ptr;
+	if (ass_private(ptr))
+		ass_map_ptr(&init_mm, ptr);
+
+	return ptr;
 }
 
 static inline void *ptr_to_val(void *ptr)
