@@ -576,7 +576,7 @@ void ass_check_ptr(void *ptr)
 			present = false;
 		}
 	} else {
-		pr_info("%s: level: %d\n", __func__, level);
+		pr_info("%s: %px: level: %d\n", __func__, ptr, level);
 	}
 	if (!present) {
 		struct page *page = is_vmalloc_addr(ptr) ?
@@ -636,6 +636,10 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
 	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 
+	pr_info("---> init_mm PGD\n");
+	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 0);
+	dump_pagetable(init_mm.pgd, (unsigned long)page_address(page));
+
 	pr_info("---> owner PGD\n");
 	/* unmap and map to ensure 4K granularity */
 	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 0);
@@ -674,6 +678,7 @@ void ass_unmake_pages_exclusive(struct page *page, unsigned int order)
 
 	ass_unmake_page_exclusive(page);
 	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 1);
+	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1);
 
 	return;
 }
