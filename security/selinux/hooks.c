@@ -89,6 +89,7 @@
 #include <linux/kernfs.h>
 #include <linux/stringhash.h>	/* for hashlen_string() */
 #include <uapi/linux/mount.h>
+#include <linux/ass.h>
 
 #include "avc.h"
 #include "objsec.h"
@@ -5085,11 +5086,29 @@ static int selinux_sk_alloc_security(struct sock *sk, int family, gfp_t priority
 
 static void selinux_sk_free_security(struct sock *sk)
 {
-	struct sk_security_struct *sksec = sk->sk_security;
+	struct sk_security_struct *sksec;
+	void *ptr1 = NULL, *ptr2 = NULL;
+
+	if (ass_private(sk)) {
+		ptr1 = sk;
+		ass_map_ptr(&init_mm, sk);
+	}
+
+	sksec = sk->sk_security;
+
+	if (ass_private(sksec)) {
+		ptr2 = sksec;
+		ass_map_ptr(&init_mm, sksec);
+	}
 
 	sk->sk_security = NULL;
 	selinux_netlbl_sk_security_free(sksec);
 	kfree(sksec);
+
+	if (ptr1 && ptr2) {
+		ass_unmap_ptr(&init_mm, ptr1);
+		ass_unmap_ptr(&init_mm, ptr2);
+	}
 }
 
 static void selinux_sk_clone_security(const struct sock *sk, struct sock *newsk)
