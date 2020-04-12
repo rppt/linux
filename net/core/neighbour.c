@@ -38,6 +38,7 @@
 #include <linux/log2.h>
 #include <linux/inetdevice.h>
 #include <net/addrconf.h>
+#include <linux/ass.h>
 
 #include <trace/events/neigh.h>
 
@@ -1006,8 +1007,18 @@ static void neigh_probe(struct neighbour *neigh)
 	if (skb)
 		skb = skb_clone(skb, GFP_ATOMIC);
 	write_unlock(&neigh->lock);
-	if (neigh->ops->solicit)
+	if (neigh->ops->solicit) {
+		struct mm_struct *mm = NULL;
+		struct net *net = dev_net(neigh->dev);
+
+		if (net)
+			mm = netns_enter_ass(net);
+
 		neigh->ops->solicit(neigh, skb);
+
+		if (mm)
+			netns_exit_ass(mm);
+	}
 	atomic_inc(&neigh->probes);
 	consume_skb(skb);
 }
