@@ -15,7 +15,7 @@
 #include <net/inet_hashtables.h>
 #include <net/inet_timewait_sock.h>
 #include <net/ip.h>
-
+#include <net/net_namespace.h>
 
 /**
  *	inet_twsk_bind_unhash - unhash a timewait socket from bind hash
@@ -144,12 +144,21 @@ EXPORT_SYMBOL_GPL(inet_twsk_hashdance);
 static void tw_timer_handler(struct timer_list *t)
 {
 	struct inet_timewait_sock *tw = from_timer(tw, t, tw_timer);
+	struct sock_common *sk = (struct sock_common *)tw;
+	struct mm_struct *mm = NULL;
+	struct net *net = read_pnet(&sk->skc_net);
+
+	if (net)
+		mm = netns_enter_ass(net);
 
 	if (tw->tw_kill)
 		__NET_INC_STATS(twsk_net(tw), LINUX_MIB_TIMEWAITKILLED);
 	else
 		__NET_INC_STATS(twsk_net(tw), LINUX_MIB_TIMEWAITED);
 	inet_twsk_kill(tw);
+
+	if (mm)
+		netns_exit_ass(mm);
 }
 
 struct inet_timewait_sock *inet_twsk_alloc(const struct sock *sk,
