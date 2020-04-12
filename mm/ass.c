@@ -391,6 +391,7 @@ struct ns_pgd *ass_create_ns_pgd(void)
 
 		p4d_clear(p4d);
 		pgd_clear(pgd);
+		pr_info("%s: DM pgd: %ld p4d: %ld\n", __func__, pgd_index(addr), p4d_index(addr));
 	}
 
 	err = ass_clone_range(&init_mm, init_mm.pgd, mm->pgd,
@@ -521,20 +522,30 @@ static struct page *ass_ptr_page(void *ptr)
 	if (is_vmalloc_addr(ptr))
 		return vmalloc_to_page(ptr);
 
+	/* if (page_to_pfn(virt_to_page(ptr)) > max_pfn) { */
+	/* 	pr_err("%s: %px: pfn is too big: %lx\n", __func__, ptr, page_to_pfn(virt_to_page(ptr))); */
+	/* 	return NULL; */
+	/* } */
+
 	return virt_to_head_page((void *)((unsigned long) ptr & PAGE_MASK));
 }
 
 bool ass_private(void *ptr)
 {
+	unsigned long addr = (unsigned long)ptr;
 	struct page *page;
 
 	if (system_state < SYSTEM_RUNNING)
 		return false;
 
-	if ((unsigned long)ptr > VMALLOC_END)
+	if (!(addr >= __PAGE_OFFSET_BASE_L4 && addr <= VMALLOC_END))
+	/* if (!(unsigned long)ptr > VMALLOC_END) */
 		return false;
 
 	page = ass_ptr_page(ptr);
+
+	/* if (!page) */
+	/* 	return false; */
 
 	return PageExclusive(page) && !PageExclMapped(page);
 }

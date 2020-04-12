@@ -1377,6 +1377,9 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 	struct in_ifaddr *ifa = (struct in_ifaddr *)ptr;
 	struct net_device *dev = ifa->ifa_dev->dev;
 	struct net *net = dev_net(dev);
+	struct mm_struct *mm;
+
+	mm = netns_enter_ass(net);
 
 	switch (event) {
 	case NETDEV_UP:
@@ -1400,6 +1403,9 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 		}
 		break;
 	}
+
+	netns_exit_ass(mm);
+
 	return NOTIFY_DONE;
 }
 
@@ -1411,6 +1417,9 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 	struct in_device *in_dev;
 	struct net *net = dev_net(dev);
 	unsigned int flags;
+	struct mm_struct *mm;
+
+	mm = netns_enter_ass(net);
 
 	if (event == NETDEV_UNREGISTER) {
 		fib_disable_ip(dev, event, true);
@@ -1420,7 +1429,7 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 
 	in_dev = __in_dev_get_rtnl(dev);
 	if (!in_dev)
-		return NOTIFY_DONE;
+		goto out;
 
 	switch (event) {
 	case NETDEV_UP:
@@ -1458,6 +1467,10 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 			fib_disable_ip(dev, NETDEV_DOWN, true);
 		break;
 	}
+
+	netns_exit_ass(mm);
+
+out:
 	return NOTIFY_DONE;
 }
 

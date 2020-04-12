@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/fdtable.h>
 #include <linux/fsnotify_backend.h>
+#include <linux/ass.h>
 
 int dir_notify_enable __read_mostly = 1;
 
@@ -145,14 +146,20 @@ void dnotify_flush(struct file *filp, fl_owner_t id)
 	struct dnotify_struct **prev;
 	struct inode *inode;
 	bool free = false;
+	void *ptr;
 
 	inode = file_inode(filp);
+
+	ptr = ass_private(inode) ? inode : NULL;
+	if (ptr)
+		ass_map_ptr(&init_mm, ptr);
+
 	if (!S_ISDIR(inode->i_mode))
-		return;
+		goto out;
 
 	fsn_mark = fsnotify_find_mark(&inode->i_fsnotify_marks, dnotify_group);
 	if (!fsn_mark)
-		return;
+		goto out;
 	dn_mark = container_of(fsn_mark, struct dnotify_mark, fsn_mark);
 
 	mutex_lock(&dnotify_group->mark_mutex);
@@ -183,6 +190,10 @@ void dnotify_flush(struct file *filp, fl_owner_t id)
 	if (free)
 		fsnotify_free_mark(fsn_mark);
 	fsnotify_put_mark(fsn_mark);
+
+out:
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
 }
 
 /* this conversion is done only at watch creation */

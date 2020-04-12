@@ -1579,9 +1579,13 @@ static int first_packet_length(struct sock *sk)
 {
 	struct sk_buff_head *rcvq = &udp_sk(sk)->reader_queue;
 	struct sk_buff_head *sk_queue = &sk->sk_receive_queue;
+	struct mm_struct *mm = NULL;
 	struct sk_buff *skb;
 	int total = 0;
 	int res;
+
+	if (sock_net(sk))
+		mm = netns_enter_ass(sock_net(sk));
 
 	spin_lock_bh(&rcvq->lock);
 	skb = __first_packet_length(sk, rcvq, &total);
@@ -1596,6 +1600,9 @@ static int first_packet_length(struct sock *sk)
 	if (total)
 		udp_rmem_release(sk, total, 1, false);
 	spin_unlock_bh(&rcvq->lock);
+
+	netns_exit_ass(mm);
+
 	return res;
 }
 

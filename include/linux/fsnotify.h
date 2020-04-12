@@ -16,6 +16,7 @@
 #include <linux/audit.h>
 #include <linux/slab.h>
 #include <linux/bug.h>
+#include <linux/ass.h>
 
 /*
  * Notify this @dir inode about a change in the directory entry @dentry.
@@ -256,12 +257,19 @@ static inline void fsnotify_close(struct file *file)
 	struct inode *inode = file_inode(file);
 	fmode_t mode = file->f_mode;
 	__u32 mask = (mode & FMODE_WRITE) ? FS_CLOSE_WRITE : FS_CLOSE_NOWRITE;
+	void *ptr = ass_private(inode) ? inode : NULL;
+
+	if (ptr)
+		ass_map_ptr(&init_mm, ptr);
 
 	if (S_ISDIR(inode->i_mode))
 		mask |= FS_ISDIR;
 
 	if (!(file->f_mode & FMODE_NONOTIFY))
 		fsnotify_path(inode, path, mask);
+
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
 }
 
 /*

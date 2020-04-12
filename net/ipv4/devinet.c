@@ -53,6 +53,7 @@
 #endif
 #include <linux/kmod.h>
 #include <linux/netconf.h>
+#include <linux/ass.h>
 
 #include <net/arp.h>
 #include <net/ip.h>
@@ -672,6 +673,9 @@ static void check_lifetime(struct work_struct *work)
 		rcu_read_lock();
 		hlist_for_each_entry_rcu(ifa, &inet_addr_lst[i], hash) {
 			unsigned long age;
+
+			if (ass_private(ifa))
+				continue;
 
 			if (ifa->ifa_flags & IFA_F_PERMANENT)
 				continue;

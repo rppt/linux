@@ -5105,10 +5105,11 @@ static void selinux_sk_free_security(struct sock *sk)
 	selinux_netlbl_sk_security_free(sksec);
 	kfree(sksec);
 
-	if (ptr1 && ptr2) {
+	if (ptr1)
 		ass_unmap_ptr(&init_mm, ptr1);
+
+	if (ptr2)
 		ass_unmap_ptr(&init_mm, ptr2);
-	}
 }
 
 static void selinux_sk_clone_security(const struct sock *sk, struct sock *newsk)

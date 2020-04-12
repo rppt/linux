@@ -85,6 +85,7 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/ass.h>
 
 #include <linux/uaccess.h>
 
@@ -405,9 +406,20 @@ out_rcu_unlock:
  */
 int inet_release(struct socket *sock)
 {
-	struct sock *sk = sock->sk;
+	struct sock *sk;
+	void *ptr1 = ass_private(sock) ? sock : NULL;
+	void *ptr2 = NULL;
 
+	if (ptr1)
+		ass_map_ptr(&init_mm, ptr1);
+
+	sk = sock->sk;
 	if (sk) {
+		if (ass_private(sk)) {
+			ptr2 = sk;
+			ass_map_ptr(&init_mm, ptr2);
+		}
+
 		long timeout;
 
 		/* Applications forget to leave groups before exiting */
@@ -427,6 +439,12 @@ int inet_release(struct socket *sock)
 		sk->sk_prot->close(sk, timeout);
 		sock->sk = NULL;
 	}
+
+	if (ptr1)
+		ass_unmap_ptr(&init_mm, ptr1);
+	if (ptr2)
+		ass_unmap_ptr(&init_mm, ptr2);
+
 	return 0;
 }
 EXPORT_SYMBOL(inet_release);

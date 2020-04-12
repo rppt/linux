@@ -257,9 +257,13 @@ static void __fput(struct file *file)
 	struct vfsmount *mnt = file->f_path.mnt;
 	struct inode *inode = file->f_inode;
 	fmode_t mode = file->f_mode;
+	void *ptr = ass_private(inode) ? inode : NULL;
 
 	if (unlikely(!(file->f_mode & FMODE_OPENED)))
 		goto out;
+
+	if (ptr)
+		ass_map_ptr(&init_mm, ptr);
 
 	might_sleep();
 
@@ -296,6 +300,9 @@ static void __fput(struct file *file)
 	mntput(mnt);
 out:
 	file_free(file);
+
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
 }
 
 static LLIST_HEAD(delayed_fput_list);

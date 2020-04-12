@@ -60,6 +60,7 @@
 #include <linux/genetlink.h>
 #include <linux/net_namespace.h>
 #include <linux/nospec.h>
+#include <linux/ass.h>
 
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
@@ -736,11 +737,22 @@ static void deferred_put_nlk_sk(struct rcu_head *head)
 
 static int netlink_release(struct socket *sock)
 {
-	struct sock *sk = sock->sk;
+	struct sock *sk;
 	struct netlink_sock *nlk;
+	void *ptr1 = ass_private(sock) ? sock : NULL;
+	void *ptr2 = NULL;
 
+	if (ptr1)
+		ass_map_ptr(&init_mm, ptr1);
+
+	sk = sock->sk;
 	if (!sk)
-		return 0;
+		goto out;
+
+	if (ass_private(sk)) {
+		ptr2 = sk;
+		ass_map_ptr(&init_mm, ptr2);
+	}
 
 	netlink_remove(sk);
 	sock_orphan(sk);
@@ -804,6 +816,13 @@ static int netlink_release(struct socket *sock)
 	sock_prot_inuse_add(sock_net(sk), &netlink_proto, -1);
 	local_bh_enable();
 	call_rcu(&nlk->rcu, deferred_put_nlk_sk);
+
+out:
+	if (ptr1)
+		ass_unmap_ptr(&init_mm, ptr1);
+	if (ptr2)
+		ass_unmap_ptr(&init_mm, ptr2);
+
 	return 0;
 }
 

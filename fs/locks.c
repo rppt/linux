@@ -168,6 +168,7 @@
 #include <linux/pid_namespace.h>
 #include <linux/hashtable.h>
 #include <linux/percpu.h>
+#include <linux/ass.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/filelock.h>
@@ -2588,6 +2589,10 @@ void locks_remove_posix(struct file *filp, fl_owner_t owner)
 	struct inode *inode = locks_inode(filp);
 	struct file_lock lock;
 	struct file_lock_context *ctx;
+	void *ptr = ass_private(inode) ? inode : NULL;
+
+	if (ptr)
+		ass_map_ptr(&init_mm, ptr);
 
 	/*
 	 * If there are no locks held on this file, we don't need to call
@@ -2596,7 +2601,7 @@ void locks_remove_posix(struct file *filp, fl_owner_t owner)
 	 */
 	ctx =  smp_load_acquire(&inode->i_flctx);
 	if (!ctx || list_empty(&ctx->flc_posix))
-		return;
+		goto out;
 
 	locks_init_lock(&lock);
 	lock.fl_type = F_UNLCK;
@@ -2614,6 +2619,10 @@ void locks_remove_posix(struct file *filp, fl_owner_t owner)
 	if (lock.fl_ops && lock.fl_ops->fl_release_private)
 		lock.fl_ops->fl_release_private(&lock);
 	trace_locks_remove_posix(inode, &lock, error);
+
+out:
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
 }
 EXPORT_SYMBOL(locks_remove_posix);
 

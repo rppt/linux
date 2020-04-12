@@ -113,6 +113,7 @@
 #include <linux/security.h>
 #include <linux/freezer.h>
 #include <linux/file.h>
+#include <linux/ass.h>
 
 #include "scm.h"
 
@@ -519,6 +520,10 @@ static void unix_release_sock(struct sock *sk, int embrion)
 	struct sock *skpair;
 	struct sk_buff *skb;
 	int state;
+	void *ptr = ass_private(sk) ? sk : NULL;
+
+	if (ptr)
+		ass_map_ptr(&init_mm, ptr);
 
 	unix_remove_socket(sk);
 
@@ -584,6 +589,9 @@ static void unix_release_sock(struct sock *sk, int embrion)
 
 	if (unix_tot_inflight)
 		unix_gc();		/* Garbage collect fds */
+
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
 }
 
 static void init_peercred(struct sock *sk)
