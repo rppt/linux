@@ -72,6 +72,8 @@ static inline bool should_lock_cpa(struct cpa_data *cpa)
 {
 	if (debug_pagealloc_enabled())
 		return false;
+	if (IS_ENABLED(CONFIG_NET_NS_MM))
+		return false;
 	if (cpa->flags & CPA_NO_LOCK)
 		return false;
 	return true;
