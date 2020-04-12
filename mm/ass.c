@@ -536,7 +536,7 @@ bool ass_private(void *ptr)
 
 	page = ass_ptr_page(ptr);
 
-	return PageExclusive(page);
+	return PageExclusive(page) && !PageExclMapped(page);
 }
 
 void ass_map_ptr(struct mm_struct *mm, void *ptr)
@@ -545,7 +545,10 @@ void ass_map_ptr(struct mm_struct *mm, void *ptr)
 
 	int nr_pages = 1 << compound_order(page);
 
+	pr_info("%s(%pS): %px: mapping %px+%d pages to %px\n", __func__, (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+
 	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 1);
+	__SetPageExclMapped(page);
 }
 
 void ass_unmap_ptr(struct mm_struct *mm, void *ptr)
@@ -553,7 +556,17 @@ void ass_unmap_ptr(struct mm_struct *mm, void *ptr)
 	struct page *page = ass_ptr_page(ptr);
 	int nr_pages = 1 << compound_order(page);
 
+	if (!mm) {
+		unsigned long cr3 = __read_cr3() & ~PAGE_MASK;
+		mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+
+		WARN_ON(cr3 != build_cr3(mm->pgd, 0));
+	}
+
+	pr_info("%s(%pS): %px: unmapping %px+%d pages to %px\n", __func__, (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+
 	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 0);
+	__ClearPageExclMapped(page);
 }
 
 void ass_check_ptr(void *ptr)
@@ -633,6 +646,7 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	}
 
 	pr_info("---> shadow PGD\n");
+	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
 	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 

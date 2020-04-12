@@ -132,6 +132,7 @@ enum pageflags {
 	PG_idle,
 #endif
 	PG_exclusive,
+	PG_excl_mapped,
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -431,6 +432,10 @@ PAGEFLAG(Idle, idle, PF_ANY)
 PAGEFLAG(Exclusive, exclusive, PF_ANY)
 	__CLEARPAGEFLAG(Exclusive, exclusive, PF_ANY)
 	__SETPAGEFLAG(Exclusive, exclusive, PF_ANY)
+
+PAGEFLAG(ExclMapped, excl_mapped, PF_ANY)
+	__CLEARPAGEFLAG(ExclMapped, excl_mapped, PF_ANY)
+	__SETPAGEFLAG(ExclMapped, excl_mapped, PF_ANY)
 
 /*
  * On an anonymous page mapped into a user virtual memory area,
