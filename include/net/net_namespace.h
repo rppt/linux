@@ -452,10 +452,10 @@ static inline void fnhe_genid_bump(struct net *net)
 }
 
 #ifdef CONFIG_NET_NS_MM
-struct mm_struct *netns_enter_ass(struct net_device *dev);
+struct mm_struct *netns_enter_ass(struct net *net);
 void netns_exit_ass(struct mm_struct *mm);
 #else
-static inline struct mm_struct *netns_enter_ass(struct net_device *dev)
+static inline struct mm_struct *netns_enter_ass(struct net *net)
 {
 	return NULL;
 }

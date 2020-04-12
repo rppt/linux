@@ -1442,15 +1442,10 @@ void switch_net_ns_ctx(struct task_struct *tsk)
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
 
-struct mm_struct *netns_enter_ass(struct net_device *dev)
+struct mm_struct *netns_enter_ass(struct net *net)
 {
 	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	struct net *net;
 
-	if (!dev)
-		goto out;
-
-	net = dev_net(dev);
 	if (net == &init_net)
 		goto out;
 

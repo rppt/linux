@@ -6354,12 +6354,16 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
 	 */
 	work = 0;
 	if (test_bit(NAPI_STATE_SCHED, &n->state)) {
-		struct mm_struct *mm = netns_enter_ass(n->dev);
+		struct mm_struct *mm = NULL;
+
+		if (n->dev && dev_net(n->dev))
+			mm = netns_enter_ass(dev_net(n->dev));
 
 		work = n->poll(n, weight);
 		trace_napi_poll(n, work, weight);
 
-		netns_exit_ass(mm);
+		if (mm)
+			netns_exit_ass(mm);
 	}
 
 	WARN_ON_ONCE(work > weight);
