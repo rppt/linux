@@ -4614,8 +4614,12 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 		while (head) {
 			struct Qdisc *q = head;
 			spinlock_t *root_lock = NULL;
+			struct mm_struct *mm = NULL;
 
 			head = head->next_sched;
+
+			if (q->net)
+				mm = netns_enter_ass(q->net);
 
 			if (!(q->flags & TCQ_F_NOLOCK)) {
 				root_lock = qdisc_lock(q);
@@ -4629,6 +4633,9 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 			qdisc_run(q);
 			if (root_lock)
 				spin_unlock(root_lock);
+
+			if (mm)
+				netns_exit_ass(mm);
 		}
 	}
 
