@@ -1031,8 +1031,9 @@ config NET_NS
 
 config NET_NS_MM
 	bool "Network namespace address space"
-	depends on NET_NS
 	default y
+	depends on NET_NS
+	select PAGE_EXTENSION
 	help
 	  Use dedicated address space for each network namespace
 
