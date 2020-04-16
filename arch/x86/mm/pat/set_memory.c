@@ -107,6 +107,18 @@ static void split_page_count(int level)
 	direct_pages_count[level - 1] += PTRS_PER_PTE;
 }
 
+static void collapse_page_count(int level)
+{
+	direct_pages_count[level]++;
+	if (system_state == SYSTEM_RUNNING) {
+		if (level == PG_LEVEL_2M)
+			count_vm_event(DIRECT_MAP_LEVEL2_COLLAPSE);
+		else if (level == PG_LEVEL_1G)
+			count_vm_event(DIRECT_MAP_LEVEL3_COLLAPSE);
+	}
+	direct_pages_count[level - 1] -= PTRS_PER_PTE;
+}
+
 void arch_report_meminfo(struct seq_file *m)
 {
 	seq_printf(m, "DirectMap4k:    %8lu kB\n",
@@ -396,14 +408,43 @@ static void __cpa_flush_tlb(void *data)
 		flush_tlb_one_kernel(fix_addr(__cpa_addr(cpa, i)));
 }
 
+static void restore_large_pages(unsigned long addr, struct list_head *pgtables);
+
+static void cpa_restore_large_pages(struct cpa_data *cpa,
+		struct list_head *pgtables)
+{
+	unsigned long start, addr, end;
+	int i;
+
+	if (cpa->flags & CPA_PAGES_ARRAY) {
+		for (i = 0; i < cpa->numpages; i++)
+			restore_large_pages(__cpa_addr(cpa, i), pgtables);
+		return;
+	}
+
+	start = __cpa_addr(cpa, 0);
+	end = start + PAGE_SIZE * cpa->numpages;
+
+	for (addr = start; addr >= start && addr < end; addr += PUD_SIZE)
+		restore_large_pages(addr, pgtables);
+}
+
 static void cpa_flush(struct cpa_data *cpa, int cache)
 {
+	struct ptdesc *page, *tmp;
+	LIST_HEAD(pgtables);
 	unsigned int i;
 
 	BUG_ON(irqs_disabled() && !early_boot_irqs_disabled);
 
+	cpa_restore_large_pages(cpa, &pgtables);
+
 	if (cache && !static_cpu_has(X86_FEATURE_CLFLUSH)) {
 		cpa_flush_all(cache);
+		list_for_each_entry_safe(page, tmp, &pgtables, pt_list) {
+			list_del(&page->pt_list);
+			__free_page(ptdesc_page(page));
+		}
 		return;
 	}
 
@@ -411,6 +452,11 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 		flush_tlb_all();
 	else
 		on_each_cpu(__cpa_flush_tlb, cpa, 1);
+
+	list_for_each_entry_safe(page, tmp, &pgtables, pt_list) {
+		list_del(&page->pt_list);
+		__free_page(ptdesc_page(page));
+	}
 
 	if (!cache)
 		return;
@@ -1196,6 +1242,163 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		__free_page(base);
 
 	return 0;
+}
+
+static void restore_pmd_page(pmd_t *pmd, unsigned long addr,
+		struct list_head *pgtables)
+{
+	pmd_t _pmd, old_pmd;
+	pte_t *pte, first;
+	unsigned long pfn;
+	pgprot_t pgprot;
+	int i = 0;
+
+	pte = pte_offset_kernel(pmd, addr);
+	first = *pte;
+	pfn = pte_pfn(first);
+
+	/* Make sure alignment is suitable */
+	if (PFN_PHYS(pfn) & ~PMD_MASK)
+		return;
+
+	/* The page is 4k intentionally */
+	if (pte_flags(first) & _PAGE_KERNEL_4K)
+		return;
+
+	/* Check that the rest of PTEs are compatible with the first one */
+	for (i = 1, pte++; i < PTRS_PER_PTE; i++, pte++) {
+		pte_t entry = *pte;
+		if (!pte_present(entry))
+			return;
+		if (pte_flags(entry) != pte_flags(first))
+			return;
+		if (pte_pfn(entry) - pte_pfn(first) != i)
+			return;
+	}
+
+	old_pmd = *pmd;
+
+	/* Success: set up a large page */
+	pgprot = pgprot_4k_2_large(pte_pgprot(first));
+	pgprot_val(pgprot) |= _PAGE_PSE;
+	_pmd = pfn_pmd(pfn, pgprot);
+	set_pmd(pmd, _pmd);
+
+	/* Queue the page table to be freed after TLB flush */
+	list_add(&page_ptdesc(pmd_page(old_pmd))->pt_list, pgtables);
+
+	if (IS_ENABLED(CONFIG_X86_32) && !SHARED_KERNEL_PMD) {
+		struct page *page;
+
+		/* Update all PGD tables to use the same large page */
+		list_for_each_entry(page, &pgd_list, lru) {
+			pgd_t *pgd = (pgd_t *)page_address(page) + pgd_index(addr);
+			p4d_t *p4d = p4d_offset(pgd, addr);
+			pud_t *pud = pud_offset(p4d, addr);
+			pmd_t *pmd = pmd_offset(pud, addr);
+			/* Something is wrong if entries doesn't match */
+			if (WARN_ON(pmd_val(old_pmd) != pmd_val(*pmd)))
+				continue;
+			set_pmd(pmd, _pmd);
+		}
+	}
+
+	if (pfn_range_is_mapped(pfn, pfn + 1))
+		collapse_page_count(PG_LEVEL_2M);
+
+	pr_info("2M restored at %#lx\n", addr);
+}
+
+static void restore_pud_page(pud_t *pud, unsigned long addr,
+		struct list_head *pgtables)
+{
+	bool restore_pud = direct_gbpages;
+	unsigned long pfn;
+	pmd_t *pmd, first;
+	int i;
+
+	pmd = pmd_offset(pud, addr);
+	first = *pmd;
+
+	/* Try to restore large page if possible */
+	if (pmd_present(first) && !pmd_leaf(first)) {
+		restore_pmd_page(pmd, addr, pgtables);
+		first = *pmd;
+	}
+
+	/*
+	 * To restore PUD page all PMD entries must be large and
+	 * have suitable alignment
+	 */
+	pfn = pmd_pfn(first);
+	if (!pmd_leaf(first) || (PFN_PHYS(pfn) & ~PUD_MASK))
+		restore_pud = false;
+
+	/*
+	 * Restore all PMD large pages when possible and track if we can
+	 * restore PUD page.
+	 *
+	 * To restore PUD page, all following PMDs must be compatible with the
+	 * first one.
+	 */
+	for (i = 1, pmd++, addr += PMD_SIZE; i < PTRS_PER_PMD; i++, pmd++, addr += PMD_SIZE) {
+		pmd_t entry = *pmd;
+		if (!pmd_present(entry)) {
+			restore_pud = false;
+			continue;
+		}
+		if (!pmd_leaf(entry)) {
+			restore_pmd_page(pmd, addr, pgtables);
+			entry = *pmd;
+		}
+		if (!pmd_leaf(entry))
+			restore_pud = false;
+		if (pmd_flags(entry) != pmd_flags(first))
+			restore_pud = false;
+		if (pmd_pfn(entry) - pmd_pfn(first) != i * PTRS_PER_PTE)
+			restore_pud = false;
+	}
+
+	/* Restore PUD page and queue page table to be freed after TLB flush */
+	if (restore_pud) {
+		list_add(&page_ptdesc(pud_page(*pud))->pt_list, pgtables);
+		set_pud(pud, pfn_pud(pfn, pmd_pgprot(first)));
+		if (pfn_range_is_mapped(pfn, pfn + 1))
+			collapse_page_count(PG_LEVEL_1G);
+		pr_info("1G restored at %#lx\n", addr - PUD_SIZE);
+	}
+}
+
+/*
+ * Restore PMD and PUD pages in the kernel mapping around the address where
+ * possible.
+ *
+ * Caller must flush TLB and free page tables queued on the list before
+ * touching the new entries. CPU must not see TLB entries of different size
+ * with different attributes.
+ */
+static void restore_large_pages(unsigned long addr, struct list_head *pgtables)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+
+	addr &= PUD_MASK;
+
+	spin_lock(&pgd_lock);
+	pgd = pgd_offset_k(addr);
+	if (pgd_none(*pgd))
+		goto out;
+	p4d = p4d_offset(pgd, addr);
+	if (p4d_none(*p4d))
+		goto out;
+	pud = pud_offset(p4d, addr);
+	if (!pud_present(*pud) || pud_leaf(*pud))
+		goto out;
+
+	restore_pud_page(pud, addr, pgtables);
+out:
+	spin_unlock(&pgd_lock);
 }
 
 static bool try_to_free_pte_page(pte_t *pte)
@@ -2148,8 +2351,8 @@ int set_memory_p(unsigned long addr, int numpages)
 
 int set_memory_4k(unsigned long addr, int numpages)
 {
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(0),
-					__pgprot(0), 1, 0, NULL);
+	return change_page_attr_set_clr(&addr, numpages,
+			__pgprot(_PAGE_KERNEL_4K), __pgprot(0), 1, 0, NULL);
 }
 
 int set_memory_nonglobal(unsigned long addr, int numpages)
