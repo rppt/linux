@@ -355,7 +355,6 @@ static inline struct page_excl *get_page_excl(struct page_ext *page_ext)
 }
 
 static LIST_HEAD(asses);
-static pgd_t ass_pgd_shadow[PTRS_PER_PGD] __page_aligned_bss;
 
 static void dump_pgd(pgd_t *pgdp, const char *name)
 {
@@ -423,18 +422,21 @@ void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd)
 	int end = pgd_index(DIRECT_MAP_END);
 	int nr = (end - start) + 1;
 
-	pr_info("UPD: %d: copy %px to %px->%px, start: %d, end: %d, nr: %d\n", current->pid, ns_pgd->mm->pgd, mm, mm->pgd, start, end, nr);
+	pr_info("UPD(%d): %d: copy %px to %px->%px, start: %d, end: %d, nr: %d\n", raw_smp_processor_id(), current->pid, ns_pgd->mm->pgd, mm, mm->pgd, start, end, nr);
 	clone_pgd_range(mm->pgd + start, ns_pgd->mm->pgd + start, nr);
 	mm->ns_pgd = ns_pgd;
 }
 
-static int ass_init_pgd_shadow(void)
+#if 0
+static pgd_t ass_pgd_shadow[PTRS_PER_PGD] __page_aligned_bss;
+
+static  int ass_init_pgd_shadow(void)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
 	int err;
 
-	pr_info("%s: start: %lx end: %lx\n", __func__, PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
+	pr_info("%s(%d): start: %lx end: %lx\n", __func__, raw_smp_processor_id(), PAGE_OFFSET, PAGE_OFFSET + (max_pfn << PAGE_SHIFT));
 
 	clone_pgd_range(ass_pgd_shadow + KERNEL_PGD_BOUNDARY,
 			swapper_pg_dir + KERNEL_PGD_BOUNDARY,
@@ -457,6 +459,7 @@ static int ass_init_pgd_shadow(void)
 	return 0;
 }
 late_initcall(ass_init_pgd_shadow);
+#endif
 
 static int bad_address(void *p)
 {
