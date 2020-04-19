@@ -4599,7 +4599,7 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 				__kfree_skb_defer(skb);
 		}
 
-		__kfree_skb_flush();
+		/* __kfree_skb_flush(); */
 	}
 
 	if (sd->output_queue) {
@@ -6463,7 +6463,8 @@ static __latent_entropy void net_rx_action(struct softirq_action *h)
 
 	net_rps_action_and_irq_enable(sd);
 out:
-	__kfree_skb_flush();
+	/* __kfree_skb_flush(); */
+	return;
 }
 
 struct netdev_adjacent {
