@@ -213,7 +213,7 @@ struct track {
 
 enum track_item { TRACK_ALLOC, TRACK_FREE };
 
-#ifdef CONFIG_SYSFS
+#ifdef CONFIG_SYSFS_SLUB_DATA
 static int sysfs_slab_add(struct kmem_cache *);
 static int sysfs_slab_alias(struct kmem_cache *, const char *);
 static void memcg_propagate_slab_attrs(struct kmem_cache *s);
@@ -2390,7 +2390,7 @@ static inline unsigned long node_nr_objs(struct kmem_cache_node *n)
 }
 #endif /* CONFIG_SLUB_DEBUG */
 
-#if defined(CONFIG_SLUB_DEBUG) || defined(CONFIG_SYSFS)
+#if defined(CONFIG_SLUB_DEBUG) || defined(CONFIG_SYSFS_SLUB_DATA)
 static unsigned long count_partial(struct kmem_cache_node *n,
 					int (*get_count)(struct page *))
 {
@@ -2404,7 +2404,7 @@ static unsigned long count_partial(struct kmem_cache_node *n,
 	spin_unlock_irqrestore(&n->list_lock, flags);
 	return x;
 }
-#endif /* CONFIG_SLUB_DEBUG || CONFIG_SYSFS */
+#endif /* CONFIG_SLUB_DEBUG || CONFIG_SYSFS_SLUB_DATA */
 
 static noinline void
 slab_out_of_memory(struct kmem_cache *s, gfp_t gfpflags, int nid)
@@ -4376,7 +4376,7 @@ void *__kmalloc_node_track_caller(size_t size, gfp_t gfpflags,
 }
 #endif
 
-#ifdef CONFIG_SYSFS
+#ifdef CONFIG_SYSFS_SLUB_DATA
 static int count_inuse(struct page *page)
 {
 	return page->inuse;
@@ -4754,12 +4754,12 @@ static void __init resiliency_test(void)
 	validate_slab_cache(kmalloc_caches[type][9]);
 }
 #else
-#ifdef CONFIG_SYSFS
+#ifdef CONFIG_SYSFS_SLUB_DATA
 static void resiliency_test(void) {};
 #endif
 #endif	/* SLUB_RESILIENCY_TEST */
 
-#ifdef CONFIG_SYSFS
+#ifdef CONFIG_SYSFS_SLUB_DATA
 enum slab_stat_type {
 	SL_ALL,			/* All slabs */
 	SL_PARTIAL,		/* Only partially allocated slabs */
@@ -5885,7 +5885,7 @@ static int __init slab_sysfs_init(void)
 }
 
 __initcall(slab_sysfs_init);
-#endif /* CONFIG_SYSFS */
+#endif /* CONFIG_SYSFS_SLUB_DATA */
 
 /*
  * The /proc/slabinfo ABI
