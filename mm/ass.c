@@ -356,6 +356,7 @@ static inline struct page_excl *get_page_excl(struct page_ext *page_ext)
 
 static LIST_HEAD(asses);
 
+#if 0
 static void dump_pgd(pgd_t *pgdp, const char *name)
 {
 	int i;
@@ -365,6 +366,7 @@ static void dump_pgd(pgd_t *pgdp, const char *name)
 		if (pgd_val(*pgdp) != 0)
 			pr_info("%d: %lx\n", i, pgd_val(*pgdp));
 }
+#endif
 
 struct ns_pgd *ass_create_ns_pgd(void)
 {
@@ -461,6 +463,7 @@ static  int ass_init_pgd_shadow(void)
 late_initcall(ass_init_pgd_shadow);
 #endif
 
+#if 0
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -479,7 +482,7 @@ static void dump_pagetable(pgd_t *base, unsigned long address)
 	if (bad_address(pgd))
 		goto bad;
 
-	pr_info("PGD %lx ", pgd_val(*pgd));
+	pr_info("%d: PGD %lx ", raw_smp_processor_id(), pgd_val(*pgd));
 
 	if (!pgd_present(*pgd))
 		goto out;
@@ -519,6 +522,9 @@ out:
 bad:
 	pr_info("BAD\n");
 }
+#else
+static inline void dump_pagetable(pgd_t *base, unsigned long address) {}
+#endif
 
 static struct page *ass_ptr_page(void *ptr)
 {
@@ -635,6 +641,7 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	struct mm_struct *mm;
 	struct ns_pgd *ns_pgd, *p;
 	int nr_pages = (1 << order);
+	unsigned long addr = (unsigned long)page_address(page);
 
 	if (!ass_active())
 		return 0;
@@ -664,15 +671,15 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
 	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
 
-	pr_info("---> init_mm PGD\n");
+	/* pr_info("---> init_mm PGD\n"); */
 	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 0);
-	dump_pagetable(init_mm.pgd, (unsigned long)page_address(page));
+	dump_pagetable(init_mm.pgd, addr);
 
-	pr_info("---> owner PGD\n");
+	/* pr_info("---> owner PGD\n"); */
 	/* unmap and map to ensure 4K granularity */
 	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 0);
 	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 1);
-	dump_pagetable(ns_pgd->mm->pgd, (unsigned long)page_address(page));
+	dump_pagetable(ns_pgd->mm->pgd, addr);
 
 	return 0;
 }
