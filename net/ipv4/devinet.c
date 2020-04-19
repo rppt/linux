@@ -664,6 +664,8 @@ static void check_lifetime(struct work_struct *work)
 	struct hlist_node *n;
 	int i;
 
+	return;
+
 	now = jiffies;
 	next = round_jiffies_up(now + ADDR_CHECK_FREQUENCY);
 
@@ -711,6 +713,9 @@ static void check_lifetime(struct work_struct *work)
 		rtnl_lock();
 		hlist_for_each_entry_safe(ifa, n, &inet_addr_lst[i], hash) {
 			unsigned long age;
+
+			if (ass_private(ifa))
+				continue;
 
 			if (ifa->ifa_flags & IFA_F_PERMANENT)
 				continue;
