@@ -6346,10 +6346,14 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
 {
 	void *have;
 	int work, weight;
+	struct mm_struct *mm = NULL;
 
 	list_del_init(&n->poll_list);
 
 	have = netpoll_poll_lock(n);
+
+	if (n->dev && dev_net(n->dev))
+		mm = netns_enter_ass(dev_net(n->dev));
 
 	weight = n->weight;
 
@@ -6361,16 +6365,8 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
 	 */
 	work = 0;
 	if (test_bit(NAPI_STATE_SCHED, &n->state)) {
-		struct mm_struct *mm = NULL;
-
-		if (n->dev && dev_net(n->dev))
-			mm = netns_enter_ass(dev_net(n->dev));
-
 		work = n->poll(n, weight);
 		trace_napi_poll(n, work, weight);
-
-		if (mm)
-			netns_exit_ass(mm);
 	}
 
 	WARN_ON_ONCE(work > weight);
@@ -6407,6 +6403,9 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
 	list_add_tail(&n->poll_list, repoll);
 
 out_unlock:
+	if (mm)
+		netns_exit_ass(mm);
+
 	netpoll_poll_unlock(have);
 
 	return work;
