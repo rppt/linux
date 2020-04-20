@@ -424,7 +424,7 @@ void ass_update_pgd_from_ns(struct mm_struct *mm, struct ns_pgd *ns_pgd)
 	int end = pgd_index(DIRECT_MAP_END);
 	int nr = (end - start) + 1;
 
-	pr_info("UPD(%d): %d: copy %px to %px->%px, start: %d, end: %d, nr: %d\n", raw_smp_processor_id(), current->pid, ns_pgd->mm->pgd, mm, mm->pgd, start, end, nr);
+	pr_debug("UPD(%d): %d: copy %px to %px->%px, start: %d, end: %d, nr: %d\n", raw_smp_processor_id(), current->pid, ns_pgd->mm->pgd, mm, mm->pgd, start, end, nr);
 	clone_pgd_range(mm->pgd + start, ns_pgd->mm->pgd + start, nr);
 	mm->ns_pgd = ns_pgd;
 }
@@ -531,11 +531,6 @@ static struct page *ass_ptr_page(void *ptr)
 	if (is_vmalloc_addr(ptr))
 		return vmalloc_to_page(ptr);
 
-	/* if (page_to_pfn(virt_to_page(ptr)) > max_pfn) { */
-	/* 	pr_err("%s: %px: pfn is too big: %lx\n", __func__, ptr, page_to_pfn(virt_to_page(ptr))); */
-	/* 	return NULL; */
-	/* } */
-
 	return virt_to_head_page((void *)((unsigned long) ptr & PAGE_MASK));
 }
 
@@ -548,14 +543,11 @@ bool ass_private(void *ptr)
 		return false;
 
 	if (!(addr >= __PAGE_OFFSET_BASE_L4 && addr <= VMALLOC_END))
-	/* if (!(unsigned long)ptr > VMALLOC_END) */
 		return false;
 
 	page = ass_ptr_page(ptr);
 
-	/* if (!page) */
-	/* 	return false; */
-
+	smp_rmb();
 	return PageExclusive(page) && !PageExclMapped(page);
 }
 
@@ -565,16 +557,18 @@ void ass_map_ptr(struct mm_struct *mm, void *ptr)
 
 	int nr_pages = 1 << compound_order(page);
 
-	pr_info("%s(%pS): %px: mapping %px+%d pages to %px\n", __func__, (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+	pr_debug("%s(%d)(%pS): %px: mapping %px+%d pages to %px\n", __func__, raw_smp_processor_id(), (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
 
 	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 1);
-	__SetPageExclMapped(page);
+	smp_wmb();
+	SetPageExclMapped(page);
 }
 
 void ass_unmap_ptr(struct mm_struct *mm, void *ptr)
 {
 	struct page *page = ass_ptr_page(ptr);
 	int nr_pages = 1 << compound_order(page);
+	unsigned long addr = (unsigned long)page_address(page);
 
 	if (!mm) {
 		unsigned long cr3 = __read_cr3() & ~PAGE_MASK;
@@ -583,10 +577,14 @@ void ass_unmap_ptr(struct mm_struct *mm, void *ptr)
 		WARN_ON(cr3 != build_cr3(mm->pgd, 0));
 	}
 
-	pr_info("%s(%pS): %px: unmapping %px+%d pages to %px\n", __func__, (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+	pr_debug("%s(%d)(%pS): %px: unmapping %px+%d pages to %px\n", __func__, raw_smp_processor_id(), (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+
+	ClearPageExclMapped(page);
+	smp_wmb();
 
 	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 0);
-	__ClearPageExclMapped(page);
+
+	asm volatile("invlpg (%0)" ::"r" (addr) : "memory");
 }
 
 void ass_check_ptr(void *ptr)
@@ -629,7 +627,8 @@ static int ass_make_page_exclusive(struct mm_struct *mm, struct ns_pgd *ns_pgd,
 	page_ext = lookup_page_ext(page);
 	page_excl = get_page_excl(page_ext);
 
-	__SetPageExclusive(page);
+	SetPageExclusive(page);
+	smp_wmb();
 	page_excl->owner = ns_pgd;
 
 	return 0;
@@ -639,7 +638,8 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 {
 	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
 	struct mm_struct *mm;
-	struct ns_pgd *ns_pgd, *p;
+	struct ns_pgd *ns_pgd;
+	struct ns_pgd *p;
 	int nr_pages = (1 << order);
 	unsigned long addr = (unsigned long)page_address(page);
 
@@ -652,32 +652,25 @@ int ass_make_pages_exclusive(struct page *page, unsigned int order)
 	if (!ns_pgd)
 		return 0;
 
-	pr_info("%s: %px(%px), %d\n", __func__, page, page_address(page), order);
-
-	dump_page(page, "ass");
+	/* pr_info("=> MKEX(%d): %px(%lx), %d\n", raw_smp_processor_id(), page, addr, order); */
 
 	ass_make_page_exclusive(mm, ns_pgd, page);
 
 	list_for_each_entry(p, &asses, l) {
 		if (p != ns_pgd) {
-			pr_info("==> make_EX: unmapping in %px\n", p->mm->pgd);
+			pr_debug("==> make_EX: unmapping in %px\n", p->mm->pgd);
 			kernel_map_pages_pgd(p->mm->pgd, page, nr_pages, 0);
 			dump_pagetable(p->mm->pgd, (unsigned long)page_address(page));
 		}
 	}
 
-	pr_info("---> shadow PGD\n");
-	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
-	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 0);
-	dump_pagetable(ass_pgd_shadow, (unsigned long)page_address(page));
-
-	/* pr_info("---> init_mm PGD\n"); */
+	pr_debug("---> init_mm PGD\n");
 	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 0);
 	dump_pagetable(init_mm.pgd, addr);
 
-	/* pr_info("---> owner PGD\n"); */
+	pr_debug("---> owner PGD\n");
 	/* unmap and map to ensure 4K granularity */
-	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 0);
+	/* kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 0); */
 	kernel_map_pages_pgd(ns_pgd->mm->pgd, page, nr_pages, 1);
 	dump_pagetable(ns_pgd->mm->pgd, addr);
 
@@ -688,7 +681,8 @@ static void ass_unmake_page_exclusive(struct page *page)
 {
 	struct page_ext *page_ext;
 	struct page_excl *page_excl;
-	struct ns_pgd *owner, *p;
+	struct ns_pgd *owner;
+	struct ns_pgd *p;
 
 	page_ext = lookup_page_ext(page);
 	page_excl = get_page_excl(page_ext);
@@ -701,7 +695,9 @@ static void ass_unmake_page_exclusive(struct page *page)
 		if (p != owner)
 			kernel_map_pages_pgd(p->mm->pgd, page, 1, 1);
 
-	__ClearPageExclusive(page);
+	ClearPageExclusive(page);
+	ClearPageExclMapped(page);
+	smp_wmb();
 	page_excl->owner = NULL;
 
 	return;
@@ -710,10 +706,13 @@ static void ass_unmake_page_exclusive(struct page *page)
 void ass_unmake_pages_exclusive(struct page *page, unsigned int order)
 {
 	int nr_pages = (1 << order);
+	/* unsigned long addr = (unsigned long)page_address(page); */
+
+	/* pr_info("=> UNEX(%d): %px(%lx), %d\n", raw_smp_processor_id(), page, addr, order); */
+
+	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1);
 
 	ass_unmake_page_exclusive(page);
-	kernel_map_pages_pgd(ass_pgd_shadow, page, nr_pages, 1);
-	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1);
 
 	return;
 }
@@ -731,7 +730,7 @@ static struct kmem_cache *ass_kmem_create_cache(struct ns_pgd *ns_pgd,
 	struct ass_kmem_cache *ns_cache;
 	char *cache_name;
 
-	pr_info("%s: PGD: %px, cache: %s\n", __func__, ns_pgd->mm->pgd, cachep->name);
+	pr_debug("%s(%d): PGD: %px, cache: %s\n", __func__, raw_smp_processor_id(), ns_pgd->mm->pgd, cachep->name);
 
 	get_online_cpus();
 	get_online_mems();
