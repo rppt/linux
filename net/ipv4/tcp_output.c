@@ -935,6 +935,7 @@ void tcp_wfree(struct sk_buff *skb)
 	if (refcount_read(&sk->sk_wmem_alloc) >= SKB_TRUESIZE(1) && this_cpu_ksoftirqd() == current)
 		goto out;
 
+#if 0
 	for (oval = READ_ONCE(sk->sk_tsq_flags);; oval = nval) {
 		struct tsq_tasklet *tsq;
 		bool empty;
@@ -957,6 +958,7 @@ void tcp_wfree(struct sk_buff *skb)
 		local_irq_restore(flags);
 		return;
 	}
+#endif
 out:
 	sk_free(sk);
 }
