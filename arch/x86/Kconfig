@@ -807,6 +807,7 @@ config KVM_GUEST
 	select ARCH_CPUIDLE_HALTPOLL
 	select X86_HV_CALLBACK_VECTOR
 	select X86_MEM_ENCRYPT_COMMON
+	select SWIOTLB
 	default y
 	help
 	  This option enables various optimizations for running under the KVM
