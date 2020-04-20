@@ -11,8 +11,13 @@ extern void kvmclock_init(void);
 
 #ifdef CONFIG_KVM_GUEST
 bool kvm_check_and_clear_guest_paused(void);
+bool kvm_mem_protected(void);
 #else
 static inline bool kvm_check_and_clear_guest_paused(void)
+{
+	return false;
+}
+static inline bool kvm_mem_protected(void)
 {
 	return false;
 }
