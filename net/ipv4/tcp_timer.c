@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/gfp.h>
 #include <net/tcp.h>
+#include <net/net_namespace.h>
 
 static u32 tcp_clamp_rto_to_user_timeout(const struct sock *sk)
 {
@@ -606,6 +607,11 @@ static void tcp_write_timer(struct timer_list *t)
 	struct inet_connection_sock *icsk =
 			from_timer(icsk, t, icsk_retransmit_timer);
 	struct sock *sk = &icsk->icsk_inet.sk;
+	struct net *net = sock_net(sk);
+	struct mm_struct *mm = NULL;
+
+	if (net)
+		mm = netns_enter_ass(net);
 
 	bh_lock_sock(sk);
 	if (!sock_owned_by_user(sk)) {
@@ -616,7 +622,12 @@ static void tcp_write_timer(struct timer_list *t)
 			sock_hold(sk);
 	}
 	bh_unlock_sock(sk);
+
+	if (mm)
+		netns_exit_ass(mm);
+
 	sock_put(sk);
+
 }
 
 void tcp_syn_ack_timeout(const struct request_sock *req)
