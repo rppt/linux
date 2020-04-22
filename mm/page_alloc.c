@@ -591,13 +591,13 @@ static void bad_page(struct page *page, const char *reason,
 	if (nr_shown++ == 0)
 		resume = jiffies + 60 * HZ;
 
-	pr_alert("BUG: Bad page state in process %s  pfn:%05lx\n",
-		current->comm, page_to_pfn(page));
-	__dump_page(page, reason);
+	pr_alert("BUG: Bad page state in process %s  pfn:%05lx\n===> %s\n",
+		 current->comm, page_to_pfn(page), reason);
 	bad_flags &= page->flags;
 	if (bad_flags)
 		pr_alert("bad because of flags: %#lx(%pGp)\n",
 						bad_flags, &bad_flags);
+	__dump_page(page, reason);
 	dump_page_owner(page);
 
 	print_modules();
@@ -1100,6 +1100,13 @@ static __always_inline bool free_pages_prepare(struct page *page,
 
 	trace_mm_page_free(page, order);
 
+#ifdef CONFIG_NET_NS_MM
+	if (PageExclusive(page))
+		ass_unmake_pages_exclusive(page, order);
+	if (WARN_ON(PageExclMapped(page)))
+		ass_unmake_pages_exclusive(page, order);
+#endif
+
 	/*
 	 * Check tail pages before head page information is cleared to
 	 * avoid checking PageCompound for order-0 pages.
@@ -1126,10 +1133,6 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageKmemcg(page))
 		__memcg_kmem_uncharge(page, order);
-#ifdef CONFIG_NET_NS_MM
-	if (PageExclusive(page))
-		ass_unmake_pages_exclusive(page, order);
-#endif
 	if (check_free)
 		bad += free_pages_check(page);
 	if (bad)
@@ -4692,13 +4695,14 @@ out:
 #ifdef CONFIG_NET_NS_MM
 	if (page) {
 		/* free didn't clear Exclusive for us, warn and fix */
-		if (WARN_ON(PageExclusive(page)))
+		if (WARN_ON(PageExclusive(page)) ||
+		    (WARN_ON(PageExclMapped(page))))
 			ass_unmake_pages_exclusive(page, order);
 		/* mark pages exclusive for GFP_EXCLUSIVE allocation */
-		else if ((gfp_mask & __GFP_EXCLUSIVE) &&
-			 (ass_make_pages_exclusive(page, order) != 0)) {
-				__free_pages(page, order);
-				page = NULL;
+		if ((gfp_mask & __GFP_EXCLUSIVE) &&
+		    (ass_make_pages_exclusive(page, order) != 0)) {
+			__free_pages(page, order);
+			page = NULL;
 		}
 	}
 #endif

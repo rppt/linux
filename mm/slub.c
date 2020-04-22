@@ -34,6 +34,7 @@
 #include <linux/prefetch.h>
 #include <linux/memcontrol.h>
 #include <linux/random.h>
+#include <linux/ass.h>
 
 #include <trace/events/kmem.h>
 
@@ -1712,6 +1713,9 @@ static void __free_slab(struct kmem_cache *s, struct page *page)
 	int order = compound_order(page);
 	int pages = 1 << order;
 
+	if (PageExclusive(page) || PageExclMapped(page))
+		ass_unmake_pages_exclusive(page, order);
+
 	if (s->flags & SLAB_CONSISTENCY_CHECKS) {
 		void *p;
 
@@ -1739,7 +1743,6 @@ static void __free_slab(struct kmem_cache *s, struct page *page)
 static void rcu_free_slab(struct rcu_head *h)
 {
 	struct page *page = container_of(h, struct page, rcu_head);
-
 	__free_slab(page->slab_cache, page);
 }
 

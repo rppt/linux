@@ -557,7 +557,20 @@ void ass_map_ptr(struct mm_struct *mm, void *ptr)
 
 	int nr_pages = 1 << compound_order(page);
 
-	pr_debug("%s(%d)(%pS): %px: mapping %px+%d pages to %px\n", __func__, raw_smp_processor_id(), (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
+	/* pr_info("%s(%d)(%pS): %px: mapping %px+%d pages to %px\n", __func__, raw_smp_processor_id(), (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd); */
+
+	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 1);
+	smp_wmb();
+	SetPageExclMapped(page);
+}
+
+void ass_map_ptr_rcu(struct mm_struct *mm, void *ptr)
+{
+	struct page *page = ass_ptr_page(ptr);
+
+	int nr_pages = 1 << compound_order(page);
+
+	pr_info("%s(%d)(%pS): %px: mapping %px+%d pages to %px\n", __func__, raw_smp_processor_id(), (void*)_RET_IP_, ptr, page, nr_pages, mm->pgd);
 
 	kernel_map_pages_pgd(mm->pgd, page, nr_pages, 1);
 	smp_wmb();
@@ -706,11 +719,14 @@ static void ass_unmake_page_exclusive(struct page *page)
 void ass_unmake_pages_exclusive(struct page *page, unsigned int order)
 {
 	int nr_pages = (1 << order);
-	/* unsigned long addr = (unsigned long)page_address(page); */
+	unsigned long addr = (unsigned long)page_address(page);
 
-	/* pr_info("=> UNEX(%d): %px(%lx), %d\n", raw_smp_processor_id(), page, addr, order); */
+	if (!WARN_ON_ONCE(PageExclMapped(page)))
+		kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1);
 
-	kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1);
+	/* 	pr_info("=> UNEX (%d)(%pS): %px(%lx), %d pages\n", raw_smp_processor_id(), (void*)_RET_IP_, page, addr, nr_pages); */
+
+	/* kernel_map_pages_pgd(init_mm.pgd, page, nr_pages, 1); */
 
 	ass_unmake_page_exclusive(page);
 
