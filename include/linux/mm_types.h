@@ -192,9 +192,6 @@ struct page {
 	struct mem_cgroup *mem_cgroup;
 #endif
 
-#ifdef CONFIG_NET_NS_MM
-	struct ns_pgd *ns_pgd;
-#endif
 	/*
 	 * On machines where all RAM is mapped into kernel address space,
 	 * we can simply calculate the virtual address. On machines with
