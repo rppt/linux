@@ -11,6 +11,7 @@
 
 #include <linux/module.h>
 #include <linux/jhash.h>
+#include <linux/ass.h>
 
 #include <net/inet_connection_sock.h>
 #include <net/inet_hashtables.h>
@@ -687,12 +688,24 @@ static void reqsk_timer_handler(struct timer_list *t)
 {
 	struct request_sock *req = from_timer(req, t, rsk_timer);
 	struct sock *sk_listener = req->rsk_listener;
+	void *ptr = NULL;
+	struct mm_struct *mm = NULL;
+
+	if (ass_private(sk_listener)) {
+		ptr = sk_listener;
+		ass_map_ptr(&init_mm, ptr);
+
+		mm = netns_enter_ass(sock_net(sk_listener));
+	}
+
+	{
 	struct net *net = sock_net(sk_listener);
 	struct inet_connection_sock *icsk = inet_csk(sk_listener);
 	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
 	int qlen, expire = 0, resend = 0;
 	int max_retries, thresh;
 	u8 defer_accept;
+
 
 	if (inet_sk_state_load(sk_listener) != TCP_LISTEN)
 		goto drop;
@@ -743,10 +756,17 @@ static void reqsk_timer_handler(struct timer_list *t)
 			atomic_dec(&queue->young);
 		timeo = min(TCP_TIMEOUT_INIT << req->num_timeout, TCP_RTO_MAX);
 		mod_timer(&req->rsk_timer, jiffies + timeo);
-		return;
+		goto out;
 	}
 drop:
 	inet_csk_reqsk_queue_drop_and_put(sk_listener, req);
+	}
+out:
+	if (mm)
+		netns_exit_ass(mm);
+	if (ptr)
+		ass_unmap_ptr(&init_mm, ptr);
+
 }
 
 static void reqsk_queue_hash_req(struct request_sock *req,
