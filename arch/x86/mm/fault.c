@@ -879,6 +879,8 @@ static bool is_vsyscall_vaddr(unsigned long vaddr)
 	return unlikely((vaddr & PAGE_MASK) == VSYSCALL_ADDR);
 }
 
+extern bool ass_private(void *ptr);
+
 static void
 __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		       unsigned long address, u32 pkey, int si_code)
@@ -925,6 +927,9 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 
 	if (is_f00f_bug(regs, address))
 		return;
+
+	if (ass_private((void*)address))
+		force_sig_fault(SIGSEGV, si_code, (void __user *)address, tsk);
 
 	no_context(regs, error_code, address, SIGSEGV, si_code);
 }
