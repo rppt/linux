@@ -45,6 +45,7 @@
 #include <linux/export.h>
 
 #include <asm/asi_session.h>
+#include <asm/dpt.h>
 
 /*
  * ASI_NR_DYN_ASIDS is the same as TLB_NR_DYN_ASIDS. We can't directly
@@ -150,6 +151,7 @@ extern void asi_destroy(struct asi *asi);
 extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);
 extern int asi_enter(struct asi *asi);
 extern void asi_exit(struct asi *asi);
+extern int asi_init_dpt(struct dpt *dpt);
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 DECLARE_ASI_TYPE(user);

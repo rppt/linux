@@ -163,6 +163,63 @@ void asi_set_pagetable(struct asi *asi, pgd_t *pagetable)
 EXPORT_SYMBOL(asi_set_pagetable);
 
 /*
+ * asi_init_dpt - Initialize a decorated page-table with the minimum
+ * mappings for using an ASI. Note that this function doesn't map any
+ * stack. If the stack of the task entering an ASI is not mapped then
+ * this will trigger a double-fault as soon as the task tries to access
+ * its stack.
+ */
+int asi_init_dpt(struct dpt *dpt)
+{
+	int err;
+
+	/*
+	 * Map the kernel.
+	 *
+	 * XXX We should check if we can map only kernel text, i.e. map with
+	 * size = _etext - _text
+	 */
+	err = dpt_map(dpt, (void *)__START_KERNEL_map, KERNEL_IMAGE_SIZE);
+	if (err)
+		return err;
+
+	/*
+	 * Map the cpu_entry_area because we need the GDT to be mapped.
+	 * Not sure we need anything else from cpu_entry_area.
+	 */
+	err = dpt_map_range(dpt, (void *)CPU_ENTRY_AREA_PER_CPU, P4D_SIZE,
+			    PGT_LEVEL_P4D);
+	if (err)
+		return err;
+
+	/*
+	 * Map fixed_percpu_data to get the stack canary.
+	 */
+	if (IS_ENABLED(CONFIG_STACKPROTECTOR)) {
+		err = DPT_MAP_CPUVAR(dpt, fixed_percpu_data);
+		if (err)
+			return err;
+	}
+
+	/* Map current_task, we need it for __schedule() */
+	err = DPT_MAP_CPUVAR(dpt, current_task);
+	if (err)
+		return err;
+
+	/*
+	 * Map the percpu ASI tlbstate. This also maps the asi_session
+	 * which is used by interrupt handlers to figure out if we have
+	 * entered isolation and switch back to the kernel address space.
+	 */
+	err = DPT_MAP_CPUVAR(dpt, cpu_tlbstate);
+	if (err)
+		return err;
+
+	return 0;
+}
+EXPORT_SYMBOL(asi_init_dpt);
+
+/*
  * Update ASI TLB flush information for the specified ASI CR3 value.
  * Return an updated ASI CR3 value which specified if TLB needs to
  * be flushed or not.
