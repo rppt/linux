@@ -8,6 +8,8 @@
 enum asidrv_seqnum {
 	ASIDRV_SEQ_NOP,		/* empty sequence */
 	ASIDRV_SEQ_PRINTK,	/* printk sequence */
+	ASIDRV_SEQ_MEM,		/* access unmapped memory */
+	ASIDRV_SEQ_MEMMAP,	/* access mapped memory */
 };
 
 enum asidrv_run_error {
@@ -17,6 +19,7 @@ enum asidrv_run_error {
 	ASIDRV_RUN_ERR_MAP_TASK, /* failed to map current task */
 	ASIDRV_RUN_ERR_ENTER,	/* failed to enter ASI */
 	ASIDRV_RUN_ERR_ACTIVE,	/* ASI is not active after entering ASI */
+	ASIDRV_RUN_ERR_MAP_BUFFER, /* failed to map buffer */
 };
 
 #define ASIDRV_IOCTL_RUN_SEQUENCE	_IOWR('a', 1, struct asidrv_run_param)
