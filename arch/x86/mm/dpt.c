@@ -636,6 +636,141 @@ int dpt_map(struct dpt *dpt, void *ptr, unsigned long size)
 }
 EXPORT_SYMBOL(dpt_map);
 
+static void dpt_clear_pte_range(struct dpt *dpt, pmd_t *pmd,
+				unsigned long addr, unsigned long end)
+{
+	pte_t *pte;
+
+	pte = dpt_pte_offset(dpt, pmd, addr);
+	if (IS_ERR(pte))
+		return;
+
+	do {
+		pte_clear(NULL, addr, pte);
+	} while (pte++, addr += PAGE_SIZE, addr < end);
+}
+
+static void dpt_clear_pmd_range(struct dpt *dpt, pud_t *pud,
+				unsigned long addr, unsigned long end,
+				enum page_table_level level)
+{
+	unsigned long next;
+	pmd_t *pmd;
+
+	pmd = dpt_pmd_offset(dpt, pud, addr);
+	if (IS_ERR(pmd))
+		return;
+
+	do {
+		next = pmd_addr_end(addr, end);
+		if (pmd_none(*pmd))
+			continue;
+		if (level == PGT_LEVEL_PMD || pmd_trans_huge(*pmd) ||
+		    pmd_devmap(*pmd) || !pmd_present(*pmd)) {
+			pmd_clear(pmd);
+			continue;
+		}
+		dpt_clear_pte_range(dpt, pmd, addr, next);
+	} while (pmd++, addr = next, addr < end);
+}
+
+static void dpt_clear_pud_range(struct dpt *dpt, p4d_t *p4d,
+				unsigned long addr, unsigned long end,
+				enum page_table_level level)
+{
+	unsigned long next;
+	pud_t *pud;
+
+	pud = dpt_pud_offset(dpt, p4d, addr);
+	if (IS_ERR(pud))
+		return;
+
+	do {
+		next = pud_addr_end(addr, end);
+		if (pud_none(*pud))
+			continue;
+		if (level == PGT_LEVEL_PUD || pud_trans_huge(*pud) ||
+		    pud_devmap(*pud)) {
+			pud_clear(pud);
+			continue;
+		}
+		dpt_clear_pmd_range(dpt, pud, addr, next, level);
+	} while (pud++, addr = next, addr < end);
+}
+
+static void dpt_clear_p4d_range(struct dpt *dpt, pgd_t *pgd,
+				unsigned long addr, unsigned long end,
+				enum page_table_level level)
+{
+	unsigned long next;
+	p4d_t *p4d;
+
+	p4d = dpt_p4d_offset(dpt, pgd, addr);
+	if (IS_ERR(p4d))
+		return;
+
+	do {
+		next = p4d_addr_end(addr, end);
+		if (p4d_none(*p4d))
+			continue;
+		if (level == PGT_LEVEL_P4D) {
+			p4d_clear(p4d);
+			continue;
+		}
+		dpt_clear_pud_range(dpt, p4d, addr, next, level);
+	} while (p4d++, addr = next, addr < end);
+}
+
+static void dpt_clear_pgd_range(struct dpt *dpt, pgd_t *pagetable,
+				unsigned long addr, unsigned long end,
+				enum page_table_level level)
+{
+	unsigned long next;
+	pgd_t *pgd;
+
+	pgd = pgd_offset_pgd(pagetable, addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_none(*pgd))
+			continue;
+		if (level == PGT_LEVEL_PGD) {
+			pgd_clear(pgd);
+			continue;
+		}
+		dpt_clear_p4d_range(dpt, pgd, addr, next, level);
+	} while (pgd++, addr = next, addr < end);
+}
+
+/*
+ * Clear page table entries in the specified decorated page-table.
+ */
+void dpt_unmap(struct dpt *dpt, void *ptr)
+{
+	struct dpt_range_mapping *range_mapping;
+	unsigned long addr, end;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dpt->lock, flags);
+
+	range_mapping = dpt_get_range_mapping(dpt, ptr);
+	if (!range_mapping) {
+		pr_debug("DPT %p: UNMAP %px - not mapped\n", dpt, ptr);
+		goto done;
+	}
+
+	addr = (unsigned long)range_mapping->ptr;
+	end = addr + range_mapping->size;
+	pr_debug("DPT %p: UNMAP %px/%lx/%d\n", dpt, ptr,
+		 range_mapping->size, range_mapping->level);
+	dpt_clear_pgd_range(dpt, dpt->pagetable, addr, end,
+			    range_mapping->level);
+	list_del(&range_mapping->list);
+	kfree(range_mapping);
+done:
+	spin_unlock_irqrestore(&dpt->lock, flags);
+}
+EXPORT_SYMBOL(dpt_unmap);
+
 /*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
