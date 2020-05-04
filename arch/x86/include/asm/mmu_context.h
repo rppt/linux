@@ -13,6 +13,7 @@
 #include <asm/tlbflush.h>
 #include <asm/paravirt.h>
 #include <asm/debugreg.h>
+#include <asm/asi.h>
 
 extern atomic64_t last_mm_ctx_id;
 
@@ -234,8 +235,22 @@ static inline bool arch_vma_access_permitted(struct vm_area_struct *vma,
  */
 static inline unsigned long __get_current_cr3_fast(void)
 {
-	unsigned long cr3 = build_cr3(this_cpu_read(cpu_tlbstate.loaded_mm)->pgd,
-		this_cpu_read(cpu_tlbstate.loaded_mm_asid));
+	unsigned long cr3;
+
+	/*
+	 * If isolation is active then we need to return the CR3 for the
+	 * currently active ASI. This value is stored in the isolation_cr3
+	 * field of the ASI session.
+	 */
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
+	    this_cpu_read(cpu_asi_session.asi)) {
+		cr3 = this_cpu_read(cpu_asi_session.isolation_cr3);
+		/* CR3 read never returns with the NOFLUSH bit */
+		cr3 &= ~X86_CR3_PCID_NOFLUSH;
+	} else {
+		cr3 = build_cr3(this_cpu_read(cpu_tlbstate.loaded_mm)->pgd,
+				this_cpu_read(cpu_tlbstate.loaded_mm_asid));
+	}
 
 	/* For now, be very restrictive about when this can be called. */
 	VM_WARN_ON(in_nmi() || preemptible());

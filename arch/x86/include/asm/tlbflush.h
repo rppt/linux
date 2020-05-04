@@ -12,6 +12,7 @@
 #include <asm/invpcid.h>
 #include <asm/pti.h>
 #include <asm/processor-flags.h>
+#include <asm/asi.h>
 
 /*
  * The x86 feature is called PCID (Process Context IDentifier). It is similar
@@ -239,8 +240,19 @@ struct tlb_state {
 	 * context 0.
 	 */
 	struct tlb_context ctxs[TLB_NR_DYN_ASIDS];
+
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	/*
+	 * The ASI session tracks the ASI being used and its state.
+	 */
+	struct asi_session asi_session;
+#endif
 };
 DECLARE_PER_CPU_SHARED_ALIGNED(struct tlb_state, cpu_tlbstate);
+
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+#define cpu_asi_session	(cpu_tlbstate.asi_session)
+#endif
 
 /*
  * Blindly accessing user memory from NMI context can be dangerous

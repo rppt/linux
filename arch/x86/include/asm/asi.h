@@ -44,6 +44,8 @@
 
 #include <linux/export.h>
 
+#include <asm/asi_session.h>
+
 struct asi_type {
 	int			pcid_prefix;	/* PCID prefix */
 };
@@ -80,6 +82,8 @@ struct asi {
 extern struct asi *asi_create(struct asi_type *type);
 extern void asi_destroy(struct asi *asi);
 extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);
+extern int asi_enter(struct asi *asi);
+extern void asi_exit(struct asi *asi);
 
 #endif	/* __ASSEMBLY__ */
 
