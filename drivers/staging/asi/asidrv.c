@@ -7,6 +7,7 @@
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 
 #include <asm/asi.h>
 #include <asm/dpt.h>
@@ -19,6 +20,12 @@
 /* Number of read for mem/memmap test sequence */
 #define ASIDRV_MEM_READ_COUNT		1000
 
+/* Timeout for target to be ready to receive an interrupt */
+#define ASIDRV_TIMEOUT_TARGET_READY	1
+
+/* Timeout for receiving an interrupt */
+#define ASIDRV_TIMEOUT_INTERRUPT	5
+
 enum asidrv_state {
 	ASIDRV_STATE_NONE,
 	ASIDRV_STATE_INTR_WAITING,
@@ -29,6 +36,13 @@ struct asidrv_test {
 	struct asi		*asi;	/* ASI for testing */
 	struct dpt		*dpt;	/* ASI decorated page-table */
 	char			*buffer; /* buffer for testing */
+
+	/* runtime */
+	atomic_t		state;	/* runtime state */
+	int			cpu;	/* cpu the test is running on */
+	struct work_struct	work;	/* work for other cpu */
+	bool			work_set;
+	enum asidrv_run_error	run_error;
 };
 
 struct asidrv_sequence {
@@ -161,6 +175,107 @@ static int asidrv_asi_is_active(struct asi *asi)
 }
 
 /*
+ * Wait for an atomic value to be set or the timeout to expire.
+ * Return 0 if the value is set, or -1 if the timeout expires.
+ */
+static enum asidrv_run_error asidrv_wait(struct asidrv_test *test,
+					 int value, unsigned int timeout)
+{
+	cycles_t start = get_cycles();
+	cycles_t stop = start + timeout * tsc_khz * 1000;
+
+	while (get_cycles() < stop) {
+		if (atomic_read(&test->state) == value ||
+		    test->run_error != ASIDRV_RUN_ERR_NONE)
+			return test->run_error;
+		cpu_relax();
+	}
+
+	/* timeout reached */
+	return ASIDRV_RUN_ERR_TIMEOUT;
+}
+
+/*
+ * Wait for an atomic value to transition from the initial value (set
+ * on entry) to the final value, or to timeout. Return 0 if the transition
+ * was done, or -1 if the timeout expires.
+ */
+static enum asidrv_run_error asidrv_wait_transition(struct asidrv_test *test,
+						    int initial, int final,
+						    unsigned int timeout)
+{
+	/* set the initial state value */
+	atomic_set(&test->state, initial);
+
+	/* do an active wait for the state changes */
+	return asidrv_wait(test, final, timeout);
+}
+
+/*
+ * Interrupt Test Sequence
+ */
+
+static void asidrv_intr_handler(void *info)
+{
+	struct asidrv_test *test = info;
+
+	/* ASI should be interrupted by the interrupt */
+	if (asidrv_asi_is_active(test->asi)) {
+		test->run_error = ASIDRV_RUN_ERR_INTR_ASI_ACTIVE;
+		atomic_set(&test->state, ASIDRV_STATE_INTR_RECEIVED);
+		return;
+	}
+
+	pr_debug("Received interrupt\n");
+	atomic_set(&test->state, ASIDRV_STATE_INTR_RECEIVED);
+}
+
+static void asidrv_intr_send(struct work_struct *work)
+{
+	struct asidrv_test *test = container_of(work, struct asidrv_test, work);
+	enum asidrv_run_error err;
+
+	/* wait for cpu target to be ready, then send an interrupt */
+	err = asidrv_wait(test,
+			  ASIDRV_STATE_INTR_WAITING,
+			  ASIDRV_TIMEOUT_TARGET_READY);
+	if (err) {
+		pr_debug("Target cpu %d not ready, interrupt not sent: error %d\n",
+			 test->cpu, err);
+		return;
+	}
+
+	pr_debug("Sending interrupt to cpu %d\n", test->cpu);
+	smp_call_function_single(test->cpu, asidrv_intr_handler,
+				 test, false);
+}
+
+static enum asidrv_run_error asidrv_intr_setup(struct asidrv_test *test)
+{
+	/* set work to have another cpu to send us an interrupt */
+	INIT_WORK(&test->work, asidrv_intr_send);
+	test->work_set = true;
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+static enum asidrv_run_error asidrv_intr_run(struct asidrv_test *test)
+{
+	enum asidrv_run_error err;
+
+	/* wait for state changes indicating that an interrupt was received */
+	err = asidrv_wait_transition(test,
+				     ASIDRV_STATE_INTR_WAITING,
+				     ASIDRV_STATE_INTR_RECEIVED,
+				     ASIDRV_TIMEOUT_INTERRUPT);
+	if (err == ASIDRV_RUN_ERR_TIMEOUT) {
+		pr_debug("Interrupt wait timeout\n");
+		err = ASIDRV_RUN_ERR_INTR;
+	}
+
+	return err;
+}
+
+/*
  * Memory Buffer Access Test Sequences
  */
 
@@ -231,11 +346,17 @@ struct asidrv_sequence asidrv_sequences[] = {
 		"memmap",
 		asidrv_memmap_setup, asidrv_mem_run, asidrv_memmap_cleanup,
 	},
+	[ASIDRV_SEQ_INTERRUPT] = {
+		"interrupt",
+		asidrv_intr_setup, asidrv_intr_run, NULL,
+	},
 };
 
 static enum asidrv_run_error asidrv_run_init(struct asidrv_test *test)
 {
 	int err;
+
+	test->run_error = ASIDRV_RUN_ERR_NONE;
 
 	/*
 	 * Map the current stack, we need it to enter ASI.
@@ -272,18 +393,31 @@ static void asidrv_run_fini(struct asidrv_test *test)
 static enum asidrv_run_error asidrv_run_setup(struct asidrv_test *test,
 					      struct asidrv_sequence *sequence)
 {
-	int run_err = ASIDRV_RUN_ERR_NONE;
+	unsigned int other_cpu;
+	int run_err;
+
+	test->work_set = false;
 
 	if (sequence->setup) {
 		run_err = sequence->setup(test);
 		if (run_err)
-			goto failed;
+			return run_err;
+	}
+
+	if (test->work_set) {
+		other_cpu = cpumask_any_but(cpu_online_mask, test->cpu);
+		if (other_cpu == test->cpu) {
+			pr_debug("Sequence %s requires an extra online cpu\n",
+				 sequence->name);
+			asidrv_run_cleanup(test, sequence);
+			return ASIDRV_RUN_ERR_NCPUS;
+		}
+
+		atomic_set(&test->state, ASIDRV_STATE_NONE);
+		schedule_work_on(other_cpu, &test->work);
 	}
 
 	return ASIDRV_RUN_ERR_NONE;
-
-failed:
-	return run_err;
 }
 
 static void asidrv_run_cleanup(struct asidrv_test *test,

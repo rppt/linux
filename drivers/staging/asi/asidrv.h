@@ -10,6 +10,7 @@ enum asidrv_seqnum {
 	ASIDRV_SEQ_PRINTK,	/* printk sequence */
 	ASIDRV_SEQ_MEM,		/* access unmapped memory */
 	ASIDRV_SEQ_MEMMAP,	/* access mapped memory */
+	ASIDRV_SEQ_INTERRUPT,	/* interrupt sequence */
 };
 
 enum asidrv_run_error {
@@ -20,6 +21,10 @@ enum asidrv_run_error {
 	ASIDRV_RUN_ERR_ENTER,	/* failed to enter ASI */
 	ASIDRV_RUN_ERR_ACTIVE,	/* ASI is not active after entering ASI */
 	ASIDRV_RUN_ERR_MAP_BUFFER, /* failed to map buffer */
+	ASIDRV_RUN_ERR_NCPUS,	/* not enough active cpus */
+	ASIDRV_RUN_ERR_INTR,	/* no interrupt received */
+	ASIDRV_RUN_ERR_INTR_ASI_ACTIVE, /* ASI active in interrupt handler */
+	ASIDRV_RUN_ERR_TIMEOUT,
 };
 
 #define ASIDRV_IOCTL_RUN_SEQUENCE	_IOWR('a', 1, struct asidrv_run_param)
