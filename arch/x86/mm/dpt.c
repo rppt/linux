@@ -259,6 +259,132 @@ static p4d_t *dpt_p4d_alloc(struct dpt *dpt, pgd_t *pgd, unsigned long addr)
 }
 
 /*
+ * dpt_set_pXX() functions are equivalent to kernel set_pXX() functions
+ * but, in addition, they ensure that they are not overwriting an already
+ * existing reference in the decorated page table. Otherwise an error is
+ * returned.
+ */
+
+static int dpt_set_pte(struct dpt *dpt, pte_t *pte, pte_t pte_value)
+{
+#ifdef DEBUG
+	/*
+	 * The pte pointer should come from dpt_pte_alloc() or dpt_pte_offset()
+	 * both of which check if the pointer is in the decorated page table.
+	 * So this is a paranoid check to ensure the pointer is really in the
+	 * decorated page table.
+	 */
+	if (!dpt_valid_offset(dpt, pte)) {
+		pr_err("DPT %p: PTE %px not found\n", dpt, pte);
+		return -EINVAL;
+	}
+#endif
+	set_pte(pte, pte_value);
+
+	return 0;
+}
+
+static int dpt_set_pmd(struct dpt *dpt, pmd_t *pmd, pmd_t pmd_value)
+{
+#ifdef DEBUG
+	/*
+	 * The pmd pointer should come from dpt_pmd_alloc() or dpt_pmd_offset()
+	 * both of which check if the pointer is in the decorated page table.
+	 * So this is a paranoid check to ensure the pointer is really in the
+	 * decorated page table.
+	 */
+	if (!dpt_valid_offset(dpt, pmd)) {
+		pr_err("DPT %p: PMD %px not found\n", dpt, pmd);
+		return -EINVAL;
+	}
+#endif
+	if (pmd_val(*pmd) == pmd_val(pmd_value))
+		return 0;
+
+	if (!pmd_none(*pmd)) {
+		pr_err("DPT %p: PMD %px overwriting %lx with %lx\n",
+		       dpt, pmd, pmd_val(*pmd), pmd_val(pmd_value));
+		return -EBUSY;
+	}
+
+	set_pmd(pmd, pmd_value);
+
+	return 0;
+}
+
+static int dpt_set_pud(struct dpt *dpt, pud_t *pud, pud_t pud_value)
+{
+#ifdef DEBUG
+	/*
+	 * The pud pointer should come from dpt_pud_alloc() or dpt_pud_offset()
+	 * both of which check if the pointer is in the decorated page table.
+	 * So this is a paranoid check to ensure the pointer is really in the
+	 * decorated page table.
+	 */
+	if (!dpt_valid_offset(dpt, pud)) {
+		pr_err("DPT %p: PUD %px not found\n", dpt, pud);
+		return -EINVAL;
+	}
+#endif
+	if (pud_val(*pud) == pud_val(pud_value))
+		return 0;
+
+	if (!pud_none(*pud)) {
+		pr_err("DPT %p: PUD %px overwriting %lx with %lx\n",
+		       dpt, pud, pud_val(*pud), pud_val(pud_value));
+		return -EBUSY;
+	}
+
+	set_pud(pud, pud_value);
+
+	return 0;
+}
+
+static int dpt_set_p4d(struct dpt *dpt, p4d_t *p4d, p4d_t p4d_value)
+{
+#ifdef DEBUG
+	/*
+	 * The p4d pointer should come from dpt_p4d_alloc() or dpt_p4d_offset()
+	 * both of which check if the pointer is in the decorated page table.
+	 * So this is a paranoid check to ensure the pointer is really in the
+	 * decorated page table.
+	 */
+	if (!dpt_valid_offset(dpt, p4d)) {
+		pr_err("DPT %p: P4D %px not found\n", dpt, p4d);
+		return -EINVAL;
+	}
+#endif
+	if (p4d_val(*p4d) == p4d_val(p4d_value))
+		return 0;
+
+	if (!p4d_none(*p4d)) {
+		pr_err("DPT %p: P4D %px overwriting %lx with %lx\n",
+		       dpt, p4d, p4d_val(*p4d), p4d_val(p4d_value));
+		return -EBUSY;
+	}
+
+	set_p4d(p4d, p4d_value);
+
+	return 0;
+}
+
+static int dpt_set_pgd(struct dpt *dpt, pgd_t *pgd, pgd_t pgd_value)
+{
+	if (pgd_val(*pgd) == pgd_val(pgd_value))
+		return 0;
+
+	if (!pgd_none(*pgd)) {
+		pr_err("DPT %p: PGD %px overwriting %lx with %lx\n",
+		       dpt, pgd, pgd_val(*pgd), pgd_val(pgd_value));
+		return -EBUSY;
+	}
+
+	set_pgd(pgd, pgd_value);
+
+	return 0;
+}
+
+/*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
  * at the specified alignment (pgt_alignment) which should be a
