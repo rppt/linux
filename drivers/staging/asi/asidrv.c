@@ -4,6 +4,7 @@
  */
 
 #include <linux/fs.h>
+#include <linux/kallsyms.h>
 #include <linux/kthread.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
@@ -790,11 +791,98 @@ failed_nofini:
 	return 0;
 }
 
+/*
+ * ASI fault ioctls
+ */
+
+static int asidrv_ioctl_list_fault(struct asi *asi, unsigned long arg)
+{
+	struct asidrv_fault_list __user *uflist;
+	struct asidrv_fault_list *flist;
+	size_t flist_size;
+	__u32 uflist_len;
+	int i;
+
+	uflist = (struct asidrv_fault_list __user *)arg;
+	if (copy_from_user(&uflist_len, &uflist->length, sizeof(uflist_len)))
+		return -EFAULT;
+
+	uflist_len = min_t(unsigned int, uflist_len, ASI_FAULT_LOG_SIZE);
+
+	flist_size = sizeof(*flist) + sizeof(struct asidrv_fault) * uflist_len;
+	flist = kzalloc(flist_size, GFP_KERNEL);
+	if (!flist)
+		return -ENOMEM;
+
+	for (i = 0; i < ASI_FAULT_LOG_SIZE; i++) {
+		if (!asi->fault_log[i].address)
+			break;
+		if (i < uflist_len) {
+			flist->fault[i].addr = asi->fault_log[i].address;
+			flist->fault[i].count = asi->fault_log[i].count;
+			sprint_symbol(flist->fault[i].symbol,
+				      asi->fault_log[i].address);
+		}
+	}
+	flist->length = i;
+
+	if (copy_to_user(uflist, flist, flist_size)) {
+		kfree(flist);
+		return -EFAULT;
+	}
+
+	if (i >= ASI_FAULT_LOG_SIZE)
+		pr_warn("ASI %p: fault log buffer is full [%d]\n", asi, i);
+
+	kfree(flist);
+
+	return 0;
+}
+
+static int asidrv_ioctl_clear_fault(struct asi *asi)
+{
+	int i;
+
+	for (i = 0; i < ASI_FAULT_LOG_SIZE; i++) {
+		if (!asi->fault_log[i].address)
+			break;
+		asi->fault_log[i].address = 0;
+	}
+
+	pr_debug("ASI %p: faults cleared\n", asi);
+	return 0;
+}
+
+static int asidrv_ioctl_log_fault_stack(struct asi *asi, bool log_stack)
+{
+	if (log_stack) {
+		asi->fault_log_policy |= ASI_FAULT_LOG_STACK;
+		pr_debug("ASI %p: setting fault stack\n", asi);
+	} else {
+		asi->fault_log_policy &= ~ASI_FAULT_LOG_STACK;
+		pr_debug("ASI %p: clearing fault stack\n", asi);
+	}
+
+	return 0;
+}
+
 static long asidrv_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct asidrv_test *test = asidrv_test;
+	struct asi *asi = test->asi;
 
 	switch (cmd) {
+
+	/* ASI fault ioctls */
+
+	case ASIDRV_IOCTL_LIST_FAULT:
+		return asidrv_ioctl_list_fault(asi, arg);
+
+	case ASIDRV_IOCTL_CLEAR_FAULT:
+		return asidrv_ioctl_clear_fault(asi);
+
+	case ASIDRV_IOCTL_LOG_FAULT_STACK:
+		return asidrv_ioctl_log_fault_stack(asi, arg);
 
 	/* Test ioctls */
 

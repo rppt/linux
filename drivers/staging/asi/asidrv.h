@@ -36,9 +36,41 @@ enum asidrv_run_error {
 
 #define ASIDRV_IOCTL_RUN_SEQUENCE	_IOWR('a', 1, struct asidrv_run_param)
 
+/*
+ * ASIDRV_IOCTL_LIST_FAULT: return the list of ASI faults.
+ *
+ * User should set 'length' with the number of entries available in the
+ * 'fault' array. On return, 'length' is set to the number of ASI faults
+ * (which can be larger than the original 'length' value), and the 'fault'
+ * array is filled with the ASI faults.
+ */
+#define ASIDRV_IOCTL_LIST_FAULT		_IOWR('a', 2, struct asidrv_fault_list)
+#define ASIDRV_IOCTL_CLEAR_FAULT	_IO('a', 3)
+#define ASIDRV_IOCTL_LOG_FAULT_STACK	_IO('a', 4)
+
+#define ASIDRV_KSYM_NAME_LEN	128
+/*
+ * We need KSYM_SYMBOL_LEN to lookup symbol. However it's not part of
+ * userland include. So we use a reasonably large value (KSYM_SYMBOL_LEN
+ * is around 310).
+ */
+#define ASIDRV_KSYM_SYMBOL_LEN	512
+
 struct asidrv_run_param {
 	__u32 sequence;		/* sequence to run */
 	__u32 run_error;	/* result error after run */
 	__u32 asi_active;	/* ASI is active after run? */
 };
+
+struct asidrv_fault {
+	__u64 addr;
+	char  symbol[ASIDRV_KSYM_SYMBOL_LEN];
+	__u32 count;
+};
+
+struct asidrv_fault_list {
+	__u32 length;
+	struct asidrv_fault fault[0];
+};
+
 #endif
