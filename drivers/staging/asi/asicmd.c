@@ -26,6 +26,20 @@ struct asidrv_test {
 struct asidrv_test test_list[] = {
 	{ "nop", ASIDRV_SEQ_NOP, true,
 	  "enter/exit ASI and nothing else" },
+	{ "mem", ASIDRV_SEQ_MEM, false,
+	  "enter ASI and accessed an unmapped buffer" },
+	{ "memmap", ASIDRV_SEQ_MEMMAP, true,
+	  "enter ASI and accessed a mapped buffer" },
+	{ "intr", ASIDRV_SEQ_INTERRUPT, true,
+	  "receive an interruption while running with ASI" },
+	{ "nmi", ASIDRV_SEQ_NMI, true,
+	  "receive a NMI while running with ASI" },
+	{ "intrnmi", ASIDRV_SEQ_INTRNMI, true,
+	  "receive a NMI in an interrupt received while running with ASI" },
+	{ "sched", ASIDRV_SEQ_SCHED, true,
+	  "call schedule() while running with ASI" },
+	{ "printk", ASIDRV_SEQ_PRINTK, true,
+	  "call printk() while running with ASI" },
 };
 
 #define	TEST_LIST_SIZE	(sizeof(test_list) / sizeof(test_list[0]))
