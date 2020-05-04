@@ -229,3 +229,70 @@ void asi_prepare_resume(void)
 
 	asi_switch_to_asi_cr3(asi_session->asi, ASI_SWITCH_ON_RESUME);
 }
+
+void asi_schedule_out(struct task_struct *task)
+{
+	struct asi_session *asi_session;
+	unsigned long flags;
+	struct asi *asi;
+
+	asi = this_cpu_read(cpu_asi_session.asi);
+	if (!asi)
+		return;
+
+	/*
+	 * Save the ASI session.
+	 *
+	 * Exit the session if it hasn't been interrupted, otherwise
+	 * just save the session state.
+	 */
+	local_irq_save(flags);
+	if (!this_cpu_read(cpu_asi_session.idepth)) {
+		asi_switch_to_kernel_cr3(asi);
+		task->asi_session.asi = asi;
+		task->asi_session.idepth = 0;
+	} else {
+		asi_session = &get_cpu_var(cpu_asi_session);
+		task->asi_session = *asi_session;
+		asi_session->asi = NULL;
+		asi_session->idepth = 0;
+	}
+	local_irq_restore(flags);
+}
+
+void asi_schedule_in(struct task_struct *task)
+{
+	struct asi_session *asi_session;
+	unsigned long flags;
+	struct asi *asi;
+
+	asi = task->asi_session.asi;
+	if (!asi)
+		return;
+
+	/*
+	 * At this point, the CPU shouldn't be using ASI because the
+	 * ASI session is expected to be cleared in asi_schedule_out().
+	 */
+	WARN_ON(this_cpu_read(cpu_asi_session.asi));
+
+	/*
+	 * Restore ASI.
+	 *
+	 * If the task was scheduled out while using ASI, then the ASI
+	 * is already setup and we can immediately switch to ASI page
+	 * table.
+	 *
+	 * Otherwise, if the task was scheduled out while ASI was
+	 * interrupted, just restore the ASI session.
+	 */
+	local_irq_save(flags);
+	if (!task->asi_session.idepth) {
+		asi_switch_to_asi_cr3(asi, ASI_SWITCH_NOW);
+	} else {
+		asi_session = &get_cpu_var(cpu_asi_session);
+		*asi_session = task->asi_session;
+	}
+	task->asi_session.asi = NULL;
+	local_irq_restore(flags);
+}

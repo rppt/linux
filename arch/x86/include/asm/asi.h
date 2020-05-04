@@ -102,6 +102,9 @@ struct asi {
 	unsigned long		base_cr3;	/* base ASI CR3 */
 };
 
+void asi_schedule_out(struct task_struct *task);
+void asi_schedule_in(struct task_struct *task);
+
 extern struct asi *asi_create(struct asi_type *type);
 extern void asi_destroy(struct asi *asi);
 extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);

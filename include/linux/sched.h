@@ -10,6 +10,7 @@
 #include <uapi/linux/sched.h>
 
 #include <asm/current.h>
+#include <asm/asi_session.h>
 
 #include <linux/pid.h>
 #include <linux/sem.h>
@@ -1287,6 +1288,14 @@ struct task_struct {
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	unsigned long			lowest_stack;
 	unsigned long			prev_lowest_stack;
+#endif
+
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	/*
+	 * ASI session is saved here when the task is scheduled out
+	 * while an ASI session was active or interrupted.
+	 */
+	struct asi_session		asi_session;
 #endif
 
 	/*

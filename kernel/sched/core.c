@@ -14,6 +14,7 @@
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
+#include <asm/asi.h>
 
 #include "../workqueue_internal.h"
 #include "../../fs/io-wq.h"
@@ -3241,6 +3242,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	}
 
 	tick_nohz_task_switch();
+
 	return rq;
 }
 
@@ -4006,6 +4008,14 @@ static void __sched notrace __schedule(bool preempt)
 	struct rq *rq;
 	int cpu;
 
+	/*
+	 * If the task is using ASI then exit it right away otherwise the
+	 * ASI will likely quickly fault, for example when accessing run
+	 * queues.
+	 */
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION))
+		asi_schedule_out(current);
+
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	prev = rq->curr;
@@ -4087,6 +4097,13 @@ static void __sched notrace __schedule(bool preempt)
 	}
 
 	balance_callback(rq);
+
+	/*
+	 * Now the task will resume execution, we can safely return to
+	 * its ASI if one was in used.
+	 */
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION))
+		asi_schedule_in(current);
 }
 
 void __noreturn do_task_dead(void)
