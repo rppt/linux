@@ -48,6 +48,20 @@ enum asidrv_run_error {
 #define ASIDRV_IOCTL_CLEAR_FAULT	_IO('a', 3)
 #define ASIDRV_IOCTL_LOG_FAULT_STACK	_IO('a', 4)
 
+/*
+ * ASIDRV_IOCTL_ADD_MAPPING: add mapping to the ASI.
+ *
+ * User should set 'length' with the number of mapping described in the
+ * 'mapping' array.
+ * Return value:
+ *   -1   - error no mapping was added
+ *    0   - no error, all mappings were added
+ *   N>0  - error but the first N mappings were added
+ */
+#define ASIDRV_IOCTL_ADD_MAPPING	_IOWR('a', 5, struct asidrv_mapping_list)
+#define ASIDRV_IOCTL_CLEAR_MAPPING	_IOW('a', 6, struct asidrv_mapping_list)
+#define ASIDRV_IOCTL_LIST_MAPPING	_IOWR('a', 7, struct asidrv_mapping_list)
+
 #define ASIDRV_KSYM_NAME_LEN	128
 /*
  * We need KSYM_SYMBOL_LEN to lookup symbol. However it's not part of
@@ -71,6 +85,18 @@ struct asidrv_fault {
 struct asidrv_fault_list {
 	__u32 length;
 	struct asidrv_fault fault[0];
+};
+
+struct asidrv_mapping {
+	__u64 addr;
+	__u64 size;
+	__u32 level;
+	__u32 percpu;
+};
+
+struct asidrv_mapping_list {
+	__u32 length;
+	struct asidrv_mapping mapping[0];
 };
 
 #endif
