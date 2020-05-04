@@ -49,6 +49,7 @@ struct asidrv_test {
 	struct work_struct	work;	/* work for other cpu */
 	bool			work_set;
 	enum asidrv_run_error	run_error;
+	bool			intrnmi;
 };
 
 struct asidrv_sequence {
@@ -65,6 +66,7 @@ static void asidrv_test_destroy(struct asidrv_test *test);
 static void asidrv_run_fini(struct asidrv_test *test);
 static void asidrv_run_cleanup(struct asidrv_test *test,
 			       struct asidrv_sequence *sequence);
+static void asidrv_intrnmi_send(struct work_struct *work);
 
 static struct asidrv_test *asidrv_test_create(void)
 {
@@ -284,7 +286,10 @@ static enum asidrv_run_error asidrv_nmi_setup(struct asidrv_test *test)
 	}
 
 	/* set work to have another cpu to send us an NMI */
-	INIT_WORK(&test->work, asidrv_nmi_send);
+	if (test->intrnmi)
+		INIT_WORK(&test->work, asidrv_intrnmi_send);
+	else
+		INIT_WORK(&test->work, asidrv_nmi_send);
 
 	test->work_set = true;
 
@@ -336,6 +341,12 @@ static void asidrv_intr_handler(void *info)
 
 	pr_debug("Received interrupt\n");
 	atomic_set(&test->state, ASIDRV_STATE_INTR_RECEIVED);
+
+	if (!test->intrnmi)
+		return;
+
+	pr_debug("Waiting for NMI in interrupt\n");
+	asidrv_nmi_run(test);
 }
 
 static void asidrv_intr_send(struct work_struct *work)
@@ -378,6 +389,50 @@ static enum asidrv_run_error asidrv_intr_run(struct asidrv_test *test)
 	if (err == ASIDRV_RUN_ERR_TIMEOUT) {
 		pr_debug("Interrupt wait timeout\n");
 		err = ASIDRV_RUN_ERR_INTR;
+	}
+
+	return err;
+}
+
+/*
+ * Interrupt+NMI Test Sequence
+ */
+
+static void asidrv_intrnmi_send(struct work_struct *work)
+{
+	/* send and interrupt and then send an NMI */
+	asidrv_intr_send(work);
+	asidrv_nmi_send(work);
+}
+
+static enum asidrv_run_error asidrv_intrnmi_setup(struct asidrv_test *test)
+{
+	test->intrnmi = true;
+	return asidrv_nmi_setup(test);
+}
+
+static enum asidrv_run_error asidrv_intrnmi_run(struct asidrv_test *test)
+{
+	enum asidrv_run_error err;
+	enum asidrv_state state;
+
+	/*
+	 * Wait for state changes indicating that an interrupt and
+	 * then an NMI were received.
+	 */
+	err = asidrv_wait_transition(test,
+				     ASIDRV_STATE_INTR_WAITING,
+				     ASIDRV_STATE_NMI_RECEIVED,
+				     ASIDRV_TIMEOUT_INTERRUPT);
+	if (err == ASIDRV_RUN_ERR_TIMEOUT) {
+		state = atomic_read(&test->state);
+		if (state == ASIDRV_STATE_INTR_WAITING) {
+			pr_debug("Interrupt wait timeout\n");
+			err = ASIDRV_RUN_ERR_INTR;
+		} else {
+			pr_debug("NMI wait timeout\n");
+			err = ASIDRV_RUN_ERR_NMI;
+		}
 	}
 
 	return err;
@@ -462,6 +517,10 @@ struct asidrv_sequence asidrv_sequences[] = {
 		"nmi",
 		asidrv_nmi_setup, asidrv_nmi_run, asidrv_nmi_cleanup,
 	},
+	[ASIDRV_SEQ_INTRNMI] = {
+		"intr+nmi",
+		asidrv_intrnmi_setup, asidrv_intrnmi_run, asidrv_nmi_cleanup,
+	},
 };
 
 static enum asidrv_run_error asidrv_run_init(struct asidrv_test *test)
@@ -509,6 +568,7 @@ static enum asidrv_run_error asidrv_run_setup(struct asidrv_test *test,
 	int run_err;
 
 	test->work_set = false;
+	test->intrnmi = false;
 
 	if (sequence->setup) {
 		run_err = sequence->setup(test);
