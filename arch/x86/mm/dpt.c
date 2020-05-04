@@ -83,6 +83,72 @@ static bool dpt_valid_offset(struct dpt *dpt, void *offset)
 }
 
 /*
+ * dpt_pXX_offset() functions are equivalent to kernel pXX_offset()
+ * functions but, in addition, they ensure that page table pointers
+ * are in the specified decorated page table. Otherwise an error is
+ * returned.
+ */
+
+static pte_t *dpt_pte_offset(struct dpt *dpt,
+			     pmd_t *pmd, unsigned long addr)
+{
+	pte_t *pte;
+
+	pte = pte_offset_map(pmd, addr);
+	if (!dpt_valid_offset(dpt, pte)) {
+		pr_err("DPT %p: PTE %px not found\n", dpt, pte);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return pte;
+}
+
+static pmd_t *dpt_pmd_offset(struct dpt *dpt,
+			     pud_t *pud, unsigned long addr)
+{
+	pmd_t *pmd;
+
+	pmd = pmd_offset(pud, addr);
+	if (!dpt_valid_offset(dpt, pmd)) {
+		pr_err("DPT %p: PMD %px not found\n", dpt, pmd);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return pmd;
+}
+
+static pud_t *dpt_pud_offset(struct dpt *dpt,
+			     p4d_t *p4d, unsigned long addr)
+{
+	pud_t *pud;
+
+	pud = pud_offset(p4d, addr);
+	if (!dpt_valid_offset(dpt, pud)) {
+		pr_err("DPT %p: PUD %px not found\n", dpt, pud);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return pud;
+}
+
+static p4d_t *dpt_p4d_offset(struct dpt *dpt,
+			     pgd_t *pgd, unsigned long addr)
+{
+	p4d_t *p4d;
+
+	p4d = p4d_offset(pgd, addr);
+	/*
+	 * p4d is the same has pgd if we don't have a 5-level page table.
+	 */
+	if ((p4d != (p4d_t *)pgd) && !dpt_valid_offset(dpt, p4d)) {
+		pr_err("DPT %p: P4D %px not found\n", dpt, p4d);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return p4d;
+}
+
+/*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
  * at the specified alignment (pgt_alignment) which should be a
