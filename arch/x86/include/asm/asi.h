@@ -46,8 +46,26 @@
 
 #include <asm/asi_session.h>
 
+/*
+ * ASI_NR_DYN_ASIDS is the same as TLB_NR_DYN_ASIDS. We can't directly
+ * use TLB_NR_DYN_ASIDS because asi.h and tlbflush.h can't both include
+ * each other.
+ */
+#define ASI_TLB_NR_DYN_ASIDS	6
+
+struct asi_tlb_pgtable {
+	u64 id;
+	u64 gen;
+};
+
+struct asi_tlb_state {
+	struct asi_tlb_pgtable	tlb_pgtables[ASI_TLB_NR_DYN_ASIDS];
+};
+
 struct asi_type {
 	int			pcid_prefix;	/* PCID prefix */
+	struct asi_tlb_state	*tlb_state;	/* percpu ASI TLB state */
+	atomic64_t		last_pgtable_id; /* last id for this type */
 };
 
 /*
@@ -58,8 +76,11 @@ struct asi_type {
  * specified type.
  */
 #define DEFINE_ASI_TYPE(name, pcid_prefix)			\
+	DEFINE_PER_CPU(struct asi_tlb_state, asi_tlb_ ## name);	\
 	struct asi_type asi_type_ ## name = {			\
 		pcid_prefix,					\
+		&asi_tlb_ ## name,				\
+		ATOMIC64_INIT(1),				\
 	};							\
 	EXPORT_SYMBOL(asi_type_ ## name)
 
@@ -76,6 +97,8 @@ static inline struct asi *asi_create_ ## name(void)	\
 struct asi {
 	struct asi_type		*type;		/* ASI type */
 	pgd_t			*pagetable;	/* ASI pagetable */
+	u64			pgtable_id;	/* ASI pagetable ID */
+	atomic64_t		pgtable_gen;	/* ASI pagetable generation */
 	unsigned long		base_cr3;	/* base ASI CR3 */
 };
 
