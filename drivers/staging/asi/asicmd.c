@@ -16,6 +16,10 @@
 
 #include "asidrv.h"
 
+static const char * const page_table_level[] = {
+	"PTE", "PMD", "PUD", "P4D", "PGD"
+};
+
 struct asidrv_test {
 	char		*name;		/* test name */
 	enum asidrv_seqnum seqnum;	/* sequence */
@@ -56,10 +60,23 @@ static void usage(void)
 	printf("  fltclr   - clear ASI faults\n");
 	printf("  stkon    - show stack on ASI fault\n");
 	printf("  stkoff   - do not show stack on ASI fault\n");
+	printf("  map      - list ASI mappings\n");
+	printf("  mapadd   - add ASI mappings\n");
+	printf("  mapclr   - clear ASI mapping\n");
 	printf("\n");
 	printf("Tests:\n");
 	for (i = 0; i < TEST_LIST_SIZE; i++)
 		printf("  %-10s - %s\n", test_list[i].name, test_list[i].desc);
+}
+
+static void usage_mapadd(void)
+{
+	printf("usage: asicmd mapadd [percpu:]<addr>:<size>[:<level>]\n");
+}
+
+static void usage_mapclr(void)
+{
+	printf("usage: asicmd mapclr [percpu:]<addr>\n");
 }
 
 static void asidrv_run_test(int fd, struct asidrv_test *test)
@@ -130,6 +147,210 @@ static int asidrv_fault_list(int fd)
 	return 0;
 }
 
+static int asidrv_map_list(int fd)
+{
+	struct asidrv_mapping_list *mlist;
+	int level;
+	int i, rv, len = 64;
+
+	mlist = malloc(sizeof(*mlist) +
+		       sizeof(struct asidrv_mapping) * len);
+	if (!mlist) {
+		perror("malloc mlist");
+		return -1;
+	}
+
+	mlist->length = len;
+	rv = ioctl(fd, ASIDRV_IOCTL_LIST_MAPPING, mlist);
+	if (rv < 0) {
+		perror("ioctl list mapping");
+		return -1;
+	}
+
+	if (!mlist->length) {
+		printf("ASI has no mapping\n");
+		return 0;
+	}
+
+	printf("%-18s  %18s  %s\n", "ADDRESS", "SIZE", "LEVEL");
+	for (i = 0; i < mlist->length && i < len; i++) {
+		printf("%#18llx  %#18llx  ",
+		       mlist->mapping[i].addr,
+		       mlist->mapping[i].size);
+		level = mlist->mapping[i].level;
+		if (level < 5)
+			printf("%5s\n", page_table_level[level]);
+		else
+			printf("%5d\n", level);
+	}
+	printf("Mapping List: %d/%d\n", i, mlist->length);
+
+	return 0;
+}
+
+static char *asidrv_skip_percpu(char *str, bool *percpup)
+{
+	int len = sizeof("percpu:") - 1;
+
+	if (!strncmp(str, "percpu:", len)) {
+		str += len;
+		*percpup = true;
+	} else {
+		*percpup = false;
+	}
+
+	return str;
+}
+
+static int asidrv_parse_mapping_clear(char *arg, struct asidrv_mapping *mapping)
+{
+	char  *s, *end;
+	bool percpu;
+	__u64 addr;
+
+	s = asidrv_skip_percpu(arg, &percpu);
+
+	addr = strtoull(s, &end, 0);
+	if (*end != 0) {
+		printf("invalid mapping address '%s'\n", s);
+		return -1;
+	}
+
+	printf("mapclr %llx%s\n", addr, percpu ? " percpu" : "");
+
+	mapping->addr = addr;
+	mapping->size = 0;
+	mapping->level = 0;
+	mapping->percpu = percpu;
+
+	return 0;
+}
+
+static int asidrv_parse_mapping_add(char *arg, struct asidrv_mapping *mapping)
+{
+	char *s, *end;
+	__u64 addr, size;
+	__u32 level;
+	bool percpu;
+	int i;
+
+	s = asidrv_skip_percpu(arg, &percpu);
+
+	s = strtok(s, ":");
+	if (!s) {
+		printf("mapadd: <addr> not found\n");
+		return -1;
+	}
+
+	addr = strtoull(s, &end, 0);
+	if (*end != 0) {
+		printf("invalid mapping address '%s'\n", s);
+		return -1;
+	}
+
+	s = strtok(NULL, ":");
+	if (!s) {
+		printf("mapadd: <size> not found\n");
+		return -1;
+	}
+	size = strtoull(s, &end, 0);
+	if (*end != 0) {
+		printf("mapadd: invalid size %s\n", s);
+		return -1;
+	}
+
+	s = strtok(NULL, ":");
+	if (!s) {
+		level = 0;
+	} else {
+		/* lookup page table level name */
+		level = -1;
+		for (i = 0; i < 5; i++) {
+			if (!strcasecmp(s, page_table_level[i])) {
+				level = i;
+				break;
+			}
+		}
+		if (level == -1) {
+			level = strtoul(s, &end, 0);
+			if (*end != 0 || level >= 5) {
+				printf("mapadd: invalid level %s\n", s);
+				return -1;
+			}
+		}
+	}
+
+	printf("mapadd %llx/%llx/%u%s\n", addr, size, level,
+	       percpu ? " percpu" : "");
+
+	mapping->addr = addr;
+	mapping->size = size;
+	mapping->level = level;
+	mapping->percpu = percpu;
+
+	return 0;
+}
+
+static int asidrv_map_change(int fd, unsigned long cmd, char *arg)
+{
+	struct asidrv_mapping_list *mlist;
+	int i, count, err;
+	char *s;
+
+	count = 0;
+	for (s = arg; s; s = strchr(s + 1, ','))
+		count++;
+
+	mlist = malloc(sizeof(mlist) + sizeof(struct asidrv_mapping) * count);
+	if (!mlist) {
+		perror("malloc mapping list");
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < count; i++) {
+		s = strchr(arg, ',');
+		if (s)
+			s[0] = '\0';
+
+		if (cmd == ASIDRV_IOCTL_ADD_MAPPING) {
+			err = asidrv_parse_mapping_add(arg,
+						       &mlist->mapping[i]);
+		} else {
+			err = asidrv_parse_mapping_clear(arg,
+							 &mlist->mapping[i]);
+		}
+		if (err)
+			goto done;
+		arg = s + 1;
+	}
+
+	mlist->length = count;
+	err = ioctl(fd, cmd, mlist);
+	if (err < 0) {
+		perror("ioctl mapping");
+		err = errno;
+	} else if (err > 0) {
+		/* partial error */
+		printf("ioctl mapping: partial failure (%d/%d)\n",
+		       err, count);
+		for (i = 0; i < count; i++) {
+			printf("  %#llx: ", mlist->mapping[i].addr);
+			if (i < err)
+				printf("done\n");
+			else if (i == err)
+				printf("failed\n");
+			else
+				printf("not done\n");
+		}
+		err = -1;
+	}
+
+done:
+	free(mlist);
+
+	return err;
+}
+
 int main(int argc, char *argv[])
 {
 	bool run_all, run;
@@ -170,6 +391,28 @@ int main(int argc, char *argv[])
 			err = ioctl(fd, ASIDRV_IOCTL_LOG_FAULT_STACK, false);
 			if (err)
 				perror("ioctl log fault sstack");
+			continue;
+
+		} else if (!strcmp(test, "map")) {
+			asidrv_map_list(fd);
+			continue;
+
+		} else if (!strcmp(test, "mapadd")) {
+			if (++i >= argc) {
+				usage_mapadd();
+				return 2;
+			}
+			asidrv_map_change(fd, ASIDRV_IOCTL_ADD_MAPPING,
+					  argv[i]);
+			continue;
+
+		} else if (!strcmp(test, "mapclr")) {
+			if (++i >= argc) {
+				usage_mapclr();
+				return 2;
+			}
+			asidrv_map_change(fd, ASIDRV_IOCTL_CLEAR_MAPPING,
+					  argv[i]);
 			continue;
 
 		} else if (!strcmp(test, "all")) {
