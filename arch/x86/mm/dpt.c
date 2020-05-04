@@ -4,6 +4,7 @@
  *
  */
 
+#include <linux/mm.h>
 #include <linux/slab.h>
 
 #include <asm/dpt.h>
@@ -143,6 +144,115 @@ static p4d_t *dpt_p4d_offset(struct dpt *dpt,
 	if ((p4d != (p4d_t *)pgd) && !dpt_valid_offset(dpt, p4d)) {
 		pr_err("DPT %p: P4D %px not found\n", dpt, p4d);
 		return ERR_PTR(-EINVAL);
+	}
+
+	return p4d;
+}
+
+/*
+ * dpt_pXX_alloc() functions are equivalent to kernel pXX_alloc() functions
+ * but, in addition, they keep track of new pages allocated for the specified
+ * decorated page-table.
+ */
+
+static pte_t *dpt_pte_alloc(struct dpt *dpt, pmd_t *pmd, unsigned long addr)
+{
+	struct page *page;
+	pte_t *pte;
+	int err;
+
+	if (pmd_none(*pmd)) {
+		page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+		if (!page)
+			return ERR_PTR(-ENOMEM);
+		pte = (pte_t *)page_address(page);
+		err = dpt_add_backend_page(dpt, pte, PGT_LEVEL_PTE);
+		if (err) {
+			free_page((unsigned long)pte);
+			return ERR_PTR(err);
+		}
+		set_pmd_safe(pmd, __pmd(__pa(pte) | _KERNPG_TABLE));
+		pte = pte_offset_map(pmd, addr);
+	} else {
+		pte = dpt_pte_offset(dpt, pmd,  addr);
+	}
+
+	return pte;
+}
+
+static pmd_t *dpt_pmd_alloc(struct dpt *dpt, pud_t *pud, unsigned long addr)
+{
+	struct page *page;
+	pmd_t *pmd;
+	int err;
+
+	if (pud_none(*pud)) {
+		page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+		if (!page)
+			return ERR_PTR(-ENOMEM);
+		pmd = (pmd_t *)page_address(page);
+		err = dpt_add_backend_page(dpt, pmd, PGT_LEVEL_PMD);
+		if (err) {
+			free_page((unsigned long)pmd);
+			return ERR_PTR(err);
+		}
+		set_pud_safe(pud, __pud(__pa(pmd) | _KERNPG_TABLE));
+		pmd = pmd_offset(pud, addr);
+	} else {
+		pmd = dpt_pmd_offset(dpt, pud, addr);
+	}
+
+	return pmd;
+}
+
+static pud_t *dpt_pud_alloc(struct dpt *dpt, p4d_t *p4d, unsigned long addr)
+{
+	struct page *page;
+	pud_t *pud;
+	int err;
+
+	if (p4d_none(*p4d)) {
+		page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+		if (!page)
+			return ERR_PTR(-ENOMEM);
+		pud = (pud_t *)page_address(page);
+		err = dpt_add_backend_page(dpt, pud, PGT_LEVEL_PUD);
+		if (err) {
+			free_page((unsigned long)pud);
+			return ERR_PTR(err);
+		}
+		set_p4d_safe(p4d, __p4d(__pa(pud) | _KERNPG_TABLE));
+		pud = pud_offset(p4d, addr);
+	} else {
+		pud = dpt_pud_offset(dpt, p4d, addr);
+	}
+
+	return pud;
+}
+
+static p4d_t *dpt_p4d_alloc(struct dpt *dpt, pgd_t *pgd, unsigned long addr)
+{
+	struct page *page;
+	p4d_t *p4d;
+	int err;
+
+	if (!pgtable_l5_enabled())
+		return (p4d_t *)pgd;
+
+	if (pgd_none(*pgd)) {
+		page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+		if (!page)
+			return ERR_PTR(-ENOMEM);
+		p4d = (p4d_t *)page_address(page);
+		err = dpt_add_backend_page(dpt, p4d, PGT_LEVEL_P4D);
+		if (err) {
+			free_page((unsigned long)p4d);
+			return ERR_PTR(err);
+		}
+		set_pgd_safe(pgd, __pgd(__pa(p4d) | _KERNPG_TABLE));
+		p4d = p4d_offset(pgd, addr);
+	} else {
+		p4d = dpt_p4d_offset(dpt, pgd, addr);
 	}
 
 	return p4d;
