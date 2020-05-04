@@ -9,6 +9,22 @@
 
 #include <asm/dpt.h>
 
+
+static unsigned long page_directory_size[] = {
+	[PGT_LEVEL_PTE] = PAGE_SIZE,
+	[PGT_LEVEL_PMD] = PMD_SIZE,
+	[PGT_LEVEL_PUD] = PUD_SIZE,
+	[PGT_LEVEL_P4D] = P4D_SIZE,
+	[PGT_LEVEL_PGD] = PGDIR_SIZE,
+};
+
+#define DPT_RANGE_MAP_ADDR(r)	\
+	round_down((unsigned long)((r)->ptr), page_directory_size[(r)->level])
+
+#define DPT_RANGE_MAP_END(r)	\
+	round_up((unsigned long)((r)->ptr + (r)->size), \
+		 page_directory_size[(r)->level])
+
 /*
  * Get the pointer to the beginning of a page table directory from a page
  * table directory entry.
@@ -573,6 +589,70 @@ static int dpt_copy_pgd_range(struct dpt *dpt,
 }
 
 /*
+ * Map a VA range, taking into account any overlap with already mapped
+ * VA ranges. On error, return < 0. Otherwise return the number of
+ * ranges the specified range is overlapping with.
+ */
+static int dpt_map_overlap(struct dpt *dpt, void *ptr, size_t size,
+			   enum page_table_level level)
+{
+	unsigned long map_addr, map_end;
+	unsigned long addr, end;
+	struct dpt_range_mapping *range;
+	bool need_mapping;
+	int err, overlap;
+
+	addr = (unsigned long)ptr;
+	end = addr + (unsigned long)size;
+	need_mapping = true;
+	overlap = 0;
+
+	lockdep_assert_held(&dpt->lock);
+	list_for_each_entry(range, &dpt->mapping_list, list) {
+
+		if (range->ptr == ptr && range->size == size) {
+			/* we are mapping the same range again */
+			pr_debug("DPT %p: MAP %px/%lx/%d already mapped\n",
+				 dpt, ptr, size, level);
+			return -EBUSY;
+		}
+
+		/* check overlap with mapped range */
+		map_addr = DPT_RANGE_MAP_ADDR(range);
+		map_end = DPT_RANGE_MAP_END(range);
+		if (end <= map_addr || addr >= map_end) {
+			/* no overlap, continue */
+			continue;
+		}
+
+		pr_debug("DPT %p: MAP %px/%lx/%d overlaps with %px/%lx/%d\n",
+			 dpt, ptr, size, level,
+			 range->ptr, range->size, range->level);
+		range->refcnt++;
+		overlap++;
+
+		/*
+		 * Check if new range is included into an existing range.
+		 * If so then the new range is already entirely mapped.
+		 */
+		if (addr >= map_addr && end <= map_end) {
+			pr_debug("DPT %p: MAP %px/%lx/%d implicitly mapped\n",
+				 dpt, ptr, size, level);
+			need_mapping = false;
+		}
+	}
+
+	if (need_mapping) {
+		err = dpt_copy_pgd_range(dpt, dpt->pagetable, current->mm->pgd,
+					 addr, end, level);
+		if (err)
+			return err;
+	}
+
+	return overlap;
+}
+
+/*
  * Copy page table entries from the current page table (i.e. from the
  * kernel page table) to the specified decorated page-table. The level
  * parameter specifies the page-table level (PGD, P4D, PUD PMD, PTE)
@@ -582,47 +662,48 @@ int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
 		  enum page_table_level level)
 {
 	struct dpt_range_mapping *range_mapping;
+	unsigned long page_dir_size = page_directory_size[level];
 	unsigned long addr = (unsigned long)ptr;
 	unsigned long end = addr + ((unsigned long)size);
+	unsigned long map_addr, map_end;
 	unsigned long flags;
-	int err;
+	int overlap;
 
-	pr_debug("DPT %p: MAP %px/%lx/%d\n", dpt, ptr, size, level);
+	map_addr = round_down(addr, page_dir_size);
+	map_end = round_up(end, page_dir_size);
+
+	pr_debug("DPT %p: MAP %px/%lx/%d -> %lx-%lx\n", dpt, ptr, size, level,
+		 map_addr, map_end);
+	if (map_addr < addr)
+		pr_debug("DPT %p: MAP LEAK %lx-%lx\n", dpt, map_addr, addr);
+	if (map_end > end)
+		pr_debug("DPT %p: MAP LEAK %lx-%lx\n", dpt, end, map_end);
+
+	/* add new range */
+	range_mapping = kmalloc(sizeof(*range_mapping), GFP_KERNEL);
+	if (!range_mapping)
+		return -ENOMEM;
 
 	spin_lock_irqsave(&dpt->lock, flags);
 
-	/* check if the range is already mapped */
-	range_mapping = dpt_get_range_mapping(dpt, ptr);
-	if (range_mapping) {
-		pr_debug("DPT %p: MAP %px/%lx/%d already mapped\n",
-			 dpt, ptr, size, level);
-		err = -EBUSY;
-		goto done;
-	}
-
-	/* map new range */
-	range_mapping = kmalloc(sizeof(*range_mapping), GFP_KERNEL);
-	if (!range_mapping) {
-		err = -ENOMEM;
-		goto done;
-	}
-
-	err = dpt_copy_pgd_range(dpt, dpt->pagetable, current->mm->pgd,
-				 addr, end, level);
-	if (err) {
-		kfree(range_mapping);
-		goto done;
+	/*
+	 * Map the new range with taking overlap with already mapped ranges
+	 * into account.
+	 */
+	overlap = dpt_map_overlap(dpt, ptr, size, level);
+	if (overlap < 0) {
+		spin_unlock_irqrestore(&dpt->lock, flags);
+		return overlap;
 	}
 
 	INIT_LIST_HEAD(&range_mapping->list);
 	range_mapping->ptr = ptr;
 	range_mapping->size = size;
 	range_mapping->level = level;
+	range_mapping->refcnt = overlap + 1;
 	list_add(&range_mapping->list, &dpt->mapping_list);
-done:
 	spin_unlock_irqrestore(&dpt->lock, flags);
-
-	return err;
+	return 0;
 }
 EXPORT_SYMBOL(dpt_map_range);
 
@@ -741,13 +822,72 @@ static void dpt_clear_pgd_range(struct dpt *dpt, pgd_t *pagetable,
 	} while (pgd++, addr = next, addr < end);
 }
 
+
+/*
+ * Unmap a VA range, taking into account any overlap with other mapped
+ * VA ranges.
+ */
+static void dpt_unmap_overlap(struct dpt *dpt, struct dpt_range_mapping *range)
+{
+	unsigned long pgdir_size = page_directory_size[range->level];
+	unsigned long chunk_addr, chunk_end;
+	unsigned long map_addr, map_end;
+	struct dpt_range_mapping *r;
+	unsigned long addr, end;
+	bool overlap;
+
+	addr = DPT_RANGE_MAP_ADDR(range);
+	end = DPT_RANGE_MAP_END(range);
+
+	lockdep_assert_held(&dpt->lock);
+
+	/*
+	 * Unmap the VA range by chunk to handle mapping overlap
+	 * with any another range.
+	 * XXX can be improved with a sorted range list
+	 */
+	chunk_addr = addr;
+	while (chunk_addr < end) {
+		overlap = false;
+		list_for_each_entry(r, &dpt->mapping_list, list) {
+			map_addr = DPT_RANGE_MAP_ADDR(r);
+			map_end = DPT_RANGE_MAP_END(r);
+			/*
+			 * Check if there's an overlap and how far it goes.
+			 */
+			chunk_end = chunk_addr;
+			while (chunk_end >= map_addr && chunk_end < map_end) {
+				overlap = true;
+				chunk_end += pgdir_size;
+				if (chunk_end >= end)
+					break;
+			}
+			if (overlap) {
+				pr_debug("DPT %p: UNMAP %px/%lx/%d overlaps with %px/%lx/%d\n",
+					 dpt, range->ptr, range->size,
+					 range->level,
+					 r->ptr, r->size, r->level);
+				break;
+			}
+		}
+
+		if (!overlap) {
+			pr_debug("DPT %p: UNMAP CHUNK %lx/%lx/%d\n", dpt,
+				 chunk_addr, pgdir_size, range->level);
+			chunk_end = chunk_addr + pgdir_size;
+			dpt_clear_pgd_range(dpt, dpt->pagetable, chunk_addr,
+					    chunk_end, range->level);
+		}
+		chunk_addr = chunk_end;
+	}
+}
+
 /*
  * Clear page table entries in the specified decorated page-table.
  */
 void dpt_unmap(struct dpt *dpt, void *ptr)
 {
 	struct dpt_range_mapping *range_mapping;
-	unsigned long addr, end;
 	unsigned long flags;
 
 	spin_lock_irqsave(&dpt->lock, flags);
@@ -758,13 +898,10 @@ void dpt_unmap(struct dpt *dpt, void *ptr)
 		goto done;
 	}
 
-	addr = (unsigned long)range_mapping->ptr;
-	end = addr + range_mapping->size;
 	pr_debug("DPT %p: UNMAP %px/%lx/%d\n", dpt, ptr,
 		 range_mapping->size, range_mapping->level);
-	dpt_clear_pgd_range(dpt, dpt->pagetable, addr, end,
-			    range_mapping->level);
 	list_del(&range_mapping->list);
+	dpt_unmap_overlap(dpt, range_mapping);
 	kfree(range_mapping);
 done:
 	spin_unlock_irqrestore(&dpt->lock, flags);

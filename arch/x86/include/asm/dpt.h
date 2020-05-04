@@ -25,6 +25,7 @@ struct dpt_range_mapping {
 	void *ptr;			/* range start address */
 	size_t size;			/* range size */
 	enum page_table_level level;	/* mapping level */
+	int refcnt;			/* reference count (for overlap) */
 };
 
 /*
