@@ -809,6 +809,31 @@ int dpt_map_percpu(struct dpt *dpt, void *percpu_ptr, size_t size)
 }
 EXPORT_SYMBOL(dpt_map_percpu);
 
+int dpt_remap(struct dpt *dpt, void **current_ptrp, void *new_ptr, size_t size)
+{
+	void *current_ptr = *current_ptrp;
+	int err;
+
+	if (current_ptr == new_ptr) {
+		/* no change, already mapped */
+		return 0;
+	}
+
+	if (current_ptr) {
+		dpt_unmap(dpt, current_ptr);
+		*current_ptrp = NULL;
+	}
+
+	err = dpt_map(dpt, new_ptr, size);
+	if (err)
+		return err;
+
+	*current_ptrp = new_ptr;
+
+	return 0;
+}
+EXPORT_SYMBOL(dpt_remap);
+
 /*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned

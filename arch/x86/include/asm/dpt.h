@@ -57,6 +57,7 @@ extern int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
 			 enum page_table_level level);
 extern int dpt_map(struct dpt *dpt, void *ptr, unsigned long size);
 extern void dpt_unmap(struct dpt *dpt, void *ptr);
+extern int dpt_remap(struct dpt *dpt, void **mapping, void *ptr, size_t size);
 
 static inline int dpt_map_module(struct dpt *dpt, char *module_name)
 {
