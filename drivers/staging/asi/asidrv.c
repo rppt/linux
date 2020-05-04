@@ -866,10 +866,137 @@ static int asidrv_ioctl_log_fault_stack(struct asi *asi, bool log_stack)
 	return 0;
 }
 
+/*
+ * ASI decorated pagetable ioctls
+ */
+
+static int asidrv_ioctl_add_mapping(struct dpt *dpt, unsigned long arg)
+{
+	struct asidrv_mapping_list __user *umlist;
+	struct asidrv_mapping mapping;
+	__u32 umlist_len;
+	int i, err;
+
+	umlist = (struct asidrv_mapping_list *)arg;
+	if (copy_from_user(&umlist_len, &umlist->length, sizeof(umlist_len)))
+		return -EFAULT;
+
+	err = 0;
+	for (i = 0; i < umlist_len; i++) {
+		if (copy_from_user(&mapping, &umlist->mapping[i],
+				   sizeof(mapping))) {
+			err = -EFAULT;
+			break;
+		}
+
+		pr_debug("add mapping %llx/%llx/%u %s\n",
+			 mapping.addr, mapping.size, mapping.level,
+			 mapping.percpu ? "percpu" : "");
+
+		if (mapping.percpu) {
+			if (mapping.level != PGT_LEVEL_PTE) {
+				err = -EINVAL;
+				break;
+			}
+			err = dpt_map_percpu(dpt, (void *)mapping.addr,
+					     mapping.size);
+		} else {
+			err = dpt_map_range(dpt, (void *)mapping.addr,
+					    mapping.size, mapping.level);
+		}
+		if (err)
+			break;
+	}
+
+	if (err)
+		return (i == 0) ? err : i;
+
+	return 0;
+}
+
+static int asidrv_ioctl_clear_mapping(struct dpt *dpt, unsigned long arg)
+{
+	struct asidrv_mapping_list __user *umlist;
+	struct asidrv_mapping mapping;
+	__u32 umlist_len;
+	int err, i;
+
+	umlist = (struct asidrv_mapping_list *)arg;
+	if (copy_from_user(&umlist_len, &umlist->length, sizeof(umlist_len)))
+		return -EFAULT;
+
+	err = 0;
+	for (i = 0; i < umlist_len; i++) {
+		if (copy_from_user(&mapping, &umlist->mapping[i],
+				   sizeof(mapping))) {
+			err = -EFAULT;
+			break;
+		}
+
+		pr_debug("clear mapping %llx %s\n",
+			 mapping.addr, mapping.percpu ? "percpu" : "");
+
+		if (mapping.percpu)
+			dpt_unmap_percpu(dpt, (void *)mapping.addr);
+		else
+			dpt_unmap(dpt, (void *)mapping.addr);
+	}
+
+	if (err)
+		return (i == 0) ? err : i;
+
+	return 0;
+}
+
+static int asidrv_ioctl_list_mapping(struct dpt *dpt, unsigned long arg)
+{
+	struct asidrv_mapping_list __user *umlist;
+	struct asidrv_mapping_list *mlist;
+	struct dpt_range_mapping *range;
+	unsigned long addr;
+	size_t mlist_size;
+	__u32 umlist_len;
+	int i;
+
+	umlist = (struct asidrv_mapping_list *)arg;
+	if (copy_from_user(&umlist_len, &umlist->length, sizeof(umlist_len)))
+		return -EFAULT;
+
+	umlist_len = min_t(unsigned int, umlist_len, 512);
+
+	mlist_size = sizeof(*mlist) +
+		sizeof(struct asidrv_mapping) * umlist_len;
+	mlist = kzalloc(mlist_size, GFP_KERNEL);
+	if (!mlist)
+		return -ENOMEM;
+
+	i = 0;
+	list_for_each_entry(range, &dpt->mapping_list, list) {
+		if (i < umlist_len) {
+			addr = (__u64)range->ptr;
+			mlist->mapping[i].addr = addr;
+			mlist->mapping[i].size = range->size;
+			mlist->mapping[i].level = range->level;
+		}
+		i++;
+	}
+	mlist->length = i;
+
+	if (copy_to_user(umlist, mlist, mlist_size)) {
+		kfree(mlist);
+		return -EFAULT;
+	}
+
+	kfree(mlist);
+
+	return 0;
+}
+
 static long asidrv_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct asidrv_test *test = asidrv_test;
 	struct asi *asi = test->asi;
+	struct dpt *dpt = test->dpt;
 
 	switch (cmd) {
 
@@ -883,6 +1010,17 @@ static long asidrv_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case ASIDRV_IOCTL_LOG_FAULT_STACK:
 		return asidrv_ioctl_log_fault_stack(asi, arg);
+
+	/* ASI decorated pagetable ioctls */
+
+	case ASIDRV_IOCTL_LIST_MAPPING:
+		return asidrv_ioctl_list_mapping(dpt, arg);
+
+	case ASIDRV_IOCTL_ADD_MAPPING:
+		return asidrv_ioctl_add_mapping(dpt, arg);
+
+	case ASIDRV_IOCTL_CLEAR_MAPPING:
+		return asidrv_ioctl_clear_mapping(dpt, arg);
 
 	/* Test ioctls */
 
