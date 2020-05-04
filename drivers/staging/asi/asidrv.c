@@ -4,6 +4,7 @@
  */
 
 #include <linux/fs.h>
+#include <linux/kthread.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/nmi.h>
@@ -21,17 +22,24 @@
 /* Number of read for mem/memmap test sequence */
 #define ASIDRV_MEM_READ_COUNT		1000
 
+/* Number of loop for the sched test sequence */
+#define ASIDRV_SCHED_LOOP_COUNT		20
+
 /* Timeout for target to be ready to receive an interrupt or NMI */
 #define ASIDRV_TIMEOUT_TARGET_READY	1
 
 /* Timeout for receiving an interrupt or NMI */
 #define ASIDRV_TIMEOUT_INTERRUPT	5
 
+/* Timeout before thread can start its job */
+#define ASIDRV_TIMEOUT_THREAD_START	5
+
 /* NMI handler name used for testing */
 #define ASIDRV_NMI_HANDLER_NAME		"ASI Test"
 
 enum asidrv_state {
 	ASIDRV_STATE_NONE,
+	ASIDRV_STATE_START,
 	ASIDRV_STATE_INTR_WAITING,
 	ASIDRV_STATE_INTR_RECEIVED,
 	ASIDRV_STATE_NMI_WAITING,
@@ -50,6 +58,8 @@ struct asidrv_test {
 	bool			work_set;
 	enum asidrv_run_error	run_error;
 	bool			intrnmi;
+	struct task_struct	*kthread; /* work on same cpu */
+	int			count;
 };
 
 struct asidrv_sequence {
@@ -439,6 +449,66 @@ static enum asidrv_run_error asidrv_intrnmi_run(struct asidrv_test *test)
 }
 
 /*
+ * Sched Test Sequence
+ */
+
+static void asidrv_sched_loop(struct asidrv_test *test)
+{
+	int last_count = 0;
+
+	while (test->count < ASIDRV_SCHED_LOOP_COUNT) {
+		test->count++;
+		last_count = test->count;
+		/*
+		 * Call into the scheduler, until it runs the other
+		 * asidrv_sched_loop() task. We know it has run when
+		 * test->count changes.
+		 */
+		while (last_count == test->count)
+			schedule();
+	}
+	test->count++;
+}
+
+static int asidrv_sched_kthread(void *data)
+{
+	struct asidrv_test *test = data;
+	enum asidrv_run_error err;
+
+	err = asidrv_wait(test, ASIDRV_STATE_START,
+			  ASIDRV_TIMEOUT_THREAD_START);
+	if (err) {
+		pr_debug("Error waiting for start state: error %d\n", err);
+		return err;
+	}
+	asidrv_sched_loop(test);
+
+	return 0;
+}
+
+static enum asidrv_run_error asidrv_sched_init(struct asidrv_test *test)
+{
+	test->kthread = kthread_create_on_node(asidrv_sched_kthread, test,
+					       cpu_to_node(test->cpu),
+					       "sched test");
+	if (!test->kthread)
+		return ASIDRV_RUN_ERR_KTHREAD;
+
+	kthread_bind(test->kthread, test->cpu);
+	test->count = 0;
+
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+static enum asidrv_run_error asidrv_sched_run(struct asidrv_test *test)
+{
+	atomic_set(&test->state, ASIDRV_STATE_START);
+	asidrv_sched_loop(test);
+
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+/*
  * Memory Buffer Access Test Sequences
  */
 
@@ -521,13 +591,27 @@ struct asidrv_sequence asidrv_sequences[] = {
 		"intr+nmi",
 		asidrv_intrnmi_setup, asidrv_intrnmi_run, asidrv_nmi_cleanup,
 	},
+	[ASIDRV_SEQ_SCHED] = {
+		"sched",
+		asidrv_sched_init, asidrv_sched_run, NULL,
+	},
 };
 
 static enum asidrv_run_error asidrv_run_init(struct asidrv_test *test)
 {
+	cpumask_t mask = CPU_MASK_NONE;
 	int err;
 
 	test->run_error = ASIDRV_RUN_ERR_NONE;
+
+	/*
+	 * Binding ourself to the current cpu but keep preemption
+	 * enabled.
+	 */
+	test->cpu = get_cpu();
+	cpumask_set_cpu(test->cpu, &mask);
+	set_cpus_allowed_ptr(current, &mask);
+	put_cpu();
 
 	/*
 	 * Map the current stack, we need it to enter ASI.
@@ -589,12 +673,26 @@ static enum asidrv_run_error asidrv_run_setup(struct asidrv_test *test,
 		schedule_work_on(other_cpu, &test->work);
 	}
 
+	if (test->kthread)
+		wake_up_process(test->kthread);
+
 	return ASIDRV_RUN_ERR_NONE;
 }
 
 static void asidrv_run_cleanup(struct asidrv_test *test,
 			       struct asidrv_sequence *sequence)
 {
+	if (test->kthread) {
+		kthread_stop(test->kthread);
+		test->kthread = NULL;
+	}
+
+	if (test->work_set) {
+		/* ensure work has completed */
+		flush_work(&test->work);
+		test->work_set = false;
+	}
+
 	if (sequence->cleanup)
 		sequence->cleanup(test);
 }
