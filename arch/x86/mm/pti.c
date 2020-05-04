@@ -430,6 +430,18 @@ static void __init pti_clone_p4d(unsigned long addr)
 	*user_p4d = *kernel_p4d;
 }
 
+static void __init pti_map_va(unsigned long va)
+{
+	phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
+	pte_t *target_pte;
+
+	target_pte = pti_user_pagetable_walk_pte(va);
+	if (WARN_ON(!target_pte))
+		return;
+
+	*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
+}
+
 /*
  * Clone the CPU_ENTRY_AREA and associated data into the user space visible
  * page table.
@@ -457,15 +469,15 @@ static void __init pti_clone_user_shared(void)
 		 * is set up.
 		 */
 
-		unsigned long va = (unsigned long)&per_cpu(cpu_tss_rw, cpu);
-		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
-		pte_t *target_pte;
+		pti_map_va((unsigned long)&per_cpu(cpu_tss_rw, cpu));
 
-		target_pte = pti_user_pagetable_walk_pte(va);
-		if (WARN_ON(!target_pte))
-			return;
-
-		*target_pte = pfn_pte(pa >> PAGE_SHIFT, PAGE_KERNEL);
+		if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION)) {
+			/*
+			 * Map the ASI session. We need to always be able
+			 * to access the ASI session.
+			 */
+			pti_map_va((unsigned long)&per_cpu(cpu_tlbstate, cpu));
+		}
 	}
 }
 

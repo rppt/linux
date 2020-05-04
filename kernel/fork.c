@@ -101,6 +101,7 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
+#include <asm/asi.h>
 
 #include <trace/events/sched.h>
 
@@ -698,6 +699,10 @@ void __mmdrop(struct mm_struct *mm)
 	mmu_notifier_subscriptions_destroy(mm);
 	check_mm(mm);
 	put_user_ns(mm->user_ns);
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
+	    IS_ENABLED(CONFIG_PAGE_TABLE_ISOLATION)) {
+		asi_destroy(mm->user_asi);
+	}
 	free_mm(mm);
 }
 EXPORT_SYMBOL_GPL(__mmdrop);
@@ -1048,6 +1053,18 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 
 	if (init_new_context(p, mm))
 		goto fail_nocontext;
+
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
+	    IS_ENABLED(CONFIG_PAGE_TABLE_ISOLATION)) {
+		/*
+		 * If we have PTI and ASI then use ASI to switch between
+		 * user and kernel spaces, so create an ASI for this mm.
+		 */
+		mm->user_asi = asi_create_user();
+		if (!mm->user_asi)
+			goto fail_nocontext;
+		asi_set_pagetable(mm->user_asi, kernel_to_user_pgdp(mm->pgd));
+	}
 
 	mm->user_ns = get_user_ns(user_ns);
 	return mm;

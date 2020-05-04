@@ -178,16 +178,27 @@ For 32-bit we have the following conventions - kernel is built with
 #if defined(CONFIG_ADDRESS_SPACE_ISOLATION)
 
 /*
- * For now, ASI is not compatible with PTI.
+ * ASI supersedes the entry points used by PTI. If both
+ * CONFIG_ADDRESS_SPACE_ISOLATION and CONFIG_PAGE_TABLE_ISOLATION are
+ * set then PTI is implemented using ASI.
  */
 
 .macro SWITCH_TO_KERNEL_CR3 scratch_reg:req
+	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_PTI
+	ASI_INTERRUPT \scratch_reg
+.Lend_\@:
 .endm
 
 .macro SWITCH_TO_USER_CR3_NOSTACK scratch_reg:req scratch_reg2:req
+	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_PTI
+	ASI_RESUME \scratch_reg
+.Lend_\@:
 .endm
 
 .macro SWITCH_TO_USER_CR3_STACK	scratch_reg:req
+	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_PTI
+	ASI_RESUME \scratch_reg
+.Lend_\@:
 .endm
 
 .macro SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg:req save_reg:req

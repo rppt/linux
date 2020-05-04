@@ -25,6 +25,7 @@
 
 struct address_space;
 struct mem_cgroup;
+struct asi;
 
 /*
  * Each physical page in the system has a struct page associated with
@@ -534,6 +535,10 @@ struct mm_struct {
 		atomic_long_t hugetlb_usage;
 #endif
 		struct work_struct async_put_work;
+#if defined(CONFIG_ADDRESS_SPACE_ISOLATION) && defined(CONFIG_PAGE_TABLE_ISOLATION)
+		/* ASI used for user address space */
+		struct asi *user_asi;
+#endif
 	} __randomize_layout;
 
 	/*

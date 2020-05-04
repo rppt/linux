@@ -35,6 +35,7 @@
 #include <asm/nospec-branch.h>
 #include <asm/io_bitmap.h>
 #include <asm/syscall.h>
+#include <asm/asi.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
@@ -49,6 +50,13 @@ __visible inline void enter_from_user_mode(void)
 #else
 static inline void enter_from_user_mode(void) {}
 #endif
+
+static inline void syscall_enter(void)
+{
+	/* syscall enter has interrupted ASI, now exit ASI */
+	asi_exit(current->mm->user_asi);
+	enter_from_user_mode();
+}
 
 static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
 {
@@ -225,6 +233,17 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 	mds_user_clear_cpu_buffers();
 }
 
+static inline void prepare_syscall_return(struct pt_regs *regs)
+{
+	prepare_exit_to_usermode(regs);
+
+	/*
+	 * Syscall return will resume ASI, prepare resume to enter
+	 * user ASI.
+	 */
+	asi_deferred_enter(current->mm->user_asi);
+}
+
 #define SYSCALL_EXIT_WORK_FLAGS				\
 	(_TIF_SYSCALL_TRACE | _TIF_SYSCALL_AUDIT |	\
 	 _TIF_SINGLESTEP | _TIF_SYSCALL_TRACEPOINT)
@@ -276,7 +295,7 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 		syscall_slow_exit_work(regs, cached_flags);
 
 	local_irq_disable();
-	prepare_exit_to_usermode(regs);
+	prepare_syscall_return(regs);
 }
 
 #ifdef CONFIG_X86_64
@@ -284,7 +303,7 @@ __visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
 
-	enter_from_user_mode();
+	syscall_enter();
 	local_irq_enable();
 	ti = current_thread_info();
 	if (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)
@@ -343,7 +362,7 @@ static __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 /* Handles int $0x80 */
 __visible void do_int80_syscall_32(struct pt_regs *regs)
 {
-	enter_from_user_mode();
+	syscall_enter();
 	local_irq_enable();
 	do_syscall_32_irqs_on(regs);
 }
@@ -366,7 +385,7 @@ __visible long do_fast_syscall_32(struct pt_regs *regs)
 	 */
 	regs->ip = landing_pad;
 
-	enter_from_user_mode();
+	syscall_enter();
 
 	local_irq_enable();
 
@@ -388,7 +407,7 @@ __visible long do_fast_syscall_32(struct pt_regs *regs)
 		/* User code screwed up. */
 		local_irq_disable();
 		regs->ax = -EFAULT;
-		prepare_exit_to_usermode(regs);
+		prepare_syscall_return(regs);
 		return 0;	/* Keep it simple: use IRET. */
 	}
 

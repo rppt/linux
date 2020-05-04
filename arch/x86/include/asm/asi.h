@@ -62,6 +62,10 @@ struct asi_tlb_state {
 	struct asi_tlb_pgtable	tlb_pgtables[ASI_TLB_NR_DYN_ASIDS];
 };
 
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+#define ASI_PCID_PREFIX_USER		0x80	/* user ASI */
+#endif
+
 struct asi_type {
 	int			pcid_prefix;	/* PCID prefix */
 	struct asi_tlb_state	*tlb_state;	/* percpu ASI TLB state */
@@ -139,12 +143,17 @@ void asi_schedule_out(struct task_struct *task);
 void asi_schedule_in(struct task_struct *task);
 bool asi_fault(struct pt_regs *regs, unsigned long error_code,
 	       unsigned long address, enum asi_fault_origin fault_origin);
+void asi_deferred_enter(struct asi *asi);
 
 extern struct asi *asi_create(struct asi_type *type);
 extern void asi_destroy(struct asi *asi);
 extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);
 extern int asi_enter(struct asi *asi);
 extern void asi_exit(struct asi *asi);
+
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+DECLARE_ASI_TYPE(user);
+#endif
 
 static inline void asi_set_log_policy(struct asi *asi, int policy)
 {

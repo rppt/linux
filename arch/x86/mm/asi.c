@@ -14,6 +14,10 @@
 #include <asm/mmu_context.h>
 #include <asm/tlbflush.h>
 
+#ifdef CONFIG_PAGE_TABLE_ISOLATION
+DEFINE_ASI_TYPE(user, ASI_PCID_PREFIX_USER, false);
+#endif
+
 static void asi_log_fault(struct asi *asi, struct pt_regs *regs,
 			   unsigned long error_code, unsigned long address,
 			   enum asi_fault_origin fault_origin)
@@ -313,6 +317,11 @@ void asi_exit(struct asi *asi)
 	}
 }
 EXPORT_SYMBOL(asi_exit);
+
+void asi_deferred_enter(struct asi *asi)
+{
+	asi_switch_to_asi_cr3(asi, ASI_SWITCH_ON_RESUME);
+}
 
 void asi_prepare_resume(void)
 {

@@ -390,6 +390,8 @@ extern void initialize_tlbstate_and_flush(void);
  */
 static inline void invalidate_user_asid(u16 asid)
 {
+	struct asi_tlb_state *tlb_state;
+
 	/* There is no user ASID if address space separation is off */
 	if (!IS_ENABLED(CONFIG_PAGE_TABLE_ISOLATION))
 		return;
@@ -404,8 +406,13 @@ static inline void invalidate_user_asid(u16 asid)
 	if (!static_cpu_has(X86_FEATURE_PTI))
 		return;
 
-	__set_bit(kern_pcid(asid),
-		  (unsigned long *)this_cpu_ptr(&cpu_tlbstate.user_pcid_flush_mask));
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION)) {
+		tlb_state = get_cpu_ptr(asi_type_user.tlb_state);
+		tlb_state->tlb_pgtables[asid].id = 0;
+	} else {
+		__set_bit(kern_pcid(asid),
+		    (unsigned long *)this_cpu_ptr(&cpu_tlbstate.user_pcid_flush_mask));
+	}
 }
 
 /*

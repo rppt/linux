@@ -626,6 +626,9 @@ ret_from_intr:
 .Lretint_user:
 	mov	%rsp,%rdi
 	call	prepare_exit_to_usermode
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	ASI_PREPARE_RESUME
+#endif
 	TRACE_IRQS_ON
 
 SYM_INNER_LABEL(swapgs_restore_regs_and_return_to_usermode, SYM_L_GLOBAL)
@@ -1491,6 +1494,9 @@ SYM_CODE_START(nmi)
 	movq	%rsp, %rdi
 	movq	$-1, %rsi
 	call	do_nmi
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	ASI_PREPARE_RESUME
+#endif
 
 	/*
 	 * Return back to user mode.  We must *not* do the normal exit
