@@ -66,6 +66,7 @@ struct asi_type {
 	int			pcid_prefix;	/* PCID prefix */
 	struct asi_tlb_state	*tlb_state;	/* percpu ASI TLB state */
 	atomic64_t		last_pgtable_id; /* last id for this type */
+	bool			fault_abort;	/* abort ASI on fault? */
 };
 
 /*
@@ -75,12 +76,13 @@ struct asi_type {
  * (asi_create_<typename>()) to easily create an ASI of the
  * specified type.
  */
-#define DEFINE_ASI_TYPE(name, pcid_prefix)			\
+#define DEFINE_ASI_TYPE(name, pcid_prefix, fault_abort)		\
 	DEFINE_PER_CPU(struct asi_tlb_state, asi_tlb_ ## name);	\
 	struct asi_type asi_type_ ## name = {			\
 		pcid_prefix,					\
 		&asi_tlb_ ## name,				\
 		ATOMIC64_INIT(1),				\
+		fault_abort					\
 	};							\
 	EXPORT_SYMBOL(asi_type_ ## name)
 
@@ -94,22 +96,60 @@ static inline struct asi *asi_create_ ## name(void)	\
 	return asi_create(&asi_type_ ## name);		\
 }
 
+/* ASI fault log size */
+#define ASI_FAULT_LOG_SIZE      128
+
+/*
+ * Options to specify the fault log policy when a fault occurs
+ * while using ASI.
+ *
+ * When set, ASI_FAULT_LOG_KERNEL|USER log the address and location
+ * of the fault. In addition, if ASI_FAULT_LOG_STACK is set, the stack
+ * trace where the fault occurred is also logged.
+ *
+ * Faults are logged only for ASIs with a type which aborts ASI on an
+ * ASI fault (see fault_abort in struct asi_type).
+ */
+#define ASI_FAULT_LOG_KERNEL	0x01	/* log kernel faults */
+#define ASI_FAULT_LOG_USER	0x02	/* log user faults */
+#define ASI_FAULT_LOG_STACK	0x04	/* log stack trace */
+
+enum asi_fault_origin {
+	ASI_FAULT_KERNEL = ASI_FAULT_LOG_KERNEL,
+	ASI_FAULT_USER = ASI_FAULT_LOG_USER,
+};
+
+struct asi_fault_log {
+	unsigned long		address;	/* fault address */
+	unsigned long		count;		/* fault count */
+};
+
 struct asi {
 	struct asi_type		*type;		/* ASI type */
 	pgd_t			*pagetable;	/* ASI pagetable */
 	u64			pgtable_id;	/* ASI pagetable ID */
 	atomic64_t		pgtable_gen;	/* ASI pagetable generation */
 	unsigned long		base_cr3;	/* base ASI CR3 */
+	spinlock_t		fault_lock;	/* protect fault_log_* */
+	struct asi_fault_log	fault_log[ASI_FAULT_LOG_SIZE];
+	int			fault_log_policy; /* fault log policy */
 };
 
 void asi_schedule_out(struct task_struct *task);
 void asi_schedule_in(struct task_struct *task);
+bool asi_fault(struct pt_regs *regs, unsigned long error_code,
+	       unsigned long address, enum asi_fault_origin fault_origin);
 
 extern struct asi *asi_create(struct asi_type *type);
 extern void asi_destroy(struct asi *asi);
 extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);
 extern int asi_enter(struct asi *asi);
 extern void asi_exit(struct asi *asi);
+
+static inline void asi_set_log_policy(struct asi *asi, int policy)
+{
+	asi->fault_log_policy = policy;
+}
 
 #else  /* __ASSEMBLY__ */
 

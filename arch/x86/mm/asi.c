@@ -6,12 +6,104 @@
  */
 
 #include <linux/mm.h>
+#include <linux/sched/debug.h>
 #include <linux/slab.h>
 
 #include <asm/asi.h>
 #include <asm/bug.h>
 #include <asm/mmu_context.h>
 #include <asm/tlbflush.h>
+
+static void asi_log_fault(struct asi *asi, struct pt_regs *regs,
+			   unsigned long error_code, unsigned long address,
+			   enum asi_fault_origin fault_origin)
+{
+	int i;
+
+	/*
+	 * Log information about the fault only if this is a fault
+	 * we don't know about yet (and the fault log is not full).
+	 */
+	spin_lock(&asi->fault_lock);
+	if (!(asi->fault_log_policy & fault_origin)) {
+		spin_unlock(&asi->fault_lock);
+		return;
+	}
+	for (i = 0; i < ASI_FAULT_LOG_SIZE; i++) {
+		if (asi->fault_log[i].address == regs->ip) {
+			asi->fault_log[i].count++;
+			spin_unlock(&asi->fault_lock);
+			return;
+		}
+		if (!asi->fault_log[i].address) {
+			asi->fault_log[i].address = regs->ip;
+			asi->fault_log[i].count = 1;
+			break;
+		}
+	}
+
+	if (i >= ASI_FAULT_LOG_SIZE) {
+		pr_warn("ASI %p: fault log buffer is full [%d]\n",
+			asi, i);
+	}
+
+	pr_info("ASI %p: PF#%d (%ld) at %pS on %px\n", asi, i,
+		error_code, (void *)regs->ip, (void *)address);
+
+	if (asi->fault_log_policy & ASI_FAULT_LOG_STACK)
+		show_stack(NULL, (unsigned long *)regs->sp);
+
+	spin_unlock(&asi->fault_lock);
+}
+
+bool asi_fault(struct pt_regs *regs, unsigned long error_code,
+	       unsigned long address, enum asi_fault_origin fault_origin)
+{
+	struct asi_session *asi_session;
+
+	/*
+	 * If address space isolation was active when the fault occurred
+	 * then the page fault handler has interrupted the isolation
+	 * (exception handlers interrupt isolation very early) and switched
+	 * CR3 back to its original kernel value. So we can safely retrieved
+	 * the CPU ASI session.
+	 */
+	asi_session = &get_cpu_var(cpu_asi_session);
+
+	/*
+	 * If address space isolation is not active, or we have a fault
+	 * after isolation was aborted then this was not a fault while
+	 * using ASI and we don't handle it.
+	 */
+	if (!asi_session->asi || asi_session->idepth > 1)
+		return false;
+
+	/*
+	 * We have a fault while the CPU is using address space isolation.
+	 * Depending on the ASI fault policy, either:
+	 *
+	 * - Abort the isolation. The ASI used when the fault occurred is
+	 *   aborted, and the faulty instruction is immediately retried.
+	 *   The fault is not processed by the system fault handler. The
+	 *   fault handler will return immediately, the system will not
+	 *   restore the ASI pagetable and will continue to run with the
+	 *   full kernel pagetable.
+	 *
+	 * - Or preserve the isolation. The system fault handler will
+	 *   process the fault like any regular fault. The ASI pagetable
+	 *   be restored after the fault has been handled and the system
+	 *   fault handler returns.
+	 */
+	if (asi_session->asi->type->fault_abort) {
+		asi_log_fault(asi_session->asi, regs, error_code,
+			      address, fault_origin);
+		asi_session->asi = NULL;
+		asi_session->idepth = 0;
+		return true;
+	}
+
+	return false;
+}
 
 struct asi *asi_create(struct asi_type *type)
 {
@@ -27,6 +119,9 @@ struct asi *asi_create(struct asi_type *type)
 	asi->type = type;
 	asi->pgtable_id = atomic64_inc_return(&type->last_pgtable_id);
 	atomic64_set(&asi->pgtable_gen, 0);
+	spin_lock_init(&asi->fault_lock);
+	/* by default, log ASI kernel faults */
+	asi->fault_log_policy = ASI_FAULT_LOG_KERNEL;
 
 	return asi;
 }

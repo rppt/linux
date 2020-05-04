@@ -30,6 +30,7 @@
 #include <asm/desc.h>			/* store_idt(), ...		*/
 #include <asm/cpu_entry_area.h>		/* exception stack		*/
 #include <asm/pgtable_areas.h>		/* VMALLOC_START, ...		*/
+#include <asm/asi.h>			/* asi_fault()			*/
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>
@@ -1258,6 +1259,15 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
 
 	/*
+	 * Check if the fault occurs with ASI and if the ASI handler
+	 * handles it.
+	 */
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
+	    asi_fault(regs, hw_error_code, address, ASI_FAULT_KERNEL)) {
+		return;
+	}
+
+	/*
 	 * We can fault-in kernel-space virtual memory on-demand. The
 	 * 'reference' page table is init_mm.pgd.
 	 *
@@ -1311,6 +1321,16 @@ void do_user_addr_fault(struct pt_regs *regs,
 	struct mm_struct *mm;
 	vm_fault_t fault, major = 0;
 	unsigned int flags = FAULT_FLAG_DEFAULT;
+
+
+	/*
+	 * Check if the fault occurs with ASI and if the ASI handler
+	 * handles it.
+	 */
+	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
+	    asi_fault(regs, hw_error_code, address, ASI_FAULT_USER)) {
+		return;
+	}
 
 	tsk = current;
 	mm = tsk->mm;
