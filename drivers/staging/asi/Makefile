@@ -5,3 +5,9 @@
 #
 obj-m += asi.o
 asi-y := asidrv.o
+
+#
+# asicmd command
+#
+hostprogs-y := asicmd
+always := $(hostprogs-y)
