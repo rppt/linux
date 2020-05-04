@@ -12,6 +12,7 @@ enum asidrv_seqnum {
 	ASIDRV_SEQ_MEMMAP,	/* access mapped memory */
 	ASIDRV_SEQ_INTERRUPT,	/* interrupt sequence */
 	ASIDRV_SEQ_NMI,		/* NMI interrupt sequence */
+	ASIDRV_SEQ_INTRNMI,	/* NMI in interrupt sequence */
 };
 
 enum asidrv_run_error {
