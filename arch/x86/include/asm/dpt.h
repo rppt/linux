@@ -78,4 +78,10 @@ static inline int dpt_map_module(struct dpt *dpt, char *module_name)
 	(dpt_map(dpt, THIS_MODULE->core_layout.base,	\
 		 THIS_MODULE->core_layout.size))
 
+extern int dpt_map_percpu(struct dpt *dpt, void *percpu_ptr, size_t size);
+extern void dpt_unmap_percpu(struct dpt *dpt, void *percpu_ptr);
+
+#define	DPT_MAP_CPUVAR(dpt, cpuvar)			\
+	dpt_map_percpu(dpt, &cpuvar, sizeof(cpuvar))
+
 #endif

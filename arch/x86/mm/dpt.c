@@ -771,6 +771,44 @@ done:
 }
 EXPORT_SYMBOL(dpt_unmap);
 
+void dpt_unmap_percpu(struct dpt *dpt, void *percpu_ptr)
+{
+	void *ptr;
+	int cpu;
+
+	pr_debug("DPT %p: UNMAP PERCPU %px\n", dpt, percpu_ptr);
+	for_each_possible_cpu(cpu) {
+		ptr = per_cpu_ptr(percpu_ptr, cpu);
+		pr_debug("DPT %p: UNMAP PERCPU%d %px\n", dpt, cpu, ptr);
+		dpt_unmap(dpt, ptr);
+	}
+}
+EXPORT_SYMBOL(dpt_unmap_percpu);
+
+int dpt_map_percpu(struct dpt *dpt, void *percpu_ptr, size_t size)
+{
+	int cpu, err;
+	void *ptr;
+
+	pr_debug("DPT %p: MAP PERCPU %px\n", dpt, percpu_ptr);
+	for_each_possible_cpu(cpu) {
+		ptr = per_cpu_ptr(percpu_ptr, cpu);
+		pr_debug("DPT %p: MAP PERCPU%d %px\n", dpt, cpu, ptr);
+		err = dpt_map(dpt, ptr, size);
+		if (err) {
+			/*
+			 * Need to unmap any percpu mapping which has
+			 * succeeded before the failure.
+			 */
+			dpt_unmap_percpu(dpt, percpu_ptr);
+			return err;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(dpt_map_percpu);
+
 /*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
