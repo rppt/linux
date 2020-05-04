@@ -66,6 +66,7 @@ struct asi_tlb_state {
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 #define ASI_PCID_PREFIX_USER		0x80	/* user ASI */
 #endif
+#define ASI_PCID_PREFIX_TEST		0xff	/* test ASI */
 
 struct asi_type {
 	int			pcid_prefix;	/* PCID prefix */
@@ -156,6 +157,7 @@ extern int asi_init_dpt(struct dpt *dpt);
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 DECLARE_ASI_TYPE(user);
 #endif
+DECLARE_ASI_TYPE(test);
 
 static inline void asi_set_log_policy(struct asi *asi, int policy)
 {

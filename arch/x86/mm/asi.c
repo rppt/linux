@@ -17,6 +17,7 @@
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 DEFINE_ASI_TYPE(user, ASI_PCID_PREFIX_USER, false);
 #endif
+DEFINE_ASI_TYPE(test, ASI_PCID_PREFIX_TEST, true);
 
 static void asi_log_fault(struct asi *asi, struct pt_regs *regs,
 			   unsigned long error_code, unsigned long address,
