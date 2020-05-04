@@ -6,6 +6,7 @@
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/nmi.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
@@ -20,16 +21,21 @@
 /* Number of read for mem/memmap test sequence */
 #define ASIDRV_MEM_READ_COUNT		1000
 
-/* Timeout for target to be ready to receive an interrupt */
+/* Timeout for target to be ready to receive an interrupt or NMI */
 #define ASIDRV_TIMEOUT_TARGET_READY	1
 
-/* Timeout for receiving an interrupt */
+/* Timeout for receiving an interrupt or NMI */
 #define ASIDRV_TIMEOUT_INTERRUPT	5
+
+/* NMI handler name used for testing */
+#define ASIDRV_NMI_HANDLER_NAME		"ASI Test"
 
 enum asidrv_state {
 	ASIDRV_STATE_NONE,
 	ASIDRV_STATE_INTR_WAITING,
 	ASIDRV_STATE_INTR_RECEIVED,
+	ASIDRV_STATE_NMI_WAITING,
+	ASIDRV_STATE_NMI_RECEIVED,
 };
 
 struct asidrv_test {
@@ -53,6 +59,7 @@ struct asidrv_sequence {
 };
 
 static struct asidrv_test *asidrv_test;
+static struct asidrv_test *asidrv_nmi_target;
 
 static void asidrv_test_destroy(struct asidrv_test *test);
 static void asidrv_run_fini(struct asidrv_test *test);
@@ -212,6 +219,107 @@ static enum asidrv_run_error asidrv_wait_transition(struct asidrv_test *test,
 }
 
 /*
+ * NMI Test Sequence
+ */
+
+static int asidrv_nmi_handler(unsigned int val, struct pt_regs *regs)
+{
+	struct asidrv_test *test = asidrv_nmi_target;
+
+	if (!test)
+		return NMI_DONE;
+
+	/* ASI should be interrupted by the NMI */
+	if (asidrv_asi_is_active(test->asi)) {
+		test->run_error = ASIDRV_RUN_ERR_NMI_ASI_ACTIVE;
+		atomic_set(&test->state, ASIDRV_STATE_NMI_RECEIVED);
+		return NMI_HANDLED;
+	}
+
+	pr_debug("Received NMI\n");
+	atomic_set(&test->state, ASIDRV_STATE_NMI_RECEIVED);
+	asidrv_nmi_target = NULL;
+
+	return NMI_HANDLED;
+}
+
+static void asidrv_nmi_send(struct work_struct *work)
+{
+	struct asidrv_test *test = container_of(work, struct asidrv_test, work);
+	cpumask_t mask = CPU_MASK_NONE;
+	enum asidrv_run_error err;
+
+	cpumask_set_cpu(test->cpu, &mask);
+
+	/* wait for cpu target to be ready, then send an NMI */
+	err = asidrv_wait(test,
+			  ASIDRV_STATE_NMI_WAITING,
+			  ASIDRV_TIMEOUT_TARGET_READY);
+	if (err) {
+		pr_debug("Target cpu %d not ready, NMI not sent: error %d\n",
+			 test->cpu, err);
+		return;
+	}
+
+	pr_debug("Sending NMI to cpu %d\n", test->cpu);
+	asidrv_nmi_target = test;
+	/*
+	 * The value of asidrv_nmi_target should be set and propagated
+	 * before sending the IPI.
+	 */
+	wmb();
+	apic->send_IPI_mask(&mask, NMI_VECTOR);
+}
+
+static enum asidrv_run_error asidrv_nmi_setup(struct asidrv_test *test)
+{
+	int err;
+
+	err = register_nmi_handler(NMI_LOCAL, asidrv_nmi_handler,
+				   NMI_FLAG_FIRST,
+				   ASIDRV_NMI_HANDLER_NAME);
+	if (err) {
+		pr_debug("Failed to register NMI handler\n");
+		return ASIDRV_RUN_ERR_NMI_REG;
+	}
+
+	/* set work to have another cpu to send us an NMI */
+	INIT_WORK(&test->work, asidrv_nmi_send);
+
+	test->work_set = true;
+
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+static void asidrv_nmi_cleanup(struct asidrv_test *test)
+{
+	unregister_nmi_handler(NMI_LOCAL, ASIDRV_NMI_HANDLER_NAME);
+}
+
+static enum asidrv_run_error asidrv_nmi_run(struct asidrv_test *test)
+{
+	enum asidrv_run_error err;
+	unsigned long flags;
+
+	/* disable interrupts as we want to be interrupted by an NMI */
+	local_irq_save(flags);
+
+	/* wait for state changes indicating that an NMI was received */
+	err = asidrv_wait_transition(test,
+				     ASIDRV_STATE_NMI_WAITING,
+				     ASIDRV_STATE_NMI_RECEIVED,
+				     ASIDRV_TIMEOUT_INTERRUPT);
+	if (err == ASIDRV_RUN_ERR_TIMEOUT) {
+		pr_debug("NMI wait timeout\n");
+		err = ASIDRV_RUN_ERR_NMI;
+	}
+
+	local_irq_restore(flags);
+
+	return err;
+}
+
+/*
  * Interrupt Test Sequence
  */
 
@@ -349,6 +457,10 @@ struct asidrv_sequence asidrv_sequences[] = {
 	[ASIDRV_SEQ_INTERRUPT] = {
 		"interrupt",
 		asidrv_intr_setup, asidrv_intr_run, NULL,
+	},
+	[ASIDRV_SEQ_NMI] = {
+		"nmi",
+		asidrv_nmi_setup, asidrv_nmi_run, asidrv_nmi_cleanup,
 	},
 };
 
