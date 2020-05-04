@@ -2,6 +2,7 @@
 #ifndef ARCH_X86_MM_DPT_H
 #define ARCH_X86_MM_DPT_H
 
+#include <linux/module.h>
 #include <linux/spinlock.h>
 #include <linux/xarray.h>
 
@@ -43,5 +44,25 @@ extern void dpt_destroy(struct dpt *dpt);
 extern int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
 			 enum page_table_level level);
 extern int dpt_map(struct dpt *dpt, void *ptr, unsigned long size);
+
+static inline int dpt_map_module(struct dpt *dpt, char *module_name)
+{
+	struct module *module;
+
+	module = find_module(module_name);
+	if (!module)
+		return -ESRCH;
+
+	return dpt_map(dpt, module->core_layout.base, module->core_layout.size);
+}
+
+/*
+ * Copy the memory mapping for the current module. This is defined as a
+ * macro to ensure it is expanded in the module making the call so that
+ * THIS_MODULE has the correct value.
+ */
+#define DPT_MAP_THIS_MODULE(dpt)			\
+	(dpt_map(dpt, THIS_MODULE->core_layout.base,	\
+		 THIS_MODULE->core_layout.size))
 
 #endif
