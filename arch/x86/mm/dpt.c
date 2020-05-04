@@ -384,6 +384,211 @@ static int dpt_set_pgd(struct dpt *dpt, pgd_t *pgd, pgd_t pgd_value)
 	return 0;
 }
 
+static int dpt_copy_pte_range(struct dpt *dpt, pmd_t *dst_pmd, pmd_t *src_pmd,
+			      unsigned long addr, unsigned long end)
+{
+	pte_t *src_pte, *dst_pte;
+
+	dst_pte = dpt_pte_alloc(dpt, dst_pmd, addr);
+	if (IS_ERR(dst_pte))
+		return PTR_ERR(dst_pte);
+
+	addr &= PAGE_MASK;
+	src_pte = pte_offset_map(src_pmd, addr);
+
+	do {
+		dpt_set_pte(dpt, dst_pte, *src_pte);
+
+	} while (dst_pte++, src_pte++, addr += PAGE_SIZE, addr < end);
+
+	return 0;
+}
+
+static int dpt_copy_pmd_range(struct dpt *dpt, pud_t *dst_pud, pud_t *src_pud,
+			      unsigned long addr, unsigned long end,
+			      enum page_table_level level)
+{
+	pmd_t *src_pmd, *dst_pmd;
+	unsigned long next;
+	int err;
+
+	dst_pmd = dpt_pmd_alloc(dpt, dst_pud, addr);
+	if (IS_ERR(dst_pmd))
+		return PTR_ERR(dst_pmd);
+
+	src_pmd = pmd_offset(src_pud, addr);
+
+	do {
+		next = pmd_addr_end(addr, end);
+		if (level == PGT_LEVEL_PMD || pmd_none(*src_pmd) ||
+		    pmd_trans_huge(*src_pmd) || pmd_devmap(*src_pmd)) {
+			err = dpt_set_pmd(dpt, dst_pmd, *src_pmd);
+			if (err)
+				return err;
+			continue;
+		}
+
+		if (!pmd_present(*src_pmd)) {
+			pr_warn("DPT %p: PMD not present for [%lx,%lx]\n",
+				dpt, addr, next - 1);
+			pmd_clear(dst_pmd);
+			continue;
+		}
+
+		err = dpt_copy_pte_range(dpt, dst_pmd, src_pmd, addr, next);
+		if (err) {
+			pr_err("DPT %p: PMD error copying PTE addr=%lx next=%lx\n",
+			       dpt, addr, next);
+			return err;
+		}
+
+	} while (dst_pmd++, src_pmd++, addr = next, addr < end);
+
+	return 0;
+}
+
+static int dpt_copy_pud_range(struct dpt *dpt, p4d_t *dst_p4d, p4d_t *src_p4d,
+			      unsigned long addr, unsigned long end,
+			      enum page_table_level level)
+{
+	pud_t *src_pud, *dst_pud;
+	unsigned long next;
+	int err;
+
+	dst_pud = dpt_pud_alloc(dpt, dst_p4d, addr);
+	if (IS_ERR(dst_pud))
+		return PTR_ERR(dst_pud);
+
+	src_pud = pud_offset(src_p4d, addr);
+
+	do {
+		next = pud_addr_end(addr, end);
+		if (level == PGT_LEVEL_PUD || pud_none(*src_pud) ||
+		    pud_trans_huge(*src_pud) || pud_devmap(*src_pud)) {
+			err = dpt_set_pud(dpt, dst_pud, *src_pud);
+			if (err)
+				return err;
+			continue;
+		}
+
+		err = dpt_copy_pmd_range(dpt, dst_pud, src_pud, addr, next,
+					 level);
+		if (err) {
+			pr_err("DPT %p: PUD error copying PMD addr=%lx next=%lx\n",
+			       dpt, addr, next);
+			return err;
+		}
+
+	} while (dst_pud++, src_pud++, addr = next, addr < end);
+
+	return 0;
+}
+
+static int dpt_copy_p4d_range(struct dpt *dpt, pgd_t *dst_pgd, pgd_t *src_pgd,
+			      unsigned long addr, unsigned long end,
+			      enum page_table_level level)
+{
+	p4d_t *src_p4d, *dst_p4d;
+	unsigned long next;
+	int err;
+
+	dst_p4d = dpt_p4d_alloc(dpt, dst_pgd, addr);
+	if (IS_ERR(dst_p4d))
+		return PTR_ERR(dst_p4d);
+
+	src_p4d = p4d_offset(src_pgd, addr);
+
+	do {
+		next = p4d_addr_end(addr, end);
+		if (level == PGT_LEVEL_P4D || p4d_none(*src_p4d)) {
+			err = dpt_set_p4d(dpt, dst_p4d, *src_p4d);
+			if (err)
+				return err;
+			continue;
+		}
+
+		err = dpt_copy_pud_range(dpt, dst_p4d, src_p4d, addr, next,
+					 level);
+		if (err) {
+			pr_err("DPT %p: P4D error copying PUD addr=%lx next=%lx\n",
+			       dpt, addr, next);
+			return err;
+		}
+
+	} while (dst_p4d++, src_p4d++, addr = next, addr < end);
+
+	return 0;
+}
+
+static int dpt_copy_pgd_range(struct dpt *dpt,
+			      pgd_t *dst_pagetable, pgd_t *src_pagetable,
+			      unsigned long addr, unsigned long end,
+			      enum page_table_level level)
+{
+	pgd_t *src_pgd, *dst_pgd;
+	unsigned long next;
+	int err;
+
+	dst_pgd = pgd_offset_pgd(dst_pagetable, addr);
+	src_pgd = pgd_offset_pgd(src_pagetable, addr);
+
+	do {
+		next = pgd_addr_end(addr, end);
+		if (level == PGT_LEVEL_PGD || pgd_none(*src_pgd)) {
+			err = dpt_set_pgd(dpt, dst_pgd, *src_pgd);
+			if (err)
+				return err;
+			continue;
+		}
+
+		err = dpt_copy_p4d_range(dpt, dst_pgd, src_pgd, addr, next,
+					 level);
+		if (err) {
+			pr_err("DPT %p: PGD error copying P4D addr=%lx next=%lx\n",
+			       dpt, addr, next);
+			return err;
+		}
+
+	} while (dst_pgd++, src_pgd++, addr = next, addr < end);
+
+	return 0;
+}
+
+/*
+ * Copy page table entries from the current page table (i.e. from the
+ * kernel page table) to the specified decorated page-table. The level
+ * parameter specifies the page-table level (PGD, P4D, PUD PMD, PTE)
+ * at which the copy should be done.
+ */
+int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
+		  enum page_table_level level)
+{
+	unsigned long addr = (unsigned long)ptr;
+	unsigned long end = addr + ((unsigned long)size);
+	unsigned long flags;
+	int err;
+
+	pr_debug("DPT %p: MAP %px/%lx/%d\n", dpt, ptr, size, level);
+
+	spin_lock_irqsave(&dpt->lock, flags);
+	err = dpt_copy_pgd_range(dpt, dpt->pagetable, current->mm->pgd,
+				 addr, end, level);
+	spin_unlock_irqrestore(&dpt->lock, flags);
+
+	return err;
+}
+EXPORT_SYMBOL(dpt_map_range);
+
+/*
+ * Copy page-table PTE entries from the current page-table to the
+ * specified decorated page-table.
+ */
+int dpt_map(struct dpt *dpt, void *ptr, unsigned long size)
+{
+	return dpt_map_range(dpt, ptr, size, PGT_LEVEL_PTE);
+}
+EXPORT_SYMBOL(dpt_map);
+
 /*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
