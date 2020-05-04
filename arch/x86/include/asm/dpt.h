@@ -17,6 +17,17 @@ enum page_table_level {
 };
 
 /*
+ * Structure to keep track of address ranges mapped into a decorated
+ * page-table.
+ */
+struct dpt_range_mapping {
+	struct list_head list;
+	void *ptr;			/* range start address */
+	size_t size;			/* range size */
+	enum page_table_level level;	/* mapping level */
+};
+
+/*
  * A decorated page-table (dpt) encapsulates a native page-table (e.g.
  * a PGD) and maintain additional attributes related to this page-table.
  */
@@ -24,6 +35,7 @@ struct dpt {
 	spinlock_t		lock;		/* protect all attributes */
 	pgd_t			*pagetable;	/* the actual page-table */
 	unsigned int		alignment;	/* page-table alignment */
+	struct list_head	mapping_list;	/* list of VA range mapping */
 
 	/*
 	 * A page-table can have direct references to another page-table,

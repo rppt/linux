@@ -60,6 +60,24 @@ static int dpt_add_backend_page(struct dpt *dpt, void *addr,
 }
 
 /*
+ * Return the range mapping starting at the specified address, or NULL if
+ * no such range is found.
+ */
+static struct dpt_range_mapping *dpt_get_range_mapping(struct dpt *dpt,
+						       void *ptr)
+{
+	struct dpt_range_mapping *range;
+
+	lockdep_assert_held(&dpt->lock);
+	list_for_each_entry(range, &dpt->mapping_list, list) {
+		if (range->ptr == ptr)
+			return range;
+	}
+
+	return NULL;
+}
+
+/*
  * Check if an offset in the page-table is valid, i.e. check that the
  * offset is on a page effectively belonging to the page-table.
  */
@@ -563,6 +581,7 @@ static int dpt_copy_pgd_range(struct dpt *dpt,
 int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
 		  enum page_table_level level)
 {
+	struct dpt_range_mapping *range_mapping;
 	unsigned long addr = (unsigned long)ptr;
 	unsigned long end = addr + ((unsigned long)size);
 	unsigned long flags;
@@ -571,8 +590,36 @@ int dpt_map_range(struct dpt *dpt, void *ptr, size_t size,
 	pr_debug("DPT %p: MAP %px/%lx/%d\n", dpt, ptr, size, level);
 
 	spin_lock_irqsave(&dpt->lock, flags);
+
+	/* check if the range is already mapped */
+	range_mapping = dpt_get_range_mapping(dpt, ptr);
+	if (range_mapping) {
+		pr_debug("DPT %p: MAP %px/%lx/%d already mapped\n",
+			 dpt, ptr, size, level);
+		err = -EBUSY;
+		goto done;
+	}
+
+	/* map new range */
+	range_mapping = kmalloc(sizeof(*range_mapping), GFP_KERNEL);
+	if (!range_mapping) {
+		err = -ENOMEM;
+		goto done;
+	}
+
 	err = dpt_copy_pgd_range(dpt, dpt->pagetable, current->mm->pgd,
 				 addr, end, level);
+	if (err) {
+		kfree(range_mapping);
+		goto done;
+	}
+
+	INIT_LIST_HEAD(&range_mapping->list);
+	range_mapping->ptr = ptr;
+	range_mapping->size = size;
+	range_mapping->level = level;
+	list_add(&range_mapping->list, &dpt->mapping_list);
+done:
 	spin_unlock_irqrestore(&dpt->lock, flags);
 
 	return err;
@@ -611,6 +658,8 @@ struct dpt *dpt_create(unsigned int pgt_alignment)
 	if (!dpt)
 		return NULL;
 
+	INIT_LIST_HEAD(&dpt->mapping_list);
+
 	pagetable = (unsigned long)__get_free_pages(GFP_KERNEL_ACCOUNT |
 						    __GFP_ZERO,
 						    alloc_order);
@@ -632,11 +681,22 @@ void dpt_destroy(struct dpt *dpt)
 {
 	unsigned int pgt_alignment;
 	unsigned int alloc_order;
+	struct dpt_range_mapping *range, *range_next;
 	unsigned long index;
 	void *entry;
 
 	if (!dpt)
 		return;
+
+	if (dpt->backend_pages_count) {
+		xa_for_each(&dpt->backend_pages, index, entry)
+			free_page((unsigned long)DPT_BACKEND_PAGE_ADDR(entry));
+	}
+
+	list_for_each_entry_safe(range, range_next, &dpt->mapping_list, list) {
+		list_del(&range->list);
+		kfree(range);
+	}
 
 	if (dpt->backend_pages_count) {
 		xa_for_each(&dpt->backend_pages, index, entry)
