@@ -68,7 +68,7 @@ EXPORT_SYMBOL(asi_set_pagetable);
  * Return an updated ASI CR3 value which specified if TLB needs to
  * be flushed or not.
  */
-static unsigned long asi_update_flush(struct asi *asi, unsigned long asi_cr3)
+unsigned long asi_update_flush(struct asi *asi, unsigned long asi_cr3)
 {
 	struct asi_tlb_pgtable *tlb_pgtable;
 	struct asi_tlb_state *tlb_state;
@@ -90,7 +90,24 @@ static unsigned long asi_update_flush(struct asi *asi, unsigned long asi_cr3)
 	return asi_cr3;
 }
 
-static void asi_switch_to_asi_cr3(struct asi *asi)
+
+/*
+ * Switch to the ASI pagetable.
+ *
+ * If schedule is ASI_SWITCH_NOW, then immediately switch to the ASI
+ * pagetable by updating the CR3 register with the ASI CR3 value.
+ * Otherwise, if schedule is ASI_SWITCH_ON_RESUME, prepare everything
+ * for switching to ASI pagetable but do not update the CR3 register
+ * yet. This will be done by the next ASI_RESUME call.
+ */
+
+enum asi_switch_schedule {
+	ASI_SWITCH_NOW,
+	ASI_SWITCH_ON_RESUME,
+};
+
+static void asi_switch_to_asi_cr3(struct asi *asi,
+				  enum asi_switch_schedule schedule)
 {
 	unsigned long original_cr3, asi_cr3;
 	struct asi_session *asi_session;
@@ -114,8 +131,16 @@ static void asi_switch_to_asi_cr3(struct asi *asi)
 	asi_session->original_cr3 = original_cr3;
 	asi_session->isolation_cr3 = asi_cr3;
 
-	/* Update CR3 to immediately enter ASI */
-	native_write_cr3(asi_cr3);
+	if (schedule == ASI_SWITCH_ON_RESUME) {
+		/*
+		 * Defer the CR3 update the next ASI resume by setting
+		 * the interrupt depth to 1.
+		 */
+		asi_session->idepth = 1;
+	} else {
+		/* Update CR3 to immediately enter ASI */
+		native_write_cr3(asi_cr3);
+	}
 }
 
 static void asi_switch_to_kernel_cr3(struct asi *asi)
@@ -132,6 +157,7 @@ static void asi_switch_to_kernel_cr3(struct asi *asi)
 
 	asi_session = &get_cpu_var(cpu_asi_session);
 	asi_session->asi = NULL;
+	asi_session->idepth = 0;
 }
 
 int asi_enter(struct asi *asi)
@@ -153,7 +179,7 @@ int asi_enter(struct asi *asi)
 	}
 
 	local_irq_save(flags);
-	asi_switch_to_asi_cr3(asi);
+	asi_switch_to_asi_cr3(asi, ASI_SWITCH_NOW);
 	local_irq_restore(flags);
 
 	return 0;
@@ -162,8 +188,10 @@ EXPORT_SYMBOL(asi_enter);
 
 void asi_exit(struct asi *asi)
 {
+	struct asi_session *asi_session;
 	struct asi *current_asi;
 	unsigned long flags;
+	int idepth;
 
 	current_asi = this_cpu_read(cpu_asi_session.asi);
 	if (!current_asi) {
@@ -173,8 +201,31 @@ void asi_exit(struct asi *asi)
 
 	WARN_ON(current_asi != asi);
 
-	local_irq_save(flags);
-	asi_switch_to_kernel_cr3(asi);
-	local_irq_restore(flags);
+	idepth = this_cpu_read(cpu_asi_session.idepth);
+	if (!idepth) {
+		local_irq_save(flags);
+		asi_switch_to_kernel_cr3(asi);
+		local_irq_restore(flags);
+	} else {
+		/*
+		 * ASI was interrupted so we already switched back
+		 * to the back to the kernel page table and we just
+		 * need to clear the ASI session.
+		 */
+		asi_session = &get_cpu_var(cpu_asi_session);
+		asi_session->asi = NULL;
+		asi_session->idepth = 0;
+	}
 }
 EXPORT_SYMBOL(asi_exit);
+
+void asi_prepare_resume(void)
+{
+	struct asi_session *asi_session;
+
+	asi_session = &get_cpu_var(cpu_asi_session);
+	if (!asi_session->asi || asi_session->idepth > 1)
+		return;
+
+	asi_switch_to_asi_cr3(asi_session->asi, ASI_SWITCH_ON_RESUME);
+}

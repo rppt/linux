@@ -6,6 +6,7 @@
 #include <asm/percpu.h>
 #include <asm/asm-offsets.h>
 #include <asm/processor-flags.h>
+#include <asm/asi.h>
 
 /*
 
@@ -174,7 +175,30 @@ For 32-bit we have the following conventions - kernel is built with
 	.endif
 .endm
 
-#ifdef CONFIG_PAGE_TABLE_ISOLATION
+#if defined(CONFIG_ADDRESS_SPACE_ISOLATION)
+
+/*
+ * For now, ASI is not compatible with PTI.
+ */
+
+.macro SWITCH_TO_KERNEL_CR3 scratch_reg:req
+.endm
+
+.macro SWITCH_TO_USER_CR3_NOSTACK scratch_reg:req scratch_reg2:req
+.endm
+
+.macro SWITCH_TO_USER_CR3_STACK	scratch_reg:req
+.endm
+
+.macro SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg:req save_reg:req
+	ASI_INTERRUPT_AND_SAVE_CR3 \scratch_reg \save_reg
+.endm
+
+.macro RESTORE_CR3 scratch_reg:req save_reg:req
+	ASI_RESUME_AND_RESTORE_CR3 \save_reg
+.endm
+
+#elif defined(CONFIG_PAGE_TABLE_ISOLATION)
 
 /*
  * PAGE_TABLE_ISOLATION PGDs are 8k.  Flip bit 12 to switch between the two

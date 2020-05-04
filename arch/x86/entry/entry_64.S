@@ -572,7 +572,15 @@ SYM_CODE_START(interrupt_entry)
 
 	CALL_enter_from_user_mode
 
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	jmp	2f
+#endif
 1:
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	/* Interrupt address space isolation if it is active */
+	ASI_INTERRUPT scratch_reg=%rdi
+2:
+#endif
 	ENTER_IRQ_STACK old_rsp=%rdi save_ret=1
 	/* We entered an interrupt context - irqs are off: */
 	TRACE_IRQS_OFF
@@ -673,6 +681,10 @@ retint_kernel:
 	jnz	1f
 	call	preempt_schedule_irq
 1:
+#endif
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	ASI_PREPARE_RESUME
+	ASI_RESUME scratch_reg=%rdi
 #endif
 	/*
 	 * The iretq could re-enable interrupts:
@@ -1238,6 +1250,9 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	 * This is also why CS (stashed in the "iret frame" by the
 	 * hardware at entry) can not be used: this may be a return
 	 * to kernel code, but with a user CR3 value.
+	 *
+	 * If ASI is enabled, this also handles the case where we are
+	 * using an ASI CR3 value.
 	 */
 	SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
 
@@ -1313,6 +1328,13 @@ SYM_CODE_START_LOCAL(error_entry)
 
 .Lerror_entry_done_lfence:
 	FENCE_SWAPGS_KERNEL_ENTRY
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	/*
+	 * Interrupt address space isolation if it is active. This will restore
+	 * the original kernel CR3.
+	 */
+	ASI_INTERRUPT scratch_reg=%rdi
+#endif
 .Lerror_entry_done:
 	ret
 

@@ -108,6 +108,128 @@ extern void asi_set_pagetable(struct asi *asi, pgd_t *pagetable);
 extern int asi_enter(struct asi *asi);
 extern void asi_exit(struct asi *asi);
 
+#else  /* __ASSEMBLY__ */
+
+#include <asm/alternative-asm.h>
+#include <asm/asm-offsets.h>
+#include <asm/cpufeatures.h>
+#include <asm/percpu.h>
+#include <asm/processor-flags.h>
+
+#define THIS_ASI_SESSION_asi		\
+	PER_CPU_VAR(cpu_tlbstate + TLB_STATE_asi)
+#define THIS_ASI_SESSION_isolation_cr3	\
+	PER_CPU_VAR(cpu_tlbstate + TLB_STATE_asi_isolation_cr3)
+#define THIS_ASI_SESSION_original_cr3	\
+	PER_CPU_VAR(cpu_tlbstate + TLB_STATE_asi_original_cr3)
+#define THIS_ASI_SESSION_idepth	\
+	PER_CPU_VAR(cpu_tlbstate + TLB_STATE_asi_idepth)
+
+.macro SET_NOFLUSH_BIT	reg:req
+	bts	$X86_CR3_PCID_NOFLUSH_BIT, \reg
+.endm
+
+/*
+ * Switch CR3 to the original kernel CR3 value. This is used when exiting
+ * interrupting ASI.
+ */
+.macro ASI_SWITCH_TO_KERNEL_CR3 scratch_reg:req
+	/*
+	 * KERNEL pages can always resume with NOFLUSH as we do
+	 * explicit flushes.
+	 */
+	movq	THIS_ASI_SESSION_original_cr3, \scratch_reg
+	ALTERNATIVE "", "SET_NOFLUSH_BIT \scratch_reg", X86_FEATURE_PCID
+	movq	\scratch_reg, %cr3
+.endm
+
+/*
+ * Interrupt ASI, when there's an interrupt or exception while we
+ * were running with ASI.
+ */
+.macro ASI_INTERRUPT scratch_reg:req
+	movq	THIS_ASI_SESSION_asi, \scratch_reg
+	testq	\scratch_reg, \scratch_reg
+	jz	.Lasi_interrupt_done_\@
+	incl	THIS_ASI_SESSION_idepth
+	cmp	$1, THIS_ASI_SESSION_idepth
+	jne	.Lasi_interrupt_done_\@
+	ASI_SWITCH_TO_KERNEL_CR3 \scratch_reg
+.Lasi_interrupt_done_\@:
+.endm
+
+.macro ASI_PREPARE_RESUME
+	call	asi_prepare_resume
+.endm
+
+/*
+ * Resume ASI, after it was interrupted by an interrupt or an exception.
+ */
+.macro ASI_RESUME scratch_reg:req
+	movq	THIS_ASI_SESSION_asi, \scratch_reg
+	testq	\scratch_reg, \scratch_reg
+	jz	.Lasi_resume_done_\@
+	decl	THIS_ASI_SESSION_idepth
+	jnz	.Lasi_resume_done_\@
+	movq	THIS_ASI_SESSION_isolation_cr3, \scratch_reg
+	mov	\scratch_reg, %cr3
+.Lasi_resume_done_\@:
+.endm
+
+/*
+ * Interrupt ASI, special processing when ASI is interrupted by a NMI
+ * or a paranoid interrupt/exception.
+ */
+.macro ASI_INTERRUPT_AND_SAVE_CR3 scratch_reg:req save_reg:req
+	movq	%cr3, \save_reg
+	/*
+	 * Test the ASI PCID bits. If set, then an ASI page table
+	 * is active. If clear, CR3 already has the kernel page table
+	 * active.
+	 */
+	bt	$ASI_PGTABLE_BIT, \save_reg
+	jnc	.Ldone_\@
+	incl	THIS_ASI_SESSION_idepth
+	ASI_SWITCH_TO_KERNEL_CR3 \scratch_reg
+.Ldone_\@:
+.endm
+
+/*
+ * Resume ASI, special processing when ASI is resumed from a NMI
+ * or a paranoid interrupt/exception.
+ */
+.macro ASI_RESUME_AND_RESTORE_CR3 save_reg:req
+
+	ALTERNATIVE "jmp .Lwrite_cr3_\@", "", X86_FEATURE_PCID
+
+	bt	$ASI_PGTABLE_BIT, \save_reg
+	jnc	.Lrestore_kernel_cr3_\@
+
+	/*
+	 * Restore ASI CR3. We need to update TLB flushing
+	 * information.
+	 */
+	movq	THIS_ASI_SESSION_asi, %rdi
+	movq	\save_reg, %rsi
+	call	asi_update_flush
+	movq	%rax, THIS_ASI_SESSION_isolation_cr3
+	decl	THIS_ASI_SESSION_idepth
+	movq	%rax, %cr3
+	jmp	.Ldone_\@
+
+.Lrestore_kernel_cr3_\@:
+	/*
+	 * Restore kernel CR3. KERNEL pages can always resume
+	 * with NOFLUSH as we do explicit flushes.
+	 */
+	SET_NOFLUSH_BIT \save_reg
+
+.Lwrite_cr3_\@:
+	movq	\save_reg, %cr3
+
+.Ldone_\@:
+.endm
+
 #endif	/* __ASSEMBLY__ */
 
 #endif	/* CONFIG_ADDRESS_SPACE_ISOLATION */

@@ -94,6 +94,11 @@ static void __used common(void)
 
 	/* TLB state for the entry code */
 	OFFSET(TLB_STATE_user_pcid_flush_mask, tlb_state, user_pcid_flush_mask);
+	OFFSET(TLB_STATE_asi, tlb_state, asi_session.asi);
+	OFFSET(TLB_STATE_asi_isolation_cr3, tlb_state,
+	       asi_session.isolation_cr3);
+	OFFSET(TLB_STATE_asi_original_cr3, tlb_state, asi_session.original_cr3);
+	OFFSET(TLB_STATE_asi_idepth, tlb_state, asi_session.idepth);
 
 	/* Layout info for cpu_entry_area */
 	OFFSET(CPU_ENTRY_AREA_entry_stack, cpu_entry_area, entry_stack_page);

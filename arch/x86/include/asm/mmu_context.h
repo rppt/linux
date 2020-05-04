@@ -243,7 +243,8 @@ static inline unsigned long __get_current_cr3_fast(void)
 	 * field of the ASI session.
 	 */
 	if (IS_ENABLED(CONFIG_ADDRESS_SPACE_ISOLATION) &&
-	    this_cpu_read(cpu_asi_session.asi)) {
+	    this_cpu_read(cpu_asi_session.asi) &&
+	    !this_cpu_read(cpu_asi_session.idepth)) {
 		cr3 = this_cpu_read(cpu_asi_session.isolation_cr3);
 		/* CR3 read never returns with the NOFLUSH bit */
 		cr3 &= ~X86_CR3_PCID_NOFLUSH;
