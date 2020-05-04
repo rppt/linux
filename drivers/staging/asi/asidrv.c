@@ -14,9 +14,21 @@
 
 #include "asidrv.h"
 
+#define ASIDRV_TEST_BUFFER_SIZE	PAGE_SIZE
+
+/* Number of read for mem/memmap test sequence */
+#define ASIDRV_MEM_READ_COUNT		1000
+
+enum asidrv_state {
+	ASIDRV_STATE_NONE,
+	ASIDRV_STATE_INTR_WAITING,
+	ASIDRV_STATE_INTR_RECEIVED,
+};
+
 struct asidrv_test {
 	struct asi		*asi;	/* ASI for testing */
 	struct dpt		*dpt;	/* ASI decorated page-table */
+	char			*buffer; /* buffer for testing */
 };
 
 struct asidrv_sequence {
@@ -41,6 +53,10 @@ static struct asidrv_test *asidrv_test_create(void)
 	test = kzalloc(sizeof(*test), GFP_KERNEL);
 	if (!test)
 		return NULL;
+
+	test->buffer = kzalloc(ASIDRV_TEST_BUFFER_SIZE, GFP_KERNEL);
+	if (!test->buffer)
+		goto error;
 
 	/*
 	 * Create and fill a decorator page-table to be used with the ASI.
@@ -96,6 +112,7 @@ static void asidrv_test_destroy(struct asidrv_test *test)
 	if (test->asi)
 		asi_destroy(test->asi);
 
+	kfree(test->buffer);
 	kfree(test);
 }
 
@@ -144,6 +161,51 @@ static int asidrv_asi_is_active(struct asi *asi)
 }
 
 /*
+ * Memory Buffer Access Test Sequences
+ */
+
+#define OPTNONE __attribute__((optimize(0)))
+
+static enum asidrv_run_error OPTNONE asidrv_mem_run(struct asidrv_test *test)
+{
+	char c;
+	int i, index;
+
+	/*
+	 * Do random reads in the test buffer, and return if the ASI
+	 * becomes inactive.
+	 */
+	for (i = 0; i < ASIDRV_MEM_READ_COUNT; i++) {
+		index = get_cycles() % ASIDRV_TEST_BUFFER_SIZE;
+		c = test->buffer[index];
+		if (!asidrv_asi_is_active(test->asi)) {
+			pr_warn("ASI inactive after reading byte %d at %d\n",
+				i + 1, index);
+			break;
+		}
+	}
+
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+static enum asidrv_run_error asidrv_memmap_setup(struct asidrv_test *test)
+{
+	int err;
+
+	pr_debug("mapping test buffer %px\n", test->buffer);
+	err = dpt_map(test->dpt, test->buffer, ASIDRV_TEST_BUFFER_SIZE);
+	if (err)
+		return ASIDRV_RUN_ERR_MAP_BUFFER;
+
+	return ASIDRV_RUN_ERR_NONE;
+}
+
+static void asidrv_memmap_cleanup(struct asidrv_test *test)
+{
+	dpt_unmap(test->dpt, test->buffer);
+}
+
+/*
  * Printk Test Sequence
  */
 static enum asidrv_run_error asidrv_printk_run(struct asidrv_test *test)
@@ -160,6 +222,14 @@ struct asidrv_sequence asidrv_sequences[] = {
 	[ASIDRV_SEQ_PRINTK] = {
 		"printk",
 		NULL, asidrv_printk_run, NULL,
+	},
+	[ASIDRV_SEQ_MEM] = {
+		"mem",
+		NULL, asidrv_mem_run, NULL,
+	},
+	[ASIDRV_SEQ_MEMMAP] = {
+		"memmap",
+		asidrv_memmap_setup, asidrv_mem_run, asidrv_memmap_cleanup,
 	},
 };
 
