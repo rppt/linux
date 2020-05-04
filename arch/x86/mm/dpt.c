@@ -9,6 +9,80 @@
 #include <asm/dpt.h>
 
 /*
+ * Get the pointer to the beginning of a page table directory from a page
+ * table directory entry.
+ */
+#define DPT_BACKEND_PAGE_ALIGN(entry)	\
+	((typeof(entry))(((unsigned long)(entry)) & PAGE_MASK))
+
+/*
+ * Pages used to build a page-table are stored in the backend_pages XArray.
+ * Each entry in the array is a logical OR of the page address and the page
+ * table level (PTE, PMD, PUD, P4D) this page is used for in the page-table.
+ *
+ * As a page address is aligned with PAGE_SIZE, we have plenty of space
+ * for storing the page table level (which is a value between 0 and 4) in
+ * the low bits of the page address.
+ *
+ */
+
+#define DPT_BACKEND_PAGE_ENTRY(addr, level)	\
+	((typeof(addr))(((unsigned long)(addr)) | ((unsigned long)(level))))
+#define DPT_BACKEND_PAGE_ADDR(entry)		\
+	((void *)(((unsigned long)(entry)) & PAGE_MASK))
+#define DPT_BACKEND_PAGE_LEVEL(entry)		\
+	((enum page_table_level)(((unsigned long)(entry)) & ~PAGE_MASK))
+
+static int dpt_add_backend_page(struct dpt *dpt, void *addr,
+				enum page_table_level level)
+{
+	unsigned long index;
+	void *old_entry;
+
+	if ((!addr) || ((unsigned long)addr) & ~PAGE_MASK)
+		return -EINVAL;
+
+	lockdep_assert_held(&dpt->lock);
+	index = dpt->backend_pages_count;
+
+	old_entry = xa_store(&dpt->backend_pages, index,
+			     DPT_BACKEND_PAGE_ENTRY(addr, level),
+			     GFP_KERNEL);
+	if (xa_is_err(old_entry))
+		return xa_err(old_entry);
+	if (old_entry)
+		return -EBUSY;
+
+	dpt->backend_pages_count++;
+
+	return 0;
+}
+
+/*
+ * Check if an offset in the page-table is valid, i.e. check that the
+ * offset is on a page effectively belonging to the page-table.
+ */
+static bool dpt_valid_offset(struct dpt *dpt, void *offset)
+{
+	unsigned long index;
+	void *addr, *entry;
+	bool valid;
+
+	addr = DPT_BACKEND_PAGE_ALIGN(offset);
+	valid = false;
+
+	lockdep_assert_held(&dpt->lock);
+	xa_for_each(&dpt->backend_pages, index, entry) {
+		if (DPT_BACKEND_PAGE_ADDR(entry) == addr) {
+			valid = true;
+			break;
+		}
+	}
+
+	return valid;
+}
+
+/*
  * dpt_create - allocate a page-table and create a corresponding
  * decorated page-table. The page-table is allocated and aligned
  * at the specified alignment (pgt_alignment) which should be a
@@ -41,6 +115,7 @@ struct dpt *dpt_create(unsigned int pgt_alignment)
 	dpt->alignment = pgt_alignment;
 
 	spin_lock_init(&dpt->lock);
+	xa_init(&dpt->backend_pages);
 
 	return dpt;
 }
@@ -50,9 +125,16 @@ void dpt_destroy(struct dpt *dpt)
 {
 	unsigned int pgt_alignment;
 	unsigned int alloc_order;
+	unsigned long index;
+	void *entry;
 
 	if (!dpt)
 		return;
+
+	if (dpt->backend_pages_count) {
+		xa_for_each(&dpt->backend_pages, index, entry)
+			free_page((unsigned long)DPT_BACKEND_PAGE_ADDR(entry));
+	}
 
 	if (dpt->pagetable) {
 		pgt_alignment = dpt->alignment;
