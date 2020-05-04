@@ -52,6 +52,10 @@ static void usage(void)
 	printf("\n");
 	printf("Commands:\n");
 	printf("  all      - run all tests\n");
+	printf("  fault    - list ASI faults\n");
+	printf("  fltclr   - clear ASI faults\n");
+	printf("  stkon    - show stack on ASI fault\n");
+	printf("  stkoff   - do not show stack on ASI fault\n");
 	printf("\n");
 	printf("Tests:\n");
 	for (i = 0; i < TEST_LIST_SIZE; i++)
@@ -91,10 +95,45 @@ static void asidrv_run_test(int fd, struct asidrv_test *test)
 		printf("TEST OK\n");
 }
 
+static int asidrv_fault_list(int fd)
+{
+	struct asidrv_fault_list *flist;
+	int i, rv;
+
+	flist = malloc(sizeof(*flist) +
+		       sizeof(struct asidrv_fault) * 10);
+	if (!flist) {
+		perror("malloc flist");
+		return -1;
+	}
+
+	flist->length = 10;
+	rv = ioctl(fd, ASIDRV_IOCTL_LIST_FAULT, flist);
+	if (rv < 0) {
+		perror("ioctl list fault");
+		return -1;
+	}
+
+	if (!flist->length) {
+		printf("ASI has no fault\n");
+		return 0;
+	}
+
+	printf("%-18s  %5s  %s\n", "ADDRESS", "COUNT", "SYMBOL");
+	for (i = 0; i < flist->length && i < 10; i++) {
+		printf("%#18llx  %5u  %s\n",
+		       flist->fault[i].addr,
+		       flist->fault[i].count,
+		       flist->fault[i].symbol);
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	bool run_all, run;
-	int i, j, fd;
+	int i, j, fd, err;
 	char *test;
 
 	if (argc <= 1) {
@@ -111,10 +150,33 @@ int main(int argc, char *argv[])
 	for (i = 1; i < argc; i++) {
 		test = argv[i];
 
-		if (!strcmp(test, "all"))
+		if (!strcmp(test, "fault")) {
+			asidrv_fault_list(fd);
+			continue;
+
+		} else if (!strcmp(test, "fltclr")) {
+			err = ioctl(fd, ASIDRV_IOCTL_CLEAR_FAULT);
+			if (err)
+				perror("ioctl clear fault");
+			continue;
+
+		} else if (!strcmp(test, "stkon")) {
+			err = ioctl(fd, ASIDRV_IOCTL_LOG_FAULT_STACK, true);
+			if (err)
+				perror("ioctl log fault stack");
+			continue;
+
+		} else if (!strcmp(test, "stkoff")) {
+			err = ioctl(fd, ASIDRV_IOCTL_LOG_FAULT_STACK, false);
+			if (err)
+				perror("ioctl log fault sstack");
+			continue;
+
+		} else if (!strcmp(test, "all")) {
 			run_all = true;
-		else
+		} else {
 			run_all = false;
+		}
 
 		run = false;
 		for (j = 0; j < TEST_LIST_SIZE; j++) {
