@@ -50,8 +50,7 @@
  * using MMU this corresponds to the first free page in physical memory (aligned
  * on a page boundary).
  */
-extern unsigned int __page_offset;
-#define PAGE_OFFSET __page_offset
+#define PAGE_OFFSET memory_start
 
 #else /* CONFIG_MMU */
 
@@ -124,10 +123,6 @@ typedef struct { p4d_t		pge[1]; }	pgd_t;
  *
  */
 
-extern unsigned long max_low_pfn;
-extern unsigned long min_low_pfn;
-extern unsigned long max_pfn;
-
 extern unsigned long memory_start;
 extern unsigned long memory_size;
 extern unsigned long lowmem_size;
@@ -156,14 +151,9 @@ extern int page_is_ram(unsigned long pfn);
 #  define phys_to_page(paddr)	(pfn_to_page(phys_to_pfn(paddr)))
 #  endif /* CONFIG_MMU */
 
-#  ifndef CONFIG_MMU
-#  define pfn_valid(pfn)	(((pfn) >= min_low_pfn) && \
-				((pfn) <= (min_low_pfn + max_mapnr)))
-#  define ARCH_PFN_OFFSET	(PAGE_OFFSET >> PAGE_SHIFT)
-#  else /* CONFIG_MMU */
-#  define ARCH_PFN_OFFSET	(memory_start >> PAGE_SHIFT)
-#  define pfn_valid(pfn)	((pfn) < (max_mapnr + ARCH_PFN_OFFSET))
-#  endif /* CONFIG_MMU */
+#define ARCH_PFN_OFFSET	(memory_start >> PAGE_SHIFT)
+#define pfn_valid(pfn)	(((pfn) >= ARCH_PFN_OFFSET) && \
+			 ((pfn) < (ARCH_PFN_OFFSET + max_mapnr)))
 
 # endif /* __ASSEMBLY__ */
 

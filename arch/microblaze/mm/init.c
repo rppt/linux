@@ -120,7 +120,6 @@ void __init setup_memory(void)
 		if ((memory_start <= (u32)_text) &&
 			((u32)_text <= (memory_start + lowmem_size - 1))) {
 			memory_size = lowmem_size;
-			PAGE_OFFSET = memory_start;
 			pr_info("%s: Main mem: 0x%x, size 0x%08x\n",
 				__func__, (u32) memory_start,
 					(u32) memory_size);
