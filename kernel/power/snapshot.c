@@ -89,9 +89,9 @@ static inline void hibernate_map_page(struct page *page, int enable)
 		 * changes and this will no longer be the case.
 		 */
 		if (enable)
-			ret = set_direct_map_default_noflush(page);
+			ret = set_direct_map_default_noflush(page, 1);
 		else
-			ret = set_direct_map_invalid_noflush(page);
+			ret = set_direct_map_invalid_noflush(page, 1);
 
 		if (ret) {
 			pr_warn_once("Failed to remap page\n");
