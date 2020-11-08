@@ -46,10 +46,7 @@ enum amd_apu_flags {
 	AMD_APU_IS_PICASSO = 0x00000004UL,
 	AMD_APU_IS_RENOIR = 0x00000008UL,
 	AMD_APU_IS_GREEN_SARDINE = 0x00000010UL,
-<<<<<<< HEAD
-=======
 	AMD_APU_IS_VANGOGH = 0x00000020UL,
->>>>>>> linux-next/akpm-base
 };
 
 /**
