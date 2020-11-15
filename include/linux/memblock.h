@@ -460,23 +460,8 @@ static inline void __init memblock_free_late(phys_addr_t base, phys_addr_t size)
 	__memblock_free_late(base, size);
 }
 
-/*
- * Set the allocation direction to bottom-up or top-down.
- */
-static inline void __init memblock_set_bottom_up(bool enable)
-{
-	memblock.bottom_up = enable;
-}
-
-/*
- * Check if the allocation direction is bottom-up or not.
- * if this is true, that said, memblock will allocate memory
- * in bottom-up direction.
- */
-static inline bool memblock_bottom_up(void)
-{
-	return memblock.bottom_up;
-}
+void memblock_set_bottom_up(bool enable);
+bool memblock_bottom_up(void);
 
 phys_addr_t memblock_phys_mem_size(void);
 phys_addr_t memblock_reserved_size(void);

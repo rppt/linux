@@ -876,6 +876,24 @@ int __init_memblock memblock_physmem_add(phys_addr_t base, phys_addr_t size)
 }
 #endif
 
+/*
+ * Set the allocation direction to bottom-up or top-down.
+ */
+void __init memblock_set_bottom_up(bool enable)
+{
+	memblock.bottom_up = enable;
+}
+
+/*
+ * Check if the allocation direction is bottom-up or not.
+ * if this is true, that said, memblock will allocate memory
+ * in bottom-up direction.
+ */
+bool __init memblock_bottom_up(void)
+{
+	return memblock.bottom_up;
+}
+
 /**
  * memblock_setclr_flag - set or clear flag for a memory region
  * @base: base address of the region
