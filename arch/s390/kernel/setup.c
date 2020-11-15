@@ -682,7 +682,7 @@ static void __init reserve_crashkernel(void)
 	if (rc || crash_size == 0)
 		return;
 
-	if (memblock.memory.regions[0].size < crash_size) {
+	if (memblock_memory()->regions[0].size < crash_size) {
 		pr_info("crashkernel reservation failed: %s\n",
 			"first memory chunk must be at least crashkernel size");
 		return;
@@ -725,7 +725,7 @@ static void __init reserve_crashkernel(void)
 	pr_info("Reserving %lluMB of memory at %lluMB "
 		"for crashkernel (System RAM: %luMB)\n",
 		crash_size >> 20, crash_base >> 20,
-		(unsigned long)memblock.memory.total_size >> 20);
+		(unsigned long)memblock_memory()->total_size >> 20);
 	os_info_crashkernel_add(crash_base, crash_size);
 #endif
 }
@@ -800,7 +800,7 @@ static void __init memblock_add_mem_detect_info(void)
 		memblock_physmem_add(start, end - start);
 	}
 	memblock_set_bottom_up(false);
-	memblock_set_node(0, ULONG_MAX, &memblock.memory, 0);
+	memblock_set_node(0, ULONG_MAX, memblock_memory(), 0);
 	memblock_dump_all();
 }
 

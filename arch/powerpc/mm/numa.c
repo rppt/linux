@@ -691,7 +691,7 @@ static int __init numa_setup_drmem_lmb(struct drmem_lmb *lmb,
 		node_set_online(nid);
 		sz = numa_enforce_memory_limit(base, size);
 		if (sz)
-			memblock_set_node(base, sz, &memblock.memory, nid);
+			memblock_set_node(base, sz, memblock_memory(), nid);
 	} while (--ranges);
 
 	return 0;
@@ -784,7 +784,7 @@ new_range:
 
 		size = numa_enforce_memory_limit(start, size);
 		if (size)
-			memblock_set_node(start, size, &memblock.memory, nid);
+			memblock_set_node(start, size, memblock_memory(), nid);
 
 		if (--ranges)
 			goto new_range;
@@ -821,7 +821,7 @@ static void __init setup_nonnuma(void)
 		fake_numa_create_new_node(end_pfn, &nid);
 		memblock_set_node(PFN_PHYS(start_pfn),
 				  PFN_PHYS(end_pfn - start_pfn),
-				  &memblock.memory, nid);
+				  memblock_memory(), nid);
 		node_set_online(nid);
 	}
 }

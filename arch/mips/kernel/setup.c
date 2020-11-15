@@ -640,7 +640,7 @@ static void __init arch_mem_init(char **cmdline_p)
 	early_init_fdt_scan_reserved_mem();
 
 #ifndef CONFIG_NUMA
-	memblock_set_node(0, PHYS_ADDR_MAX, &memblock.memory, 0);
+	memblock_set_node(0, PHYS_ADDR_MAX, memblock_memory(), 0);
 #endif
 	bootmem_init();
 

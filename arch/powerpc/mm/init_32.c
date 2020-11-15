@@ -121,9 +121,9 @@ void __init MMU_init(void)
 	 * Reserve gigantic pages for hugetlb.  This MUST occur before
 	 * lowmem_end_addr is initialized below.
 	 */
-	if (memblock.memory.cnt > 1) {
+	if (memblock_memory()->cnt > 1) {
 #ifndef CONFIG_WII
-		memblock_enforce_memory_limit(memblock.memory.regions[0].size);
+		memblock_enforce_memory_limit(memblock_memory()->regions[0].size);
 		pr_warn("Only using first contiguous memory region\n");
 #else
 		wii_memory_fixups();

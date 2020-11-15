@@ -205,7 +205,7 @@ int __init numa_add_memblk(int nid, u64 start, u64 end)
 {
 	int ret;
 
-	ret = memblock_set_node(start, (end - start), &memblock.memory, nid);
+	ret = memblock_set_node(start, (end - start), memblock_memory(), nid);
 	if (ret < 0) {
 		pr_err("memblock [0x%llx - 0x%llx] failed to add on node %d\n",
 			start, (end - 1), nid);

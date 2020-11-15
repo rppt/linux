@@ -806,7 +806,7 @@ kernel_physical_mapping_change(unsigned long paddr_start,
 #ifndef CONFIG_NUMA
 void __init initmem_init(void)
 {
-	memblock_set_node(0, PHYS_ADDR_MAX, &memblock.memory, 0);
+	memblock_set_node(0, PHYS_ADDR_MAX, memblock_memory(), 0);
 }
 #endif
 

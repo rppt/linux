@@ -174,7 +174,7 @@ void __init mem_topology_setup(void)
 	/* Place all memblock_regions in the same node and merge contiguous
 	 * memblock_regions
 	 */
-	memblock_set_node(0, PHYS_ADDR_MAX, &memblock.memory, 0);
+	memblock_set_node(0, PHYS_ADDR_MAX, memblock_memory(), 0);
 }
 
 void __init initmem_init(void)

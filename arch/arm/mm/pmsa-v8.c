@@ -236,6 +236,7 @@ static int __init pmsav8_setup_vector(unsigned int number, phys_addr_t start,phy
 
 void __init pmsav8_setup(void)
 {
+	struct memblock_region *bank0;
 	int i, err = 0;
 	int region = PMSAv8_KERNEL_REGION;
 
@@ -243,8 +244,9 @@ void __init pmsav8_setup(void)
 	mpu_max_regions = __mpu_max_regions();
 
 	/* RAM: single chunk of memory */
-	add_range(mem,  ARRAY_SIZE(mem), 0,  memblock.memory.regions[0].base,
-		  memblock.memory.regions[0].base + memblock.memory.regions[0].size);
+	bank0 = memblock_memory()->regions[0];
+	add_range(mem,  ARRAY_SIZE(mem), 0, bank0->base,
+		  bank0->base + bank0->size);
 
 	/* IO: cover full 4G range */
 	add_range(io, ARRAY_SIZE(io), 0, 0, 0xffffffff);

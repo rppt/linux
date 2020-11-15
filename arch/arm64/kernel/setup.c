@@ -211,7 +211,7 @@ static void __init request_standard_resources(void)
 	kernel_data.start   = __pa_symbol(_sdata);
 	kernel_data.end     = __pa_symbol(_end - 1);
 
-	num_standard_resources = memblock.memory.cnt;
+	num_standard_resources = memblock_memory()->cnt;
 	res_size = num_standard_resources * sizeof(*standard_resources);
 	standard_resources = memblock_alloc(res_size, SMP_CACHE_BYTES);
 	if (!standard_resources)

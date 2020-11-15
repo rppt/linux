@@ -1197,7 +1197,7 @@ static void __init add_node_ranges(void)
 	u64 i;
 
 memblock_resized:
-	prev_max = memblock.memory.max;
+	prev_max = memblock_memory()->max;
 
 	for_each_mem_range(i, &start, &end) {
 		while (start < end) {
@@ -1211,8 +1211,8 @@ memblock_resized:
 				nid, start, this_end);
 
 			memblock_set_node(start, this_end - start,
-					  &memblock.memory, nid);
-			if (memblock.memory.max != prev_max)
+					  memblock_memory(), nid);
+			if (memblock_memory()->max != prev_max)
 				goto memblock_resized;
 			start = this_end;
 		}
@@ -1585,7 +1585,7 @@ static void __init bootmem_init_nonnuma(void)
 	       (top_of_ram - total_ram) >> 20);
 
 	init_node_masks_nonnuma();
-	memblock_set_node(0, PHYS_ADDR_MAX, &memblock.memory, 0);
+	memblock_set_node(0, PHYS_ADDR_MAX, memblock_memory(), 0);
 	allocate_node_data(0);
 	node_set_online(0);
 }

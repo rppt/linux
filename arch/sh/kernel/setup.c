@@ -237,7 +237,7 @@ void __init __add_active_range(unsigned int nid, unsigned long start_pfn,
 			 PAGE_KERNEL);
 
 	memblock_set_node(PFN_PHYS(start_pfn), PFN_PHYS(end_pfn - start_pfn),
-			  &memblock.memory, nid);
+			  memblock_memory(), nid);
 }
 
 void __init __weak plat_early_device_setup(void)

@@ -132,13 +132,23 @@ struct memblock_type physmem = {
 };
 #endif
 
+struct memblock_type *__init_memblock memblock_memory(void)
+{
+	return &memblock.memory;
+}
+
+struct memblock_type *__init_memblock memblock_reserved(void)
+{
+	return &memblock.reserved;
+}
+
 /*
  * keep a pointer to &memblock.memory in the text section to use it in
  * __next_mem_range() and its helpers.
  *  For architectures that do not keep memblock data after init, this
  * pointer will be reset to NULL at memblock_discard()
  */
-static __refdata struct memblock_type *memblock_memory = &memblock.memory;
+static __refdata struct memblock_type *__memblock_memory = &memblock.memory;
 
 #define for_each_memblock_type(i, memblock_type, rgn)			\
 	for (i = 0, rgn = &memblock_type->regions[0];			\
@@ -411,7 +421,7 @@ void __init memblock_discard(void)
 		__memblock_free_late(addr, size);
 	}
 
-	memblock_memory = NULL;
+	__memblock_memory = NULL;
 }
 #endif
 
@@ -969,7 +979,7 @@ static bool should_skip_region(struct memblock_type *type,
 	int m_nid = memblock_get_region_node(m);
 
 	/* we never skip regions when iterating memblock.reserved or physmem */
-	if (type != memblock_memory)
+	if (type != __memblock_memory)
 		return false;
 
 	/* only memory regions are associated with nodes, check it */

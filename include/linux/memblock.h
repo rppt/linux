@@ -87,6 +87,9 @@ struct memblock {
 
 extern struct memblock memblock;
 
+struct memblock_type *memblock_memory(void);
+struct memblock_type *memblock_reserved(void);
+
 #ifndef CONFIG_ARCH_KEEP_MEMBLOCK
 #define __init_memblock __meminit
 #define __initdata_memblock __meminitdata
@@ -205,8 +208,8 @@ static inline void __next_physmem_range(u64 *idx, struct memblock_type *type,
  * @p_start: ptr to phys_addr_t for start address of the range, can be %NULL
  * @p_end: ptr to phys_addr_t for end address of the range, can be %NULL
  */
-#define for_each_mem_range(i, p_start, p_end) \
-	__for_each_mem_range(i, &memblock.memory, NULL, NUMA_NO_NODE,	\
+#define for_each_mem_range(i, p_start, p_end)				\
+	__for_each_mem_range(i, memblock_memory(), NULL, NUMA_NO_NODE,	\
 			     MEMBLOCK_NONE, p_start, p_end, NULL)
 
 /**
@@ -217,7 +220,7 @@ static inline void __next_physmem_range(u64 *idx, struct memblock_type *type,
  * @p_end: ptr to phys_addr_t for end address of the range, can be %NULL
  */
 #define for_each_mem_range_rev(i, p_start, p_end)			\
-	__for_each_mem_range_rev(i, &memblock.memory, NULL, NUMA_NO_NODE, \
+	__for_each_mem_range_rev(i, memblock_memory(), NULL, NUMA_NO_NODE, \
 				 MEMBLOCK_NONE, p_start, p_end, NULL)
 
 /**
@@ -230,7 +233,7 @@ static inline void __next_physmem_range(u64 *idx, struct memblock_type *type,
  * is initialized.
  */
 #define for_each_reserved_mem_range(i, p_start, p_end)			\
-	__for_each_mem_range(i, &memblock.reserved, NULL, NUMA_NO_NODE,	\
+	__for_each_mem_range(i, memblock_reserved(), NULL, NUMA_NO_NODE,	\
 			     MEMBLOCK_NONE, p_start, p_end, NULL)
 
 static inline bool memblock_is_hotpluggable(struct memblock_region *m)
@@ -324,7 +327,7 @@ int __init deferred_page_init_max_threads(const struct cpumask *node_cpumask);
  * soon as memblock is initialized.
  */
 #define for_each_free_mem_range(i, nid, flags, p_start, p_end, p_nid)	\
-	__for_each_mem_range(i, &memblock.memory, &memblock.reserved,	\
+	__for_each_mem_range(i, memblock_memory(), memblock_reserved(),	\
 			     nid, flags, p_start, p_end, p_nid)
 
 /**
@@ -341,7 +344,7 @@ int __init deferred_page_init_max_threads(const struct cpumask *node_cpumask);
  */
 #define for_each_free_mem_range_reverse(i, nid, flags, p_start, p_end,	\
 					p_nid)				\
-	__for_each_mem_range_rev(i, &memblock.memory, &memblock.reserved, \
+	__for_each_mem_range_rev(i, memblock_memory(), memblock_reserved(), \
 				 nid, flags, p_start, p_end, p_nid)
 
 int memblock_set_node(phys_addr_t base, phys_addr_t size,
@@ -558,8 +561,8 @@ static inline unsigned long memblock_region_reserved_end_pfn(const struct memblo
  * @region: loop variable
  */
 #define for_each_mem_region(region)					\
-	for (region = memblock.memory.regions;				\
-	     region < (memblock.memory.regions + memblock.memory.cnt);	\
+	for (region = memblock_memory()->regions;			\
+	     region < (memblock_memory()->regions + memblock_memory()->cnt);	\
 	     region++)
 
 /**
@@ -567,8 +570,8 @@ static inline unsigned long memblock_region_reserved_end_pfn(const struct memblo
  * @region: loop variable
  */
 #define for_each_reserved_mem_region(region)				\
-	for (region = memblock.reserved.regions;			\
-	     region < (memblock.reserved.regions + memblock.reserved.cnt); \
+	for (region = memblock_reserved()->regions;			\
+	     region < (memblock_reserved()->regions + memblock_reserved()->cnt); \
 	     region++)
 
 extern void *alloc_large_system_hash(const char *tablename,

@@ -1247,6 +1247,7 @@ void __init adjust_lowmem_bounds(void)
 
 static inline void prepare_page_table(void)
 {
+	struct memblock_region *bank0;
 	unsigned long addr;
 	phys_addr_t end;
 
@@ -1266,7 +1267,8 @@ static inline void prepare_page_table(void)
 	/*
 	 * Find the end of the first block of lowmem.
 	 */
-	end = memblock.memory.regions[0].base + memblock.memory.regions[0].size;
+	bank0 = &memblock_memory()->regions[0];
+	end = bank0->base + bank0->size;
 	if (end >= arm_lowmem_limit)
 		end = arm_lowmem_limit;
 

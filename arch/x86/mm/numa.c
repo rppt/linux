@@ -246,7 +246,7 @@ int __init numa_cleanup_meminfo(struct numa_meminfo *mi)
 		struct numa_memblk *bi = &mi->blk[i];
 
 		/* move / save reserved memory ranges */
-		if (!memblock_overlaps_region(&memblock.memory,
+		if (!memblock_overlaps_region(memblock_memory(),
 					bi->start, bi->end - bi->start)) {
 			numa_move_tail_memblk(&numa_reserved_meminfo, i--, mi);
 			continue;
@@ -501,7 +501,7 @@ static void __init numa_clear_kernel_node_hotplug(void)
 		struct numa_memblk *mb = numa_meminfo.blk + i;
 		int ret;
 
-		ret = memblock_set_node(mb->start, mb->end - mb->start, &memblock.reserved, mb->nid);
+		ret = memblock_set_node(mb->start, mb->end - mb->start, memblock_reserved(), mb->nid);
 		WARN_ON_ONCE(ret);
 	}
 
@@ -552,7 +552,7 @@ static int __init numa_register_memblks(struct numa_meminfo *mi)
 	for (i = 0; i < mi->nr_blks; i++) {
 		struct numa_memblk *mb = &mi->blk[i];
 		memblock_set_node(mb->start, mb->end - mb->start,
-				  &memblock.memory, mb->nid);
+				  memblock_memory(), mb->nid);
 	}
 
 	/*
@@ -643,9 +643,9 @@ static int __init numa_init(int (*init_func)(void))
 	nodes_clear(node_possible_map);
 	nodes_clear(node_online_map);
 	memset(&numa_meminfo, 0, sizeof(numa_meminfo));
-	WARN_ON(memblock_set_node(0, ULLONG_MAX, &memblock.memory,
+	WARN_ON(memblock_set_node(0, ULLONG_MAX, memblock_memory(),
 				  MAX_NUMNODES));
-	WARN_ON(memblock_set_node(0, ULLONG_MAX, &memblock.reserved,
+	WARN_ON(memblock_set_node(0, ULLONG_MAX, memblock_reserved(),
 				  MAX_NUMNODES));
 	/* In case that parsing SRAT failed. */
 	WARN_ON(memblock_clear_hotplug(0, ULLONG_MAX));

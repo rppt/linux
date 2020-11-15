@@ -245,7 +245,7 @@ asmlinkage void __init mmu_init(void)
 {
 	unsigned int kstart, ksize;
 
-	if (!memblock.reserved.cnt) {
+	if (!memblock_reserved()->cnt) {
 		pr_emerg("Error memory count\n");
 		machine_restart(NULL);
 	}
