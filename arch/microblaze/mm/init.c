@@ -207,7 +207,7 @@ static void mm_cmdline_setup(void)
 		maxmem = memparse(p, &p);
 		if (maxmem && memory_size > maxmem) {
 			memory_size = maxmem;
-			memblock.memory.regions[0].size = memory_size;
+			memblock_enforce_memory_limit(memory_size);
 		}
 	}
 }
@@ -250,19 +250,19 @@ asmlinkage void __init mmu_init(void)
 		machine_restart(NULL);
 	}
 
-	if ((u32) memblock.memory.regions[0].size < 0x400000) {
+	if (memblock_phys_mem_size() < 0x400000) {
 		pr_emerg("Memory must be greater than 4MB\n");
 		machine_restart(NULL);
 	}
 
-	if ((u32) memblock.memory.regions[0].size < kernel_tlb) {
+	if (memblock_phys_mem_size() < kernel_tlb) {
 		pr_emerg("Kernel size is greater than memory node\n");
 		machine_restart(NULL);
 	}
 
 	/* Find main memory where the kernel is */
-	memory_start = (u32) memblock.memory.regions[0].base;
-	lowmem_size = memory_size = (u32) memblock.memory.regions[0].size;
+	memory_start = memblock_start_of_DRAM();
+	lowmem_size = memory_size = memblock_phys_mem_size();
 
 	if (lowmem_size > CONFIG_LOWMEM_SIZE) {
 		lowmem_size = CONFIG_LOWMEM_SIZE;
