@@ -108,33 +108,21 @@ static struct memblock_region memblock_reserved_init_regions[INIT_MEMBLOCK_RESER
 static struct memblock_region memblock_physmem_init_regions[INIT_PHYSMEM_REGIONS];
 #endif
 
-/**
- * struct memblock - memblock allocator metadata
- * @bottom_up: is bottom up direction?
- * @current_limit: physical address of the current allocation limit
- * @memory: usable memory regions
- * @reserved: reserved memory regions
- */
-struct memblock {
-	bool bottom_up;  /* is bottom up direction? */
-	phys_addr_t current_limit;
-	struct memblock_type memory;
-	struct memblock_type reserved;
+static bool bottom_up = false;  /* is bottom up direction? */
+static phys_addr_t current_limit = MEMBLOCK_ALLOC_ANYWHERE;
+
+static struct memblock_type memory  __initdata_memblock = {
+	.regions	= memblock_memory_init_regions,
+	.cnt		= 1,	/* empty dummy entry */
+	.max		= INIT_MEMBLOCK_REGIONS,
+	.name		= "memory",
 };
 
-static struct memblock memblock __initdata_memblock = {
-	.memory.regions		= memblock_memory_init_regions,
-	.memory.cnt		= 1,	/* empty dummy entry */
-	.memory.max		= INIT_MEMBLOCK_REGIONS,
-	.memory.name		= "memory",
-
-	.reserved.regions	= memblock_reserved_init_regions,
-	.reserved.cnt		= 1,	/* empty dummy entry */
-	.reserved.max		= INIT_MEMBLOCK_RESERVED_REGIONS,
-	.reserved.name		= "reserved",
-
-	.bottom_up		= false,
-	.current_limit		= MEMBLOCK_ALLOC_ANYWHERE,
+static struct memblock_type reserved __initdata_memblock = {
+	.regions	= memblock_reserved_init_regions,
+	.cnt		= 1,	/* empty dummy entry */
+	.max		= INIT_MEMBLOCK_RESERVED_REGIONS,
+	.name		= "reserved",
 };
 
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
@@ -148,21 +136,21 @@ struct memblock_type physmem = {
 
 struct memblock_type *__init_memblock memblock_memory(void)
 {
-	return &memblock.memory;
+	return &memory;
 }
 
 struct memblock_type *__init_memblock memblock_reserved(void)
 {
-	return &memblock.reserved;
+	return &reserved;
 }
 
 /*
- * keep a pointer to &memblock.memory in the text section to use it in
+ * keep a pointer to &memory in the text section to use it in
  * __next_mem_range() and its helpers.
  *  For architectures that do not keep memblock data after init, this
  * pointer will be reset to NULL at memblock_discard()
  */
-static __refdata struct memblock_type *__memblock_memory = &memblock.memory;
+static __refdata struct memblock_type *__memblock_memory = &memory;
 
 #define for_each_memblock_type(i, memblock_type, rgn)			\
 	for (i = 0, rgn = &memblock_type->regions[0];			\
@@ -320,7 +308,7 @@ static phys_addr_t __init_memblock memblock_find_in_range_node(phys_addr_t size,
 	/* pump up @end */
 	if (end == MEMBLOCK_ALLOC_ACCESSIBLE ||
 	    end == MEMBLOCK_ALLOC_KASAN)
-		end = memblock.current_limit;
+		end = current_limit;
 
 	/* avoid allocating the first page */
 	start = max_t(phys_addr_t, start, PAGE_SIZE);
@@ -421,17 +409,17 @@ void __init memblock_discard(void)
 {
 	phys_addr_t addr, size;
 
-	if (memblock.reserved.regions != memblock_reserved_init_regions) {
-		addr = __pa(memblock.reserved.regions);
+	if (reserved.regions != memblock_reserved_init_regions) {
+		addr = __pa(reserved.regions);
 		size = PAGE_ALIGN(sizeof(struct memblock_region) *
-				  memblock.reserved.max);
+				  reserved.max);
 		__memblock_free_late(addr, size);
 	}
 
-	if (memblock.memory.regions != memblock_memory_init_regions) {
-		addr = __pa(memblock.memory.regions);
+	if (memory.regions != memblock_memory_init_regions) {
+		addr = __pa(memory.regions);
 		size = PAGE_ALIGN(sizeof(struct memblock_region) *
-				  memblock.memory.max);
+				  memory.max);
 		__memblock_free_late(addr, size);
 	}
 
@@ -481,7 +469,7 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 	new_alloc_size = PAGE_ALIGN(new_size);
 
 	/* Retrieve the slab flag */
-	if (type == &memblock.memory)
+	if (type == &memory)
 		in_slab = &memblock_memory_in_slab;
 	else
 		in_slab = &memblock_reserved_in_slab;
@@ -492,15 +480,15 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 		addr = new_array ? __pa(new_array) : 0;
 	} else {
 		/* only exclude range when trying to double reserved.regions */
-		if (type != &memblock.reserved)
+		if (type != &reserved)
 			new_area_start = new_area_size = 0;
 
 		addr = memblock_find_in_range(new_area_start + new_area_size,
-						memblock.current_limit,
+						current_limit,
 						new_alloc_size, PAGE_SIZE);
 		if (!addr && new_area_size)
 			addr = memblock_find_in_range(0,
-				min(new_area_start, memblock.current_limit),
+				min(new_area_start, current_limit),
 				new_alloc_size, PAGE_SIZE);
 
 		new_array = addr ? __va(addr) : NULL;
@@ -724,7 +712,7 @@ repeat:
 int __init_memblock memblock_add_node(phys_addr_t base, phys_addr_t size,
 				       int nid)
 {
-	return memblock_add_range(&memblock.memory, base, size, nid, 0);
+	return memblock_add_range(&memory, base, size, nid, 0);
 }
 
 /**
@@ -745,7 +733,7 @@ int __init_memblock memblock_add(phys_addr_t base, phys_addr_t size)
 	memblock_dbg("%s: [%pa-%pa] %pS\n", __func__,
 		     &base, &end, (void *)_RET_IP_);
 
-	return memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0);
+	return memblock_add_range(&memory, base, size, MAX_NUMNODES, 0);
 }
 
 /**
@@ -846,7 +834,7 @@ int __init_memblock memblock_remove(phys_addr_t base, phys_addr_t size)
 	memblock_dbg("%s: [%pa-%pa] %pS\n", __func__,
 		     &base, &end, (void *)_RET_IP_);
 
-	return memblock_remove_range(&memblock.memory, base, size);
+	return memblock_remove_range(&memory, base, size);
 }
 
 /**
@@ -865,7 +853,7 @@ int __init_memblock memblock_free(phys_addr_t base, phys_addr_t size)
 		     &base, &end, (void *)_RET_IP_);
 
 	kmemleak_free_part_phys(base, size);
-	return memblock_remove_range(&memblock.reserved, base, size);
+	return memblock_remove_range(&reserved, base, size);
 }
 
 int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
@@ -875,7 +863,7 @@ int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 	memblock_dbg("%s: [%pa-%pa] %pS\n", __func__,
 		     &base, &end, (void *)_RET_IP_);
 
-	return memblock_add_range(&memblock.reserved, base, size, MAX_NUMNODES, 0);
+	return memblock_add_range(&reserved, base, size, MAX_NUMNODES, 0);
 }
 
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
@@ -895,7 +883,7 @@ int __init_memblock memblock_physmem_add(phys_addr_t base, phys_addr_t size)
  */
 void __init memblock_set_bottom_up(bool enable)
 {
-	memblock.bottom_up = enable;
+	bottom_up = enable;
 }
 
 /*
@@ -905,7 +893,7 @@ void __init memblock_set_bottom_up(bool enable)
  */
 bool __init memblock_bottom_up(void)
 {
-	return memblock.bottom_up;
+	return bottom_up;
 }
 
 /**
@@ -922,7 +910,7 @@ bool __init memblock_bottom_up(void)
 static int __init_memblock memblock_setclr_flag(phys_addr_t base,
 				phys_addr_t size, int set, int flag)
 {
-	struct memblock_type *type = &memblock.memory;
+	struct memblock_type *type = &memory;
 	int i, ret, start_rgn, end_rgn;
 
 	ret = memblock_isolate_range(type, base, size, &start_rgn, &end_rgn);
@@ -1010,7 +998,7 @@ static bool should_skip_region(struct memblock_type *type,
 {
 	int m_nid = memblock_get_region_node(m);
 
-	/* we never skip regions when iterating memblock.reserved or physmem */
+	/* we never skip regions when iterating reserved or physmem */
 	if (type != __memblock_memory)
 		return false;
 
@@ -1242,7 +1230,7 @@ void __init_memblock __next_mem_pfn_range(int *idx, int nid,
 				unsigned long *out_start_pfn,
 				unsigned long *out_end_pfn, int *out_nid)
 {
-	struct memblock_type *type = &memblock.memory;
+	struct memblock_type *type = &memory;
 	struct memblock_region *r;
 	int r_nid;
 
@@ -1325,8 +1313,7 @@ __next_mem_pfn_range_in_zone(u64 *idx, struct zone *zone,
 	int nid;
 
 	__next_mem_range(idx, zone_nid, MEMBLOCK_NONE,
-			 &memblock.memory, &memblock.reserved,
-			 &spa, &epa, &nid);
+			 &memory, &reserved, &spa, &epa, &nid);
 
 	while (*idx != U64_MAX) {
 		unsigned long epfn = PFN_DOWN(epa);
@@ -1352,8 +1339,7 @@ __next_mem_pfn_range_in_zone(u64 *idx, struct zone *zone,
 		}
 
 		__next_mem_range(idx, zone_nid, MEMBLOCK_NONE,
-				 &memblock.memory, &memblock.reserved,
-				 &spa, &epa, &nid);
+				 &memory, &reserved, &spa, &epa, &nid);
 	}
 
 	/* signal end of iteration */
@@ -1375,7 +1361,7 @@ __next_mem_pfn_range_in_zone(u64 *idx, struct zone *zone,
  * @exact_nid: control the allocation fall back to other nodes
  *
  * The allocation is performed from memory region limited by
- * memblock.current_limit if @end == %MEMBLOCK_ALLOC_ACCESSIBLE.
+ * memblock::current_limit if @end == %MEMBLOCK_ALLOC_ACCESSIBLE.
  *
  * If the specified node can not hold the requested memory and @exact_nid
  * is false, the allocation falls back to any node in the system.
@@ -1519,8 +1505,8 @@ static void * __init memblock_alloc_internal(
 	if (WARN_ON_ONCE(slab_is_available()))
 		return kzalloc_node(size, GFP_NOWAIT, nid);
 
-	if (max_addr > memblock.current_limit)
-		max_addr = memblock.current_limit;
+	if (max_addr > current_limit)
+		max_addr = current_limit;
 
 	alloc = memblock_alloc_range_nid(size, align, min_addr, max_addr, nid,
 					exact_nid);
@@ -1545,7 +1531,7 @@ static void * __init memblock_alloc_internal(
  *	  is preferred (phys address)
  * @max_addr: the upper bound of the memory region from where the allocation
  *	      is preferred (phys address), or %MEMBLOCK_ALLOC_ACCESSIBLE to
- *	      allocate only from memory limited by memblock.current_limit value
+ *	      allocate only from memory limited by memblock::current_limit value
  * @nid: nid of the free area to find, %NUMA_NO_NODE for any node
  *
  * Public function, provides additional debug information (including caller
@@ -1582,7 +1568,7 @@ void * __init memblock_alloc_exact_nid_raw(
  *	  is preferred (phys address)
  * @max_addr: the upper bound of the memory region from where the allocation
  *	      is preferred (phys address), or %MEMBLOCK_ALLOC_ACCESSIBLE to
- *	      allocate only from memory limited by memblock.current_limit value
+ *	      allocate only from memory limited by memblock::current_limit value
  * @nid: nid of the free area to find, %NUMA_NO_NODE for any node
  *
  * Public function, provides additional debug information (including caller
@@ -1619,7 +1605,7 @@ void * __init memblock_alloc_try_nid_raw(
  *	  is preferred (phys address)
  * @max_addr: the upper bound of the memory region from where the allocation
  *	      is preferred (phys address), or %MEMBLOCK_ALLOC_ACCESSIBLE to
- *	      allocate only from memory limited by memblock.current_limit value
+ *	      allocate only from memory limited by memblock::current_limit value
  * @nid: nid of the free area to find, %NUMA_NO_NODE for any node
  *
  * Public function, provides additional debug information (including caller
@@ -1678,25 +1664,25 @@ void __init __memblock_free_late(phys_addr_t base, phys_addr_t size)
 
 phys_addr_t __init_memblock memblock_phys_mem_size(void)
 {
-	return memblock.memory.total_size;
+	return memory.total_size;
 }
 
 phys_addr_t __init_memblock memblock_reserved_size(void)
 {
-	return memblock.reserved.total_size;
+	return reserved.total_size;
 }
 
 /* lowest address */
 phys_addr_t __init_memblock memblock_start_of_DRAM(void)
 {
-	return memblock.memory.regions[0].base;
+	return memory.regions[0].base;
 }
 
 phys_addr_t __init_memblock memblock_end_of_DRAM(void)
 {
-	int idx = memblock.memory.cnt - 1;
+	int idx = memory.cnt - 1;
 
-	return (memblock.memory.regions[idx].base + memblock.memory.regions[idx].size);
+	return (memory.regions[idx].base + memory.regions[idx].size);
 }
 
 static phys_addr_t __init_memblock __find_max_addr(phys_addr_t limit)
@@ -1734,10 +1720,8 @@ void __init memblock_enforce_memory_limit(phys_addr_t limit)
 		return;
 
 	/* truncate both memory and reserved regions */
-	memblock_remove_range(&memblock.memory, max_addr,
-			      PHYS_ADDR_MAX);
-	memblock_remove_range(&memblock.reserved, max_addr,
-			      PHYS_ADDR_MAX);
+	memblock_remove_range(&memory, max_addr, PHYS_ADDR_MAX);
+	memblock_remove_range(&reserved, max_addr, PHYS_ADDR_MAX);
 }
 
 void __init memblock_cap_memory_range(phys_addr_t base, phys_addr_t size)
@@ -1748,23 +1732,23 @@ void __init memblock_cap_memory_range(phys_addr_t base, phys_addr_t size)
 	if (!size)
 		return;
 
-	ret = memblock_isolate_range(&memblock.memory, base, size,
+	ret = memblock_isolate_range(&memory, base, size,
 						&start_rgn, &end_rgn);
 	if (ret)
 		return;
 
 	/* remove all the MAP regions */
-	for (i = memblock.memory.cnt - 1; i >= end_rgn; i--)
-		if (!memblock_is_nomap(&memblock.memory.regions[i]))
-			memblock_remove_region(&memblock.memory, i);
+	for (i = memory.cnt - 1; i >= end_rgn; i--)
+		if (!memblock_is_nomap(&memory.regions[i]))
+			memblock_remove_region(&memory, i);
 
 	for (i = start_rgn - 1; i >= 0; i--)
-		if (!memblock_is_nomap(&memblock.memory.regions[i]))
-			memblock_remove_region(&memblock.memory, i);
+		if (!memblock_is_nomap(&memory.regions[i]))
+			memblock_remove_region(&memory, i);
 
 	/* truncate the reserved regions */
-	memblock_remove_range(&memblock.reserved, 0, base);
-	memblock_remove_range(&memblock.reserved,
+	memblock_remove_range(&reserved, 0, base);
+	memblock_remove_range(&reserved,
 			base + size, PHYS_ADDR_MAX);
 }
 
@@ -1804,27 +1788,27 @@ static int __init_memblock memblock_search(struct memblock_type *type, phys_addr
 
 bool __init_memblock memblock_is_reserved(phys_addr_t addr)
 {
-	return memblock_search(&memblock.reserved, addr) != -1;
+	return memblock_search(&reserved, addr) != -1;
 }
 
 bool __init_memblock memblock_is_memory(phys_addr_t addr)
 {
-	return memblock_search(&memblock.memory, addr) != -1;
+	return memblock_search(&memory, addr) != -1;
 }
 
 bool __init_memblock memblock_is_map_memory(phys_addr_t addr)
 {
-	int i = memblock_search(&memblock.memory, addr);
+	int i = memblock_search(&memory, addr);
 
 	if (i == -1)
 		return false;
-	return !memblock_is_nomap(&memblock.memory.regions[i]);
+	return !memblock_is_nomap(&memory.regions[i]);
 }
 
 int __init_memblock memblock_search_pfn_nid(unsigned long pfn,
 			 unsigned long *start_pfn, unsigned long *end_pfn)
 {
-	struct memblock_type *type = &memblock.memory;
+	struct memblock_type *type = &memory;
 	int mid = memblock_search(type, PFN_PHYS(pfn));
 
 	if (mid == -1)
@@ -1848,13 +1832,12 @@ int __init_memblock memblock_search_pfn_nid(unsigned long pfn,
  */
 bool __init_memblock memblock_is_region_memory(phys_addr_t base, phys_addr_t size)
 {
-	int idx = memblock_search(&memblock.memory, base);
+	int idx = memblock_search(&memory, base);
 	phys_addr_t end = base + memblock_cap_size(base, &size);
 
 	if (idx == -1)
 		return false;
-	return (memblock.memory.regions[idx].base +
-		 memblock.memory.regions[idx].size) >= end;
+	return (memory.regions[idx].base + memory.regions[idx].size) >= end;
 }
 
 /**
@@ -1871,7 +1854,7 @@ bool __init_memblock memblock_is_region_memory(phys_addr_t base, phys_addr_t siz
 bool __init_memblock memblock_is_region_reserved(phys_addr_t base, phys_addr_t size)
 {
 	memblock_cap_size(base, &size);
-	return memblock_overlaps_region(&memblock.reserved, base, size);
+	return memblock_overlaps_region(&reserved, base, size);
 }
 
 void __init_memblock memblock_trim_memory(phys_addr_t align)
@@ -1892,8 +1875,7 @@ void __init_memblock memblock_trim_memory(phys_addr_t align)
 			r->base = start;
 			r->size = end - start;
 		} else {
-			memblock_remove_region(&memblock.memory,
-					       r - memblock.memory.regions);
+			memblock_remove_region(&memory, r - memory.regions);
 			r--;
 		}
 	}
@@ -1901,12 +1883,12 @@ void __init_memblock memblock_trim_memory(phys_addr_t align)
 
 void __init_memblock memblock_set_current_limit(phys_addr_t limit)
 {
-	memblock.current_limit = limit;
+	current_limit = limit;
 }
 
 phys_addr_t __init_memblock memblock_get_current_limit(void)
 {
-	return memblock.current_limit;
+	return current_limit;
 }
 
 static void __init_memblock memblock_dump(struct memblock_type *type)
@@ -1939,11 +1921,10 @@ static void __init_memblock __memblock_dump_all(void)
 {
 	pr_info("MEMBLOCK configuration:\n");
 	pr_info(" memory size = %pa reserved size = %pa\n",
-		&memblock.memory.total_size,
-		&memblock.reserved.total_size);
+		&memory.total_size, &reserved.total_size);
 
-	memblock_dump(&memblock.memory);
-	memblock_dump(&memblock.reserved);
+	memblock_dump(&memory);
+	memblock_dump(&reserved);
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
 	memblock_dump(&physmem);
 #endif
@@ -2087,9 +2068,9 @@ static int __init memblock_init_debugfs(void)
 	struct dentry *root = debugfs_create_dir("memblock", NULL);
 
 	debugfs_create_file("memory", 0444, root,
-			    &memblock.memory, &memblock_debug_fops);
+			    &memory, &memblock_debug_fops);
 	debugfs_create_file("reserved", 0444, root,
-			    &memblock.reserved, &memblock_debug_fops);
+			    &reserved, &memblock_debug_fops);
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
 	debugfs_create_file("physmem", 0444, root, &physmem,
 			    &memblock_debug_fops);
