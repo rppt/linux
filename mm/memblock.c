@@ -108,7 +108,21 @@ static struct memblock_region memblock_reserved_init_regions[INIT_MEMBLOCK_RESER
 static struct memblock_region memblock_physmem_init_regions[INIT_PHYSMEM_REGIONS];
 #endif
 
-struct memblock memblock __initdata_memblock = {
+/**
+ * struct memblock - memblock allocator metadata
+ * @bottom_up: is bottom up direction?
+ * @current_limit: physical address of the current allocation limit
+ * @memory: usable memory regions
+ * @reserved: reserved memory regions
+ */
+struct memblock {
+	bool bottom_up;  /* is bottom up direction? */
+	phys_addr_t current_limit;
+	struct memblock_type memory;
+	struct memblock_type reserved;
+};
+
+static struct memblock memblock __initdata_memblock = {
 	.memory.regions		= memblock_memory_init_regions,
 	.memory.cnt		= 1,	/* empty dummy entry */
 	.memory.max		= INIT_MEMBLOCK_REGIONS,

@@ -71,22 +71,6 @@ struct memblock_type {
 	char *name;
 };
 
-/**
- * struct memblock - memblock allocator metadata
- * @bottom_up: is bottom up direction?
- * @current_limit: physical address of the current allocation limit
- * @memory: usable memory regions
- * @reserved: reserved memory regions
- */
-struct memblock {
-	bool bottom_up;  /* is bottom up direction? */
-	phys_addr_t current_limit;
-	struct memblock_type memory;
-	struct memblock_type reserved;
-};
-
-extern struct memblock memblock;
-
 struct memblock_type *memblock_memory(void);
 struct memblock_type *memblock_reserved(void);
 
