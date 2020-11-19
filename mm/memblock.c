@@ -166,8 +166,6 @@ static __refdata struct memblock_type *__memblock_memory = &memory;
 static int memblock_debug __initdata_memblock;
 static bool system_has_some_mirror __initdata_memblock = false;
 static int memblock_can_resize __initdata_memblock;
-static int memblock_memory_in_slab __initdata_memblock = 0;
-static int memblock_reserved_in_slab __initdata_memblock = 0;
 
 static enum memblock_flags __init_memblock choose_memblock_flags(void)
 {
@@ -427,6 +425,114 @@ void __init memblock_discard(void)
 }
 #endif
 
+static int __init_memblock double_array_early(struct memblock_type *type,
+					      phys_addr_t new_area_start,
+					      phys_addr_t new_area_size)
+{
+	struct memblock_region *new_array, *old_array;
+	phys_addr_t old_alloc_size, new_alloc_size;
+	phys_addr_t old_size, new_size, addr, new_end;
+
+	/* We don't allow resizing until we know about the reserved regions
+	 * of memory that aren't suitable for allocation
+	 */
+	if (!memblock_can_resize)
+		return -1;
+
+	/* Calculate new doubled size */
+	old_size = type->max * sizeof(struct memblock_region);
+	new_size = old_size << 1;
+
+	/*
+	 * We need to allocated new one align to PAGE_SIZE,
+	 *   so we can free them completely later.
+	 */
+	old_alloc_size = PAGE_ALIGN(old_size);
+	new_alloc_size = PAGE_ALIGN(new_size);
+
+	/* only exclude range when trying to double reserved.regions */
+	if (type != &reserved)
+		new_area_start = new_area_size = 0;
+
+	addr = memblock_find_in_range(new_area_start + new_area_size,
+				      current_limit,
+				      new_alloc_size, PAGE_SIZE);
+	if (!addr && new_area_size)
+		addr = memblock_find_in_range(0,
+					      min(new_area_start, current_limit),
+					      new_alloc_size, PAGE_SIZE);
+
+
+	if (!addr) {
+		pr_err("memblock: Failed to double %s array from %ld to %ld entries !\n",
+		       type->name, type->max, type->max * 2);
+		return -1;
+	}
+
+	new_array = __va(addr);
+	new_end = addr + new_size - 1;
+	memblock_dbg("memblock: %s is doubled to %ld at [%pa-%pa]",
+			type->name, type->max * 2, &addr, &new_end);
+
+	/*
+	 * Found space, we now need to move the array over before we add the
+	 * reserved region since it may be our reserved array itself that is
+	 * full.
+	 */
+	memcpy(new_array, type->regions, old_size);
+	memset(new_array + type->max, 0, old_size);
+	old_array = type->regions;
+	type->regions = new_array;
+	type->max <<= 1;
+
+	/* Free old array. We needn't free it if the array is the static one */
+	if (old_array != memblock_memory_init_regions &&
+	    old_array != memblock_reserved_init_regions)
+		memblock_free(__pa(old_array), old_alloc_size);
+
+	BUG_ON(memblock_reserve(addr, new_alloc_size));
+
+	return 0;
+}
+
+static int __init_memblock double_array_late(struct memblock_type *type,
+					     phys_addr_t new_area_start,
+					     phys_addr_t new_area_size)
+{
+	struct memblock_region *new_array, *old_array;
+	phys_addr_t old_size, new_size, addr, new_end;
+
+	/* Calculate new doubled size */
+	old_size = type->max * sizeof(struct memblock_region);
+	new_size = old_size << 1;
+
+	old_array = type->regions;
+	new_array = krealloc(old_array, new_size, GFP_KERNEL);
+
+	/* Try to find some space for it */
+	if (!new_array) {
+		pr_err("memblock: Failed to double %s array from %ld to %ld entries !\n",
+		       type->name, type->max, type->max * 2);
+		return -1;
+	}
+
+	addr = __pa(new_array);
+	new_end = addr + new_size - 1;
+	memblock_dbg("memblock: %s is doubled to %ld at [%pa-%pa]",
+			type->name, type->max * 2, &addr, &new_end);
+
+	type->regions = new_array;
+	type->max <<= 1;
+
+	return 0;
+}
+
+static int __refdata (*double_array)(struct memblock_type *type,
+				     phys_addr_t new_area_start,
+				     phys_addr_t new_area_size) =
+	double_array_early;
+
+
 /**
  * memblock_double_array - double the size of the memblock regions array
  * @type: memblock type of the regions array being doubled
@@ -446,92 +552,7 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 						phys_addr_t new_area_start,
 						phys_addr_t new_area_size)
 {
-	struct memblock_region *new_array, *old_array;
-	phys_addr_t old_alloc_size, new_alloc_size;
-	phys_addr_t old_size, new_size, addr, new_end;
-	int use_slab = slab_is_available();
-	int *in_slab;
-
-	/* We don't allow resizing until we know about the reserved regions
-	 * of memory that aren't suitable for allocation
-	 */
-	if (!memblock_can_resize)
-		return -1;
-
-	/* Calculate new doubled size */
-	old_size = type->max * sizeof(struct memblock_region);
-	new_size = old_size << 1;
-	/*
-	 * We need to allocated new one align to PAGE_SIZE,
-	 *   so we can free them completely later.
-	 */
-	old_alloc_size = PAGE_ALIGN(old_size);
-	new_alloc_size = PAGE_ALIGN(new_size);
-
-	/* Retrieve the slab flag */
-	if (type == &memory)
-		in_slab = &memblock_memory_in_slab;
-	else
-		in_slab = &memblock_reserved_in_slab;
-
-	/* Try to find some space for it */
-	if (use_slab) {
-		new_array = kmalloc(new_size, GFP_KERNEL);
-		addr = new_array ? __pa(new_array) : 0;
-	} else {
-		/* only exclude range when trying to double reserved.regions */
-		if (type != &reserved)
-			new_area_start = new_area_size = 0;
-
-		addr = memblock_find_in_range(new_area_start + new_area_size,
-						current_limit,
-						new_alloc_size, PAGE_SIZE);
-		if (!addr && new_area_size)
-			addr = memblock_find_in_range(0,
-				min(new_area_start, current_limit),
-				new_alloc_size, PAGE_SIZE);
-
-		new_array = addr ? __va(addr) : NULL;
-	}
-	if (!addr) {
-		pr_err("memblock: Failed to double %s array from %ld to %ld entries !\n",
-		       type->name, type->max, type->max * 2);
-		return -1;
-	}
-
-	new_end = addr + new_size - 1;
-	memblock_dbg("memblock: %s is doubled to %ld at [%pa-%pa]",
-			type->name, type->max * 2, &addr, &new_end);
-
-	/*
-	 * Found space, we now need to move the array over before we add the
-	 * reserved region since it may be our reserved array itself that is
-	 * full.
-	 */
-	memcpy(new_array, type->regions, old_size);
-	memset(new_array + type->max, 0, old_size);
-	old_array = type->regions;
-	type->regions = new_array;
-	type->max <<= 1;
-
-	/* Free old array. We needn't free it if the array is the static one */
-	if (*in_slab)
-		kfree(old_array);
-	else if (old_array != memblock_memory_init_regions &&
-		 old_array != memblock_reserved_init_regions)
-		memblock_free(__pa(old_array), old_alloc_size);
-
-	/*
-	 * Reserve the new array if that comes from the memblock.  Otherwise, we
-	 * needn't do it
-	 */
-	if (!use_slab)
-		BUG_ON(memblock_reserve(addr, new_alloc_size));
-
-	/* Update slab flag */
-	*in_slab = use_slab;
-
-	return 0;
+	return double_array(type, new_area_start, new_area_size);
 }
 
 /**
@@ -2039,6 +2060,9 @@ unsigned long __init memblock_free_all(void)
 
 	pages = free_low_memory_core_early();
 	totalram_pages_add(pages);
+
+	/* FIXME: add a global function to call from slab init */
+	double_array = double_array_late;
 
 	return pages;
 }
