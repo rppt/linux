@@ -768,6 +768,7 @@ void __init mem_init(void)
 	memblock_free_all();
 
 	after_bootmem = 1;
+	update_low_pages_allocator();
 	x86_init.hyper.init_after_bootmem();
 
 	mem_init_print_info(NULL);

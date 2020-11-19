@@ -111,17 +111,18 @@ static bool __initdata can_use_brk_pgt = true;
  *
  * for detailed information.
  */
-__ref void *alloc_low_pages(unsigned int num)
+static void *alloc_low_pages_after_bootmem(unsigned int num)
+{
+	unsigned int order;
+
+	order = get_order((unsigned long)num << PAGE_SHIFT);
+	return (void *)__get_free_pages(GFP_ATOMIC | __GFP_ZERO, order);
+}
+
+static void __ref *alloc_low_pages_bootmem(unsigned int num)
 {
 	unsigned long pfn;
 	int i;
-
-	if (after_bootmem) {
-		unsigned int order;
-
-		order = get_order((unsigned long)num << PAGE_SHIFT);
-		return (void *)__get_free_pages(GFP_ATOMIC | __GFP_ZERO, order);
-	}
 
 	if ((pgt_buf_end + num) > pgt_buf_top || !can_use_brk_pgt) {
 		unsigned long ret = 0;
@@ -154,6 +155,13 @@ __ref void *alloc_low_pages(unsigned int num)
 	}
 
 	return __va(pfn << PAGE_SHIFT);
+}
+
+void __refdata *(*alloc_low_pages)(unsigned int num) = alloc_low_pages_bootmem;
+
+void update_low_pages_allocator(void)
+{
+	alloc_low_pages = alloc_low_pages_after_bootmem;
 }
 
 /*

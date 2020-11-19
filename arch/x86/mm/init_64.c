@@ -1291,6 +1291,7 @@ void __init mem_init(void)
 	/* this will put all memory onto the freelists */
 	memblock_free_all();
 	after_bootmem = 1;
+	update_low_pages_allocator();
 	x86_init.hyper.init_after_bootmem();
 
 	/*
