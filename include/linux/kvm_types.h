@@ -58,6 +58,7 @@ struct gfn_to_pfn_cache {
 	gfn_t gfn;
 	kvm_pfn_t pfn;
 	bool dirty;
+	bool secret;
 };
 
 #ifdef KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE
