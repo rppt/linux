@@ -995,6 +995,14 @@ static inline void __iomem *ioremap_uc(phys_addr_t offset, size_t size)
 }
 #endif
 
+#ifndef ioremap_cache_force
+#define  ioremap_cache_force ioremap_cache_force
+static inline void __iomem *ioremap_cache_force(phys_addr_t offset, size_t size)
+{
+	return NULL;
+}
+#endif
+
 #ifdef CONFIG_HAS_IOPORT_MAP
 #ifndef CONFIG_GENERIC_IOMAP
 #ifndef ioport_map
