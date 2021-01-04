@@ -147,6 +147,7 @@ enum page_cache_mode {
 	_PAGE_CACHE_MODE_UC       = 3,
 	_PAGE_CACHE_MODE_WT       = 4,
 	_PAGE_CACHE_MODE_WP       = 5,
+	_PAGE_CACHE_MODE_WB_FORCE = 6,
 
 	_PAGE_CACHE_MODE_NUM      = 8
 };

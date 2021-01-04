@@ -202,9 +202,12 @@ __ioremap_caller(resource_size_t phys_addr, unsigned long size,
 	__ioremap_check_mem(phys_addr, size, &io_desc);
 
 	/*
-	 * Don't allow anybody to remap normal RAM that we're using..
+	 * Don't allow anybody to remap normal RAM that we're using, unless
+	 * _PAGE_CACHE_MODE_WB_FORCE is used.
 	 */
-	if (io_desc.flags & IORES_MAP_SYSTEM_RAM) {
+	if (pcm == _PAGE_CACHE_MODE_WB_FORCE) {
+	    pcm = _PAGE_CACHE_MODE_WB;
+	} else if (io_desc.flags & IORES_MAP_SYSTEM_RAM) {
 		WARN_ONCE(1, "ioremap on RAM at %pa - %pa\n",
 			  &phys_addr, &last_addr);
 		return NULL;
@@ -419,6 +422,13 @@ void __iomem *ioremap_cache(resource_size_t phys_addr, unsigned long size)
 }
 EXPORT_SYMBOL(ioremap_cache);
 
+void __iomem *ioremap_cache_force(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WB_FORCE,
+				__builtin_return_address(0), false);
+}
+EXPORT_SYMBOL(ioremap_cache_force);
+
 void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 				unsigned long prot_val)
 {
@@ -467,7 +477,7 @@ void iounmap(volatile void __iomem *addr)
 	p = find_vm_area((void __force *)addr);
 
 	if (!p) {
-		printk(KERN_ERR "iounmap: bad address %p\n", addr);
+		printk(KERN_ERR "iounmap: bad address %px\n", addr);
 		dump_stack();
 		return;
 	}
