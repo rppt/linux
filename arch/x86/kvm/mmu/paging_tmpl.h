@@ -360,6 +360,8 @@ retry_walk:
 	++walker->level;
 
 	do {
+		struct kvm_memory_slot *slot;
+		bool *writable;
 		unsigned long host_addr;
 
 		pt_access = pte_access;
@@ -391,14 +393,23 @@ retry_walk:
 		if (unlikely(real_gpa == UNMAPPED_GVA))
 			return 0;
 
-		host_addr = kvm_vcpu_gfn_to_hva_prot(vcpu, gpa_to_gfn(real_gpa),
-					    &walker->pte_writable[walker->level - 1]);
+		slot = kvm_vcpu_gfn_to_memslot(vcpu, gpa_to_gfn(real_gpa));
+		writable = &walker->pte_writable[walker->level - 1];
+		host_addr = gfn_to_hva_memslot_prot(slot, gpa_to_gfn(real_gpa),
+						    writable);
 		if (unlikely(kvm_is_error_hva(host_addr)))
 			goto error;
 
 		ptep_user = (pt_element_t __user *)((void *)host_addr + offset);
-		if (unlikely(__get_user(pte, ptep_user)))
-			goto error;
+
+		if (kvm_is_protected_memslot(slot)) {
+			if (copy_from_guest(&pte, host_addr + offset,
+					    sizeof(pte), true))
+				goto error;
+		} else {
+			if (unlikely(__get_user(pte, ptep_user)))
+				goto error;
+		}
 		walker->ptep_user[walker->level - 1] = ptep_user;
 
 		trace_kvm_mmu_paging_element(pte, walker->level);
