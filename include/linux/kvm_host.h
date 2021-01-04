@@ -45,6 +45,7 @@
  * include/linux/kvm_h.
  */
 #define KVM_MEMSLOT_INVALID	(1UL << 16)
+#define KVM_MEMSLOT_PROTECTED	(1UL << 17)
 
 /*
  * Bit 63 of the memslot generation number is an "update in-progress flag",
@@ -702,6 +703,13 @@ void kvm_arch_flush_shadow_all(struct kvm *kvm);
 void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
 				   struct kvm_memory_slot *slot);
 
+void *kvm_map_page_atomic(struct page *page);
+void kvm_unmap_page_atomic(void *vaddr);
+
+int kvm_init_protected_memory(void);
+void kvm_exit_protected_memory(void);
+
+int kvm_protect_memory(struct kvm *kvm);
 int kvm_share_memory(struct kvm *kvm, unsigned long gfn, unsigned long npages);
 
 int gfn_to_page_many_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
@@ -713,6 +721,9 @@ unsigned long gfn_to_hva_prot(struct kvm *kvm, gfn_t gfn, bool *writable);
 unsigned long gfn_to_hva_memslot(struct kvm_memory_slot *slot, gfn_t gfn);
 unsigned long gfn_to_hva_memslot_prot(struct kvm_memory_slot *slot, gfn_t gfn,
 				      bool *writable);
+int copy_from_guest(void *data, unsigned long hva, int len, bool protected);
+int copy_to_guest(unsigned long hva, const void *data, int len, bool protected);
+
 void kvm_release_page_clean(struct page *page);
 void kvm_release_page_dirty(struct page *page);
 void kvm_set_page_accessed(struct page *page);
@@ -1402,6 +1413,11 @@ static inline bool kvm_is_visible_memslot(struct kvm_memory_slot *memslot)
 {
 	return (memslot && memslot->id < KVM_USER_MEM_SLOTS &&
 		!(memslot->flags & KVM_MEMSLOT_INVALID));
+}
+
+static inline bool kvm_is_protected_memslot(struct kvm_memory_slot *memslot)
+{
+	return memslot->flags & KVM_MEMSLOT_PROTECTED;
 }
 
 struct kvm_vcpu *kvm_get_running_vcpu(void);

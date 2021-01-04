@@ -342,6 +342,10 @@ extern unsigned int kobjsize(const void *objp);
 # define VM_MAPPED_COPY	VM_ARCH_1	/* T if mapped copy of data (nommu mmap) */
 #endif
 
+#ifndef VM_KVM_PROTECTED
+#define VM_KVM_PROTECTED 0
+#endif
+
 #if defined(CONFIG_ARM64_MTE)
 # define VM_MTE		VM_HIGH_ARCH_0	/* Use Tagged memory for access control */
 # define VM_MTE_ALLOWED	VM_HIGH_ARCH_1	/* Tagged memory permitted */
@@ -665,6 +669,11 @@ static inline bool vma_is_foreign(struct vm_area_struct *vma)
 static inline bool vma_is_accessible(struct vm_area_struct *vma)
 {
 	return vma->vm_flags & VM_ACCESS_FLAGS;
+}
+
+static inline bool vma_is_kvm_protected(struct vm_area_struct *vma)
+{
+	return vma->vm_flags & VM_KVM_PROTECTED;
 }
 
 #ifdef CONFIG_SHMEM

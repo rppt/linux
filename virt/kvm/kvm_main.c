@@ -2350,19 +2350,90 @@ static int next_segment(unsigned long len, int offset)
 		return len;
 }
 
-static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
-				 void *data, int offset, int len)
+int copy_from_guest(void *data, unsigned long hva, int len, bool protected)
 {
-	int r;
+	int flags = 0;
+	int offset = offset_in_page(hva);
+	struct page *page;
+	int npages, seg;
+	void *vaddr;
+
+	if (!protected)
+		return __copy_from_user(data, (void __user *)hva, len);
+
+	might_fault();
+	kasan_check_write(data, len);
+	check_object_size(data, len, false);
+
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
+
+	while ((seg = next_segment(len, offset)) != 0) {
+		npages = get_user_pages_unlocked(hva, 1, &page, flags);
+		if (npages != 1)
+			return -EFAULT;
+
+		vaddr = kvm_map_page_atomic(page);
+		memcpy(data, vaddr + offset, seg);
+		kvm_unmap_page_atomic(vaddr);
+
+		put_page(page);
+		len -= seg;
+		hva += seg;
+		data += seg;
+		offset = 0;
+	}
+
+	return 0;
+}
+
+int copy_to_guest(unsigned long hva, const void *data, int len, bool protected)
+{
+	int flags = FOLL_WRITE;
+	int offset = offset_in_page(hva);
+	struct page *page;
+	int npages, seg;
+	void *vaddr;
+
+	if (!protected)
+		return __copy_to_user((void __user *)hva, data, len);
+
+	might_fault();
+	kasan_check_read(data, len);
+	check_object_size(data, len, true);
+
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
+
+	while ((seg = next_segment(len, offset)) != 0) {
+		npages = get_user_pages_unlocked(hva, 1, &page, flags);
+		if (npages != 1)
+			return -EFAULT;
+
+		vaddr = kvm_map_page_atomic(page);
+		memcpy(vaddr + offset, data, seg);
+		kvm_unmap_page_atomic(vaddr);
+
+		put_page(page);
+		len -= seg;
+		hva += seg;
+		data += seg;
+		offset = 0;
+	}
+
+	return 0;
+}
+
+static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
+				 void *data, int offset, int len,
+				 bool protected)
+{
 	unsigned long addr;
 
 	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
-	r = __copy_from_user(data, (void __user *)addr + offset, len);
-	if (r)
-		return -EFAULT;
-	return 0;
+	return copy_from_guest(data, addr + offset, len, protected);
 }
 
 int kvm_read_guest_page(struct kvm *kvm, gfn_t gfn, void *data, int offset,
@@ -2370,7 +2441,8 @@ int kvm_read_guest_page(struct kvm *kvm, gfn_t gfn, void *data, int offset,
 {
 	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 
-	return __kvm_read_guest_page(slot, gfn, data, offset, len);
+	return __kvm_read_guest_page(slot, gfn, data, offset, len,
+				     kvm_is_protected_memslot(slot));
 }
 EXPORT_SYMBOL_GPL(kvm_read_guest_page);
 
@@ -2379,7 +2451,8 @@ int kvm_vcpu_read_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn, void *data,
 {
 	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 
-	return __kvm_read_guest_page(slot, gfn, data, offset, len);
+	return __kvm_read_guest_page(slot, gfn, data, offset, len,
+				     kvm_is_protected_memslot(slot));
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest_page);
 
@@ -2452,7 +2525,8 @@ int kvm_vcpu_read_guest_atomic(struct kvm_vcpu *vcpu, gpa_t gpa,
 EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest_atomic);
 
 static int __kvm_write_guest_page(struct kvm_memory_slot *memslot, gfn_t gfn,
-			          const void *data, int offset, int len)
+			          const void *data, int offset, int len,
+				  bool protected)
 {
 	int r;
 	unsigned long addr;
@@ -2460,7 +2534,8 @@ static int __kvm_write_guest_page(struct kvm_memory_slot *memslot, gfn_t gfn,
 	addr = gfn_to_hva_memslot(memslot, gfn);
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
-	r = __copy_to_user((void __user *)addr + offset, data, len);
+
+	r = copy_to_guest(addr + offset, data, len, protected);
 	if (r)
 		return -EFAULT;
 	mark_page_dirty_in_slot(memslot, gfn);
@@ -2472,7 +2547,8 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn,
 {
 	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 
-	return __kvm_write_guest_page(slot, gfn, data, offset, len);
+	return __kvm_write_guest_page(slot, gfn, data, offset, len,
+				      kvm_is_protected_memslot(slot));
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_page);
 
@@ -2481,7 +2557,8 @@ int kvm_vcpu_write_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn,
 {
 	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 
-	return __kvm_write_guest_page(slot, gfn, data, offset, len);
+	return __kvm_write_guest_page(slot, gfn, data, offset, len,
+				      kvm_is_protected_memslot(slot));
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_write_guest_page);
 
@@ -2597,7 +2674,8 @@ int kvm_write_guest_offset_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	if (unlikely(!ghc->memslot))
 		return kvm_write_guest(kvm, gpa, data, len);
 
-	r = __copy_to_user((void __user *)ghc->hva + offset, data, len);
+	r = copy_to_guest(ghc->hva + offset, data, len,
+			  kvm_is_protected_memslot(ghc->memslot));
 	if (r)
 		return -EFAULT;
 	mark_page_dirty_in_slot(ghc->memslot, gpa >> PAGE_SHIFT);
@@ -2618,7 +2696,6 @@ int kvm_read_guest_offset_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 				 unsigned long len)
 {
 	struct kvm_memslots *slots = kvm_memslots(kvm);
-	int r;
 	gpa_t gpa = ghc->gpa + offset;
 
 	BUG_ON(len + offset > ghc->len);
@@ -2634,11 +2711,8 @@ int kvm_read_guest_offset_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	if (unlikely(!ghc->memslot))
 		return kvm_read_guest(kvm, gpa, data, len);
 
-	r = __copy_from_user(data, (void __user *)ghc->hva + offset, len);
-	if (r)
-		return -EFAULT;
-
-	return 0;
+	return copy_from_guest(data, ghc->hva + offset, len,
+			       kvm_is_protected_memslot(ghc->memslot));
 }
 EXPORT_SYMBOL_GPL(kvm_read_guest_offset_cached);
 
@@ -2703,6 +2777,83 @@ void kvm_vcpu_mark_page_dirty(struct kvm_vcpu *vcpu, gfn_t gfn)
 	mark_page_dirty_in_slot(memslot, gfn);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_mark_page_dirty);
+
+static int __kvm_protect_memory(struct kvm_memory_slot *memslot,
+				struct mm_struct *mm,
+				unsigned long start, unsigned long end)
+{
+	struct vm_area_struct *vma, *prev, *next;
+	int ret;
+
+	vma = find_vma(mm, start);
+
+	/* Memslot has to be fully covered by VMAs */
+	if (WARN_ON_ONCE(!vma || start < vma->vm_start))
+		return -KVM_EINVAL;
+
+	prev = vma->vm_prev;
+	if (start > vma->vm_start)
+		prev = vma;
+
+	for (; vma && vma->vm_start < end; prev = vma, vma = next) {
+		next = vma->vm_next;
+		if (!vma_is_secretmem(vma))
+			continue;
+
+		if (start > vma->vm_start) {
+			ret = split_vma(vma->vm_mm, vma, start, 1);
+			if (ret)
+				return -KVM_ENOMEM;
+		}
+
+		if (end < vma->vm_end) {
+			ret = split_vma(vma->vm_mm, vma, end, 0);
+			if (ret)
+				return -KVM_ENOMEM;
+		}
+
+		next = vma->vm_next;
+		if (vma->vm_start != start && vma->vm_start != prev->vm_end)
+			return -KVM_EINVAL;
+
+		if (vma->vm_end != end && vma->vm_end != next->vm_start)
+			return -KVM_EINVAL;
+
+		memslot->flags |= KVM_MEMSLOT_PROTECTED;
+		vma->vm_flags |= VM_KVM_PROTECTED;
+		vma_set_page_prot(vma);
+		zap_page_range(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+	}
+
+	return 0;
+}
+
+int kvm_protect_memory(struct kvm *kvm)
+{
+	struct kvm_memslots *slots;
+	struct kvm_memory_slot *memslot;
+	unsigned long start, end;
+	int i, ret = 0;
+
+	if (mmap_write_lock_killable(kvm->mm))
+		return -KVM_EINTR;
+	mutex_lock(&kvm->slots_lock);
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		slots = __kvm_memslots(kvm, i);
+		kvm_for_each_memslot(memslot, slots) {
+			start = memslot->userspace_addr;
+			end = start + memslot->npages * PAGE_SIZE;
+			ret = __kvm_protect_memory(memslot, kvm->mm, start, end);
+			if (ret)
+				goto out;
+		}
+	}
+out:
+	mutex_unlock(&kvm->slots_lock);
+	mmap_write_unlock(kvm->mm);
+
+	return ret;
+}
 
 int kvm_share_memory(struct kvm *kvm, unsigned long gfn, unsigned long npages)
 {
@@ -4893,6 +5044,9 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	if (r)
 		goto out_free;
 
+	if (kvm_init_protected_memory())
+		goto out_unreg;
+
 	kvm_chardev_ops.owner = module;
 	kvm_vm_fops.owner = module;
 	kvm_vcpu_fops.owner = module;
@@ -4916,6 +5070,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	return 0;
 
 out_unreg:
+	kvm_exit_protected_memory();
 	kvm_async_pf_deinit();
 out_free:
 	kmem_cache_destroy(kvm_vcpu_cache);
@@ -4937,6 +5092,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
 
 void kvm_exit(void)
 {
+	kvm_exit_protected_memory();
 	debugfs_remove_recursive(kvm_debugfs_dir);
 	misc_deregister(&kvm_dev);
 	kmem_cache_destroy(kvm_vcpu_cache);

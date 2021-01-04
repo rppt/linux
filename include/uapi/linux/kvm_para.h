@@ -16,6 +16,8 @@
 #define KVM_EINVAL		EINVAL
 #define KVM_E2BIG		E2BIG
 #define KVM_EPERM		EPERM
+#define KVM_EINTR		EINTR
+#define KVM_ENOMEM		ENOMEM
 #define KVM_EOPNOTSUPP		95
 
 #define KVM_HC_VAPIC_POLL_IRQ		1
@@ -30,6 +32,7 @@
 #define KVM_HC_SEND_IPI			10
 #define KVM_HC_SCHED_YIELD		11
 #define KVM_HC_MEM_SHARE		12
+#define KVM_HC_ENABLE_MEM_PROTECTED	13
 
 /*
  * hypercalls use architecture specific
