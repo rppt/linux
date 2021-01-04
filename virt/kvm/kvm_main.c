@@ -51,6 +51,7 @@
 #include <linux/io.h>
 #include <linux/lockdep.h>
 #include <linux/kthread.h>
+#include <linux/secretmem.h>
 
 #include <asm/processor.h>
 #include <asm/ioctl.h>
@@ -1814,6 +1815,8 @@ static inline int check_user_page_hwpoison(unsigned long addr)
 {
 	int rc, flags = FOLL_HWPOISON | FOLL_WRITE;
 
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
 	rc = get_user_pages(addr, 1, flags, NULL, NULL);
 	return rc == -EHWPOISON;
 }
@@ -1826,6 +1829,7 @@ static inline int check_user_page_hwpoison(unsigned long addr)
 static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
 			    bool *writable, kvm_pfn_t *pfn)
 {
+	int flags = FOLL_WRITE;
 	struct page *page[1];
 
 	/*
@@ -1836,7 +1840,9 @@ static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
 	if (!(write_fault || writable))
 		return false;
 
-	if (get_user_page_fast_only(addr, FOLL_WRITE, page)) {
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
+	if (get_user_page_fast_only(addr, flags, page)) {
 		*pfn = page_to_pfn(page[0]);
 
 		if (writable)
@@ -1852,9 +1858,10 @@ static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
  * 1 indicates success, -errno is returned if error is detected.
  */
 static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
-			   bool *writable, kvm_pfn_t *pfn)
+			   bool *writable, bool *secret, kvm_pfn_t *pfn)
 {
 	unsigned int flags = FOLL_HWPOISON;
+	struct vm_area_struct *vma;
 	struct page *page;
 	int npages = 0;
 
@@ -1867,10 +1874,20 @@ static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
 		flags |= FOLL_WRITE;
 	if (async)
 		flags |= FOLL_NOWAIT;
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
 
-	npages = get_user_pages_unlocked(addr, 1, &page, flags);
-	if (npages != 1)
+	mmap_read_lock(current->mm);
+	npages = get_user_pages(addr, 1, flags, &page, &vma);
+	if (npages != 1) {
+		mmap_read_unlock(current->mm);
 		return npages;
+	}
+	if (secret) {
+		*secret = IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY) &&
+			vma_is_secretmem(vma);
+	}
+	mmap_read_unlock(current->mm);
 
 	/* map read fault as writable if possible */
 	if (unlikely(!write_fault) && writable) {
@@ -1961,7 +1978,7 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
  *     whether the mapping is writable.
  */
 static kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
-			bool write_fault, bool *writable)
+			bool write_fault, bool *writable, bool *secret)
 {
 	struct vm_area_struct *vma;
 	kvm_pfn_t pfn = 0;
@@ -1976,7 +1993,8 @@ static kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
 	if (atomic)
 		return KVM_PFN_ERR_FAULT;
 
-	npages = hva_to_pfn_slow(addr, async, write_fault, writable, &pfn);
+	npages = hva_to_pfn_slow(addr, async, write_fault, writable,
+				 secret, &pfn);
 	if (npages == 1)
 		return pfn;
 
@@ -2010,7 +2028,7 @@ exit:
 
 kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
 			       bool atomic, bool *async, bool write_fault,
-			       bool *writable)
+			       bool *writable, bool *secret)
 {
 	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
 
@@ -2033,7 +2051,7 @@ kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
 	}
 
 	return hva_to_pfn(addr, atomic, async, write_fault,
-			  writable);
+			  writable, secret);
 }
 EXPORT_SYMBOL_GPL(__gfn_to_pfn_memslot);
 
@@ -2041,19 +2059,25 @@ kvm_pfn_t gfn_to_pfn_prot(struct kvm *kvm, gfn_t gfn, bool write_fault,
 		      bool *writable)
 {
 	return __gfn_to_pfn_memslot(gfn_to_memslot(kvm, gfn), gfn, false, NULL,
-				    write_fault, writable);
+				    write_fault, writable, NULL);
 }
 EXPORT_SYMBOL_GPL(gfn_to_pfn_prot);
 
 kvm_pfn_t gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn)
 {
-	return __gfn_to_pfn_memslot(slot, gfn, false, NULL, true, NULL);
+	return __gfn_to_pfn_memslot(slot, gfn, false, NULL, true, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(gfn_to_pfn_memslot);
 
+static kvm_pfn_t gfn_to_pfn_memslot_secret(struct kvm_memory_slot *slot,
+					      gfn_t gfn, bool *secret)
+{
+	return __gfn_to_pfn_memslot(slot, gfn, false, NULL, true, NULL, secret);
+}
+
 kvm_pfn_t gfn_to_pfn_memslot_atomic(struct kvm_memory_slot *slot, gfn_t gfn)
 {
-	return __gfn_to_pfn_memslot(slot, gfn, true, NULL, true, NULL);
+	return __gfn_to_pfn_memslot(slot, gfn, true, NULL, true, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(gfn_to_pfn_memslot_atomic);
 
@@ -2134,7 +2158,7 @@ static void kvm_cache_gfn_to_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
 {
 	kvm_release_pfn(cache->pfn, cache->dirty, cache);
 
-	cache->pfn = gfn_to_pfn_memslot(slot, gfn);
+	cache->pfn = gfn_to_pfn_memslot_secret(slot, gfn, &cache->secret);
 	cache->gfn = gfn;
 	cache->dirty = false;
 	cache->generation = gen;
@@ -2149,6 +2173,7 @@ static int __kvm_map_gfn(struct kvm_memslots *slots, gfn_t gfn,
 	void *hva = NULL;
 	struct page *page = KVM_UNMAPPED_PAGE;
 	struct kvm_memory_slot *slot = __gfn_to_memslot(slots, gfn);
+	bool secret;
 	u64 gen = slots->generation;
 
 	if (!map)
@@ -2162,15 +2187,20 @@ static int __kvm_map_gfn(struct kvm_memslots *slots, gfn_t gfn,
 			kvm_cache_gfn_to_pfn(slot, gfn, cache, gen);
 		}
 		pfn = cache->pfn;
+		secret = cache->secret;
 	} else {
 		if (atomic)
 			return -EAGAIN;
-		pfn = gfn_to_pfn_memslot(slot, gfn);
+		pfn = gfn_to_pfn_memslot_secret(slot, gfn, &secret);
 	}
 	if (is_error_noslot_pfn(pfn))
 		return -EINVAL;
 
-	if (pfn_valid(pfn)) {
+	if (secret) {
+		if (atomic)
+			return -EAGAIN;
+		hva = ioremap_cache_force(pfn_to_hpa(pfn), PAGE_SIZE);
+	} else if (pfn_valid(pfn)) {
 		page = pfn_to_page(pfn);
 		if (atomic)
 			hva = kmap_atomic(page);
@@ -2191,6 +2221,7 @@ static int __kvm_map_gfn(struct kvm_memslots *slots, gfn_t gfn,
 	map->hva = hva;
 	map->pfn = pfn;
 	map->gfn = gfn;
+	map->secret = secret;
 
 	return 0;
 }
@@ -2222,7 +2253,9 @@ static void __kvm_unmap_gfn(struct kvm *kvm,
 	if (!map->hva)
 		return;
 
-	if (map->page != KVM_UNMAPPED_PAGE) {
+	if (map->secret) {
+		iounmap(map->hva);
+	} else if (map->page != KVM_UNMAPPED_PAGE) {
 		if (atomic)
 			kunmap_atomic(map->hva);
 		else
@@ -2686,6 +2719,38 @@ void kvm_vcpu_mark_page_dirty(struct kvm_vcpu *vcpu, gfn_t gfn)
 	mark_page_dirty_in_slot(vcpu->kvm, memslot, gfn);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_mark_page_dirty);
+
+int kvm_share_memory(struct kvm *kvm, unsigned long gfn, unsigned long npages)
+{
+	struct kvm_memory_slot *memslot;
+	unsigned long start, end;
+	gfn_t numpages;
+	unsigned long ret;
+
+	if (!npages)
+		return 0;
+
+	memslot = gfn_to_memslot(kvm, gfn);
+	/* Not backed by memory. It's okay. */
+	if (!memslot)
+		return 0;
+
+	start = gfn_to_hva_many(memslot, gfn, &numpages);
+	if (kvm_is_error_hva(start))
+		return -KVM_EINVAL;
+	end = start + npages * PAGE_SIZE;
+
+	/* XXX: Share range across memory slots? */
+	if (WARN_ON(numpages < npages))
+		return -KVM_EINVAL;
+
+	ret = vm_mmap(NULL, start, npages * PAGE_SIZE, PROT_READ | PROT_WRITE,
+		      MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED, 0);
+	if (ret != start)
+		return KVM_EFAULT;
+
+	return 0;
+}
 
 void kvm_sigset_activate(struct kvm_vcpu *vcpu)
 {

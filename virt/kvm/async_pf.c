@@ -50,10 +50,13 @@ static void async_pf_execute(struct work_struct *work)
 	struct kvm_vcpu *vcpu = apf->vcpu;
 	unsigned long addr = apf->addr;
 	gpa_t cr2_or_gpa = apf->cr2_or_gpa;
-	int locked = 1;
+	int locked = 1, flags = FOLL_WRITE;
 	bool first;
 
 	might_sleep();
+
+	if (IS_ENABLED(CONFIG_HAVE_KVM_PROTECTED_MEMORY))
+		flags |= FOLL_SECRET;
 
 	/*
 	 * This work is run asynchronously to the task which owns
@@ -61,8 +64,7 @@ static void async_pf_execute(struct work_struct *work)
 	 * access remotely.
 	 */
 	mmap_read_lock(mm);
-	get_user_pages_remote(mm, addr, 1, FOLL_WRITE, NULL, NULL,
-			&locked);
+	get_user_pages_remote(mm, addr, 1, flags, NULL, NULL, &locked);
 	if (locked)
 		mmap_read_unlock(mm);
 
