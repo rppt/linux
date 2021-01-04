@@ -794,7 +794,7 @@ struct page *follow_page(struct vm_area_struct *vma, unsigned long address,
 	struct follow_page_context ctx = { NULL };
 	struct page *page;
 
-	if (vma_is_secretmem(vma))
+	if (vma_is_secretmem(vma) && !(foll_flags & FOLL_SECRET))
 		return NULL;
 
 	page = follow_page_mask(vma, address, foll_flags, &ctx);
@@ -927,7 +927,7 @@ static int check_vma_flags(struct vm_area_struct *vma, unsigned long gup_flags)
 	if (gup_flags & FOLL_ANON && !vma_is_anonymous(vma))
 		return -EFAULT;
 
-	if (vma_is_secretmem(vma))
+	if (vma_is_secretmem(vma) && !(gup_flags & FOLL_SECRET))
 		return -EFAULT;
 
 	if (write) {
@@ -2203,7 +2203,7 @@ static int gup_pte_range(pmd_t pmd, unsigned long addr, unsigned long end,
 		VM_BUG_ON(!pfn_valid(pte_pfn(pte)));
 		page = pte_page(pte);
 
-		if (page_is_secretmem(page))
+		if (page_is_secretmem(page) && (flags & FOLL_SECRET))
 			goto pte_unmap;
 
 		head = try_grab_compound_head(page, 1, flags);
@@ -2699,7 +2699,7 @@ static int internal_get_user_pages_fast(unsigned long start, int nr_pages,
 
 	if (WARN_ON_ONCE(gup_flags & ~(FOLL_WRITE | FOLL_LONGTERM |
 				       FOLL_FORCE | FOLL_PIN | FOLL_GET |
-				       FOLL_FAST_ONLY)))
+				       FOLL_FAST_ONLY | FOLL_SECRET)))
 		return -EINVAL;
 
 	if (gup_flags & FOLL_PIN)
