@@ -2539,7 +2539,7 @@ int kvm_vcpu_read_guest_atomic(struct kvm_vcpu *vcpu, gpa_t gpa,
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest_atomic);
 
-static int __kvm_write_guest_page(struct kvm *kvm,,
+static int __kvm_write_guest_page(struct kvm *kvm,
 				  struct kvm_memory_slot *memslot, gfn_t gfn,
 			          const void *data, int offset, int len,
 				  bool protected)
@@ -2568,7 +2568,7 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn,
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_page);
 
-int kvm_vcpu_write_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+int kvm_vcpu_write_guest_page(struct kvm *kvm, struct kvm_vcpu *vcpu, gfn_t gfn,
 			      const void *data, int offset, int len)
 {
 	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
@@ -2608,7 +2608,7 @@ int kvm_vcpu_write_guest(struct kvm_vcpu *vcpu, gpa_t gpa, const void *data,
 	int ret;
 
 	while ((seg = next_segment(len, offset)) != 0) {
-		ret = kvm_vcpu_write_guest_page(vcpu, gfn, data, offset, seg);
+		ret = kvm_vcpu_write_guest_page(vcpu->kvm, vcpu, gfn, data, offset, seg);
 		if (ret < 0)
 			return ret;
 		offset = 0;

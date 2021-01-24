@@ -4912,7 +4912,7 @@ static inline void nested_release_vmcs12(struct kvm_vcpu *vcpu)
 	vmx->nested.posted_intr_nv = -1;
 
 	/* Flush VMCS12 to guest memory */
-	kvm_vcpu_write_guest_page(vcpu,
+	kvm_vcpu_write_guest_page(vcpu->kvm, vcpu,
 				  vmx->nested.current_vmptr >> PAGE_SHIFT,
 				  vmx->nested.cached_vmcs12, 0, VMCS12_SIZE);
 
