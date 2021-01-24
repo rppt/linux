@@ -824,6 +824,14 @@ int devmem_is_allowed(unsigned long pagenr)
 				IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE)
 			!= REGION_DISJOINT) {
 		/*
+		 * A special case is the first 4Kb of memory; This is a BIOS
+		 * owned area and legacy software, e.g. LILO, must be able to
+		 * read it.
+		 */
+		if (pagenr == 0)
+			return 1;
+
+		/*
 		 * For disallowed memory regions in the low 1MB range,
 		 * request that the page be shown as all zeros.
 		 */
