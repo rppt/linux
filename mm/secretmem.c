@@ -67,7 +67,7 @@ retry:
 		if (!page)
 			return VM_FAULT_OOM;
 
-		err = set_direct_map_invalid_noflush(page);
+		err = set_direct_map_invalid_noflush(page, 1);
 		if (err) {
 			put_page(page);
 			return vmf_error(err);
@@ -82,7 +82,7 @@ retry:
 			 * already happened when we marked the page invalid
 			 * which guarantees that this call won't fail
 			 */
-			set_direct_map_default_noflush(page);
+			set_direct_map_default_noflush(page, 1);
 			if (err == -EEXIST)
 				goto retry;
 
@@ -147,7 +147,7 @@ static int secretmem_migratepage(struct address_space *mapping,
 
 static void secretmem_freepage(struct page *page)
 {
-	set_direct_map_default_noflush(page);
+	set_direct_map_default_noflush(page, 1);
 	clear_highpage(page);
 }
 

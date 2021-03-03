@@ -144,6 +144,15 @@ static __always_inline void icache_inval_all_pou(void)
 	dsb(ish);
 }
 
+<<<<<<< HEAD
+=======
+int set_memory_valid(unsigned long addr, int numpages, int enable);
+
+int set_direct_map_invalid_noflush(struct page *page, int numpages);
+int set_direct_map_default_noflush(struct page *page, int numpages);
+bool kernel_page_present(struct page *page);
+
+>>>>>>> 63605f311f0e... set_memory: allow set_direct_map_*_noflush() for multiple pages
 #include <asm-generic/cacheflush.h>
 
 #endif /* __ASM_CACHEFLUSH_H */
