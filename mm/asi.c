@@ -51,7 +51,7 @@ static void asi_free_pte_range(struct mm_struct *mm, pmd_t *pmd)
 	for (i = 0, pte = ptep; i < PTRS_PER_PTE; i++, pte++)
 		if (pte_present(*pte)) {
 			struct page *p = pfn_to_page(pte_pfn(*pte));
-			if (page_is_kernel_exclusive(p))
+			if (page_is_exclusive(p))
 				page_unmake_exclusive(p, 0);
 		}
 

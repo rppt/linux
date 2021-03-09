@@ -11,7 +11,7 @@ void page_unmake_exclusive(struct page *page, unsigned int order)
 		return;
 
 	/* FIXME: clear alias PTE in EXCLUSIVE_ area */
-	__clear_page_kernel_exclusive(page);
+	__clear_page_exclusive(page);
 	set_direct_map_default_noflush(page);
 }
 
@@ -38,7 +38,7 @@ int page_make_exclusive(struct page *page, unsigned int order)
 		return err;
 
 	flush_tlb_kernel_range(old_va, old_va + size);
-	__set_page_kernel_exclusive(page);
+	__set_page_exclusive(page);
 
 	return 0;
 }

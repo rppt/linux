@@ -1262,7 +1262,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		page->mapping = NULL;
 	if (memcg_kmem_enabled() && PageMemcgKmem(page))
 		__memcg_kmem_uncharge_page(page, order);
-	if (page_is_kernel_exclusive(page))
+	if (page_is_exclusive(page))
 		page_unmake_exclusive(page, order);
 	if (check_free)
 		bad += check_free_page(page);

@@ -1143,7 +1143,7 @@ static int fault_in_exclusive_mapping(unsigned long address)
 
 	page = virt_to_page(address);
 
-	return page_is_kernel_exclusive(page);
+	return page_is_exclusive(page);
 #else
 	return false;
 #endif

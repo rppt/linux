@@ -138,9 +138,6 @@ enum pageflags {
 #ifdef CONFIG_64BIT
 	PG_arch_2,
 #endif
-#if defined(CONFIG_EXCLUSIVE_KERNEL_PAGES)
-	PG_kernel_exclusive,
-#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -454,10 +451,6 @@ PAGEFLAG(Idle, idle, PF_ANY)
  */
 __PAGEFLAG(Reported, reported, PF_NO_COMPOUND)
 
-#ifdef CONFIG_EXCLUSIVE_KERNEL_PAGES
-__PAGEFLAG(KernelExclusive, kernel_exclusive, PF_ANY)
-#endif
-
 /*
  * On an anonymous page mapped into a user virtual memory area,
  * page->mapping points to its anon_vma, not to a struct address_space;
@@ -717,6 +710,9 @@ PAGEFLAG_FALSE(DoubleMap)
 #define PG_offline	0x00000100
 #define PG_table	0x00000200
 #define PG_guard	0x00000400
+#if defined(CONFIG_EXCLUSIVE_KERNEL_PAGES)
+#define	PG_exclusive	0x00000800
+#endif
 
 #define PageType(page, flag)						\
 	((page->page_type & (PAGE_TYPE_BASE | flag)) == PAGE_TYPE_BASE)
@@ -776,6 +772,10 @@ PAGE_TYPE_OPS(Table, table)
  * Marks guardpages used with debug_pagealloc.
  */
 PAGE_TYPE_OPS(Guard, guard)
+
+#if defined(CONFIG_EXCLUSIVE_KERNEL_PAGES)
+PAGE_TYPE_OPS(Exclusive, exclusive)
+#endif
 
 extern bool is_free_buddy_page(struct page *page);
 
