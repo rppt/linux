@@ -133,6 +133,9 @@ void
 acpi_tb_install_table_with_override(struct acpi_table_desc *new_table_desc,
 				    u8 override, u32 *table_index);
 
+acpi_physical_address
+acpi_tb_get_root_table_entry(u8 *table_entry, u32 table_entry_size);
+
 acpi_status acpi_tb_parse_root_table(acpi_physical_address rsdp_address);
 
 acpi_status

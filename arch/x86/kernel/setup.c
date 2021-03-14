@@ -910,6 +910,8 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
+	acpi_reserve_tables();
+
 	if (efi_enabled(EFI_BOOT))
 		efi_memblock_x86_reserve_range();
 #ifdef CONFIG_MEMORY_HOTPLUG

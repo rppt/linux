@@ -23,6 +23,9 @@
 #include <linux/security.h>
 #include "internal.h"
 
+#include "acpica/aclocal.h"
+#include "acpica/actables.h"
+
 #ifdef CONFIG_ACPI_CUSTOM_DSDT
 #include CONFIG_ACPI_CUSTOM_DSDT_FILE
 #endif
@@ -807,6 +810,107 @@ int __init acpi_table_init(void)
 
 	check_multiple_madt();
 	return 0;
+}
+
+void __init acpi_reserve_tables(void)
+{
+	u32 i, table_count, table_entry_size, length;
+	acpi_physical_address rsdp_address, address;
+	struct acpi_table_header *table, *hdr;
+	struct acpi_table_rsdp *rsdp;
+	u8 *table_entry;
+
+	rsdp_address = acpi_os_get_root_pointer();
+	if (!rsdp_address) {
+		pr_debug("%s: no rsdp_address\n", __func__);
+		return;
+	}
+
+	/* Map the entire RSDP and extract the address of the RSDT or XSDT */
+	rsdp = acpi_os_map_memory(rsdp_address, sizeof(struct acpi_table_rsdp));
+	if (!rsdp) {
+		pr_debug("%s: can't map rsdp\n", __func__);
+		return;
+	}
+
+	memblock_reserve(rsdp_address, sizeof(struct acpi_table_rsdp));
+
+	/* Use XSDT if present and not overridden. Otherwise, use RSDT */
+	if ((rsdp->revision > 1) &&
+	    rsdp->xsdt_physical_address && !acpi_gbl_do_not_use_xsdt) {
+		address = (acpi_physical_address)rsdp->xsdt_physical_address;
+		table_entry_size = ACPI_XSDT_ENTRY_SIZE;
+	} else {
+		address = (acpi_physical_address)rsdp->rsdt_physical_address;
+		table_entry_size = ACPI_RSDT_ENTRY_SIZE;
+	}
+
+	/*
+	 * It is not possible to map more than one entry in some environments,
+	 * so unmap the RSDP here before mapping other tables
+	 */
+	acpi_os_unmap_memory(rsdp, sizeof(struct acpi_table_rsdp));
+
+	/* Map the RSDT/XSDT table header to get the full table length */
+
+	table = acpi_os_map_memory(address, sizeof(struct acpi_table_header));
+	if (!table) {
+		pr_debug("%s: can't map [RX]SDT header\n", __func__);
+		return;
+	}
+
+	/*
+	 * Validate length of the table, and map entire table.
+	 * Minimum length table must contain at least one entry.
+	 */
+	length = table->length;
+	acpi_os_unmap_memory(table, sizeof(struct acpi_table_header));
+
+	if (length < (sizeof(struct acpi_table_header) + table_entry_size)) {
+		pr_debug("Invalid table length 0x%X in RSDT/XSDT", length);
+		return;
+	}
+
+	memblock_reserve(address, length);
+
+	table = acpi_os_map_memory(address, length);
+	if (!table) {
+		pr_debug("%s: can't map [RX]SDT table\n", __func__);
+		return;
+	}
+
+	/* Get the number of entries and pointer to first entry */
+	table_count = (u32)((table->length - sizeof(struct acpi_table_header)) /
+			    table_entry_size);
+	table_entry = ACPI_ADD_PTR(u8, table, sizeof(struct acpi_table_header));
+
+	/* reserve tables pointed from the RSDT/XSDT */
+	for (i = 0; i < table_count; i++, table_entry += table_entry_size) {
+
+		/* Get the table physical address (32-bit for RSDT, 64-bit for XSDT) */
+
+		address =
+		    acpi_tb_get_root_table_entry(table_entry, table_entry_size);
+
+		/* Skip NULL entries in RSDT/XSDT */
+
+		if (!address)
+			continue;
+
+		hdr = acpi_os_map_memory(address, sizeof(struct acpi_table_header));
+		if (!hdr) {
+			pr_debug("%s: can't map %d header\n", __func__, i);
+			continue;
+		}
+
+		memblock_reserve(address, hdr->length);
+
+		/* FIXME: parse FADT and reserve embedded there tables */
+
+		acpi_os_unmap_memory(hdr, sizeof(struct acpi_table_header));
+	}
+
+	acpi_os_unmap_memory(table, length);
 }
 
 static int __init acpi_parse_apic_instance(char *str)

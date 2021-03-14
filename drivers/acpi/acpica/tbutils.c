@@ -14,10 +14,6 @@
 #define _COMPONENT          ACPI_TABLES
 ACPI_MODULE_NAME("tbutils")
 
-/* Local prototypes */
-static acpi_physical_address
-acpi_tb_get_root_table_entry(u8 *table_entry, u32 table_entry_size);
-
 #if (!ACPI_REDUCED_HARDWARE)
 /*******************************************************************************
  *
@@ -162,7 +158,7 @@ struct acpi_table_header *acpi_tb_copy_dsdt(u32 table_index)
  *
  ******************************************************************************/
 
-static acpi_physical_address
+acpi_physical_address
 acpi_tb_get_root_table_entry(u8 *table_entry, u32 table_entry_size)
 {
 	u64 address64;
