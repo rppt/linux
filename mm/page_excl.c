@@ -20,6 +20,7 @@ int page_make_exclusive(struct page *page, unsigned int order)
 	unsigned long old_va = (unsigned long)page_address(page);
 	unsigned long new_va = old_va + EXCLUSIVE_OFFSET;
 	unsigned long size = PAGE_SIZE << order;
+	struct asi_ctx asi_ctx;
 	int err;
 
 	if (order != 0)
@@ -28,8 +29,9 @@ int page_make_exclusive(struct page *page, unsigned int order)
 	if (!current->mm)
 		return -ESRCH;
 
-	err = asi_map_page(current->mm, current->mm->pgd,
-			   new_va, page_to_phys(page), PAGE_KERNEL);
+	asi_ctx.mm = current->mm;
+	asi_ctx.pgd = current->mm->pgd;
+	err = asi_map_page(&asi_ctx, new_va, page_to_phys(page), PAGE_KERNEL);
 	if (err)
 		return err;
 

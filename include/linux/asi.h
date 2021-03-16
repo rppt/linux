@@ -11,20 +11,25 @@ enum asi_clone_level {
         ASI_LEVEL_PGD,
 };
 
-int asi_clone_pgd_range(struct mm_struct *dst_mm,
-			pgd_t *dst_pagetable, pgd_t *src_pagetable,
+struct asi_ctx {
+	struct mm_struct *mm;
+	pgd_t *pgd;
+};
+
+int asi_clone_pgd_range(struct asi_ctx *asi_ctx,
+			pgd_t *src_pagetable,
 			unsigned long addr, unsigned long end,
 			enum asi_clone_level level);
 
-int asi_map_range(struct mm_struct *mm, pgd_t *pgd,
+int asi_map_range(struct asi_ctx *asi_ctx,
 		  unsigned long virt, phys_addr_t phys,
 		  pgprot_t prot, int nr_pages);
 
-static inline int asi_map_page(struct mm_struct *mm, pgd_t *pgd,
+static inline int asi_map_page(struct asi_ctx *asi_ctx,
 			       unsigned long virt, phys_addr_t phys,
 			       pgprot_t prot)
 {
-	return asi_map_range(mm, pgd, virt, phys, prot, 1);
+	return asi_map_range(asi_ctx, virt, phys, prot, 1);
 }
 
 void asi_exit(struct mm_struct *mm);

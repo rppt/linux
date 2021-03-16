@@ -58,6 +58,10 @@
 #define	PTI_LEVEL_KERNEL_IMAGE	ASI_LEVEL_PTE
 #endif
 
+static struct asi_ctx pti_asi_ctx = {
+	.mm = &init_mm,
+};
+
 static void __init pti_print_if_insecure(const char *reason)
 {
 	if (boot_cpu_has_bug(X86_BUG_CPU_MELTDOWN))
@@ -174,7 +178,7 @@ static void __init pti_setup_vsyscall(void)
 	if (!pte || WARN_ON(level != PG_LEVEL_4K) || pte_none(*pte))
 		return;
 
-	err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+	err = asi_map_page(&pti_asi_ctx,
 			   VSYSCALL_ADDR, PFN_PHYS(pte_pfn(*pte)),
 			   __pgprot(pte_flags(*pte)));
 	if (WARN_ON(err))
@@ -197,8 +201,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 {
 	int err;
 
-	err = asi_clone_pgd_range(&init_mm,
-				  kernel_to_user_pgdp(init_mm.pgd),
+	err = asi_clone_pgd_range(&pti_asi_ctx,
 				  init_mm.pgd,
 				  start, end, level);
 	WARN_ON(err);
@@ -213,8 +216,7 @@ static void __init pti_clone_p4d(unsigned long addr)
 {
 	int err;
 
-	err = asi_clone_pgd_range(&init_mm,
-				  kernel_to_user_pgdp(init_mm.pgd),
+	err = asi_clone_pgd_range(&pti_asi_ctx,
 				  init_mm.pgd, addr, addr + 1,
 				  ASI_LEVEL_P4D);
 	BUG_ON(err);
@@ -245,7 +247,7 @@ static void __init pti_clone_user_shared(void)
 		phys_addr_t pa = per_cpu_ptr_to_phys((void *)va);
 		int err;
 
-		err = asi_map_page(&init_mm, kernel_to_user_pgdp(init_mm.pgd),
+		err = asi_map_page(&pti_asi_ctx,
 				   va, pa, PAGE_KERNEL);
 		if (WARN_ON(err))
 			return;
@@ -404,6 +406,7 @@ void __init pti_init(void)
 
 	pr_info("enabled\n");
 
+	pti_asi_ctx.pgd = kernel_to_user_pgdp(init_mm.pgd);
 #ifdef CONFIG_X86_32
 	/*
 	 * We check for X86_FEATURE_PCID here. But the init-code will

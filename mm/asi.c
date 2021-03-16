@@ -285,11 +285,13 @@ static int asi_clone_p4d_range(struct mm_struct *dst_mm,
 	return 0;
 }
 
-int asi_clone_pgd_range(struct mm_struct *dst_mm,
-			pgd_t *dst_pagetable, pgd_t *src_pagetable,
+int asi_clone_pgd_range(struct asi_ctx *asi_ctx,
+			pgd_t *src_pagetable,
 			unsigned long addr, unsigned long end,
 			enum asi_clone_level level)
 {
+	struct mm_struct *dst_mm = asi_ctx->mm;
+	pgd_t *dst_pagetable = asi_ctx->pgd;
 	pgd_t *src_pgd, *dst_pgd;
 	unsigned long next;
 	int err;
@@ -318,10 +320,12 @@ int asi_clone_pgd_range(struct mm_struct *dst_mm,
 	return 0;
 }
 
-int asi_map_range(struct mm_struct *mm, pgd_t *pgdp,
+int asi_map_range(struct asi_ctx *asi_ctx,
 		  unsigned long virt, phys_addr_t phys, pgprot_t prot,
 		  int nr_pages)
 {
+	struct mm_struct *mm = asi_ctx->mm;
+	pgd_t *pgdp = asi_ctx->pgd;
 	int i;
 
 	for (i = 0; i < nr_pages; i++) {
