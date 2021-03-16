@@ -144,7 +144,6 @@ void asi_exit(struct mm_struct *mm)
 }
 
 static int asi_clone_pte_range(struct mm_struct *dst_mm,
-			       struct mm_struct *src_mm,
 			       pmd_t *dst_pmd, pmd_t *src_pmd,
 			       unsigned long addr, unsigned long end)
 {
@@ -167,7 +166,6 @@ static int asi_clone_pte_range(struct mm_struct *dst_mm,
 }
 
 static int asi_clone_pmd_range(struct mm_struct *dst_mm,
-			       struct mm_struct *src_mm,
 			       pud_t *dst_pud, pud_t *src_pud,
 			       unsigned long addr, unsigned long end,
 			       enum asi_clone_level level)
@@ -199,7 +197,7 @@ static int asi_clone_pmd_range(struct mm_struct *dst_mm,
 			continue;
 		}
 
-		err = asi_clone_pte_range(dst_mm, src_mm, dst_pmd, src_pmd,
+		err = asi_clone_pte_range(dst_mm, dst_pmd, src_pmd,
 					  addr, next);
 		if (err) {
 			pr_err("PMD error copying PTE addr=%lx next=%lx\n",
@@ -213,7 +211,6 @@ static int asi_clone_pmd_range(struct mm_struct *dst_mm,
 }
 
 static int asi_clone_pud_range(struct mm_struct *dst_mm,
-			       struct mm_struct *src_mm,
 			       p4d_t *dst_p4d, p4d_t *src_p4d,
 			       unsigned long addr, unsigned long end,
 			       enum asi_clone_level level)
@@ -238,7 +235,7 @@ static int asi_clone_pud_range(struct mm_struct *dst_mm,
 			continue;
 		}
 
-		err = asi_clone_pmd_range(dst_mm, src_mm, dst_pud, src_pud,
+		err = asi_clone_pmd_range(dst_mm, dst_pud, src_pud,
 					  addr, next, level);
 		if (err) {
 			pr_err("PUD error copying PMD addr=%lx next=%lx\n",
@@ -252,7 +249,6 @@ static int asi_clone_pud_range(struct mm_struct *dst_mm,
 }
 
 static int asi_clone_p4d_range(struct mm_struct *dst_mm,
-			       struct mm_struct *src_mm,
 			       pgd_t *dst_pgd, pgd_t *src_pgd,
 			       unsigned long addr, unsigned long end,
 			       enum asi_clone_level level)
@@ -276,7 +272,7 @@ static int asi_clone_p4d_range(struct mm_struct *dst_mm,
 			continue;
 		}
 
-		err = asi_clone_pud_range(dst_mm, src_mm, dst_p4d, src_p4d,
+		err = asi_clone_pud_range(dst_mm, dst_p4d, src_p4d,
 					  addr, next, level);
 		if (err) {
 			pr_err("P4D error copying PUD addr=%lx next=%lx\n",
@@ -290,7 +286,6 @@ static int asi_clone_p4d_range(struct mm_struct *dst_mm,
 }
 
 int asi_clone_pgd_range(struct mm_struct *dst_mm,
-			struct mm_struct *src_mm,
 			pgd_t *dst_pagetable, pgd_t *src_pagetable,
 			unsigned long addr, unsigned long end,
 			enum asi_clone_level level)
@@ -310,7 +305,7 @@ int asi_clone_pgd_range(struct mm_struct *dst_mm,
 			continue;
 		}
 
-		err = asi_clone_p4d_range(dst_mm, src_mm, dst_pgd, src_pgd,
+		err = asi_clone_p4d_range(dst_mm, dst_pgd, src_pgd,
 					  addr, next, level);
 		if (err) {
 			pr_err("PGD error copying P4D addr=%lx next=%lx\n",

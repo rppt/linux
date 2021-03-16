@@ -197,7 +197,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 {
 	int err;
 
-	err = asi_clone_pgd_range(&init_mm, &init_mm,
+	err = asi_clone_pgd_range(&init_mm,
 				  kernel_to_user_pgdp(init_mm.pgd),
 				  init_mm.pgd,
 				  start, end, level);
@@ -213,7 +213,7 @@ static void __init pti_clone_p4d(unsigned long addr)
 {
 	int err;
 
-	err = asi_clone_pgd_range(&init_mm, &init_mm,
+	err = asi_clone_pgd_range(&init_mm,
 				  kernel_to_user_pgdp(init_mm.pgd),
 				  init_mm.pgd, addr, addr + 1,
 				  ASI_LEVEL_P4D);

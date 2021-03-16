@@ -12,7 +12,6 @@ enum asi_clone_level {
 };
 
 int asi_clone_pgd_range(struct mm_struct *dst_mm,
-			struct mm_struct *src_mm,
 			pgd_t *dst_pagetable, pgd_t *src_pagetable,
 			unsigned long addr, unsigned long end,
 			enum asi_clone_level level);
