@@ -13,6 +13,7 @@
 #include <linux/page_idle.h>
 #include <linux/page_excl.h>
 #include <linux/syscalls.h>
+#include <linux/miscdevice.h>
 #include <net/net_namespace.h>
 
 #define MAX_ASS_TEST_OBJS	1024
@@ -209,7 +210,7 @@ static int noinline page_excl_test_print(void)
 	return 0;
 }
 
-static int noinline __page_excl_test(unsigned int cmd, unsigned long arg)
+static long asidrv_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret = -EINVAL;
 
@@ -239,7 +240,20 @@ static int noinline __page_excl_test(unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
-SYSCALL_DEFINE2(page_excl_test, unsigned int, cmd, unsigned long, arg)
+static const struct file_operations asidrv_fops = {
+	.owner		= THIS_MODULE,
+	.unlocked_ioctl	= asidrv_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
+};
+
+static struct miscdevice asidrv_miscdev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = KBUILD_MODNAME,
+	.fops = &asidrv_fops,
+};
+
+static int __init asidrv_init(void)
 {
-	return __page_excl_test(cmd, arg);
+	return misc_register(&asidrv_miscdev);
 }
+fs_initcall(asidrv_init);
