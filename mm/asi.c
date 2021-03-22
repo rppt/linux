@@ -370,10 +370,14 @@ static void asi_kmem_cache_create(struct asi_ctx *asi, struct kmem_cache *cache,
 				  enum kmalloc_cache_type type,
 				  unsigned int idx)
 {
+	slab_flags_t flags = cache->flags | SLAB_EXCLUSIVE;
 	unsigned int align = ARCH_KMALLOC_MINALIGN;
 	unsigned int size = cache->object_size;
-	const char *name = cache->name;	/* FIXME: encore ASI id in the name */
-	slab_flags_t flags = 0;		/* FIXME: SLAB_EXCLUSIVE at least */
+	const char *name;
+
+	name = kasprintf(GFP_KERNEL, "%s-%px", cache->name, asi);
+	if (!name)
+		return;
 
 	if (is_power_of_2(size))
 		align = max(align, size);

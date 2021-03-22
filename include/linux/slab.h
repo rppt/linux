@@ -120,6 +120,8 @@
 /* Slab deactivation flag */
 #define SLAB_DEACTIVATED	((slab_flags_t __force)0x10000000U)
 
+#define SLAB_EXCLUSIVE		((slab_flags_t __force)0x20000000U)
+
 /*
  * ZERO_SIZE_PTR will be returned for zero sized kmalloc requests.
  *
