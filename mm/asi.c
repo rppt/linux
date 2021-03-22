@@ -18,10 +18,14 @@
 
 #include <asm/pgalloc.h>
 
+#include "slab.h"
+
 #undef pr_fmt
 #define pr_fmt(fmt)     "ASI: " fmt
 
 #define ASI_PRIVATE_PT 0xacacacacacacacac;
+
+DEFINE_PER_CPU(struct asi_ctx *, pcpu_asi_ctx);
 
 static bool asi_private_pt(struct page *page)
 {
@@ -360,4 +364,35 @@ int asi_map_range(struct asi_ctx *asi_ctx,
 	}
 
 	return 0;
+}
+
+static void asi_kmem_cache_create(struct asi_ctx *asi, struct kmem_cache *cache,
+				  enum kmalloc_cache_type type,
+				  unsigned int idx)
+{
+	unsigned int align = ARCH_KMALLOC_MINALIGN;
+	unsigned int size = cache->object_size;
+	const char *name = cache->name;	/* FIXME: encore ASI id in the name */
+	slab_flags_t flags = 0;		/* FIXME: SLAB_EXCLUSIVE at least */
+
+	if (is_power_of_2(size))
+		align = max(align, size);
+
+	asi->kmalloc->caches[type][idx] = kmem_cache_create(name, size, align,
+							    flags, NULL);
+}
+
+struct kmem_cache *asi_kmalloc_slab(struct kmem_cache *slab,
+				    enum kmalloc_cache_type type,
+				    unsigned int idx)
+{
+	struct asi_ctx *asi = this_cpu_read(pcpu_asi_ctx);
+
+	if (!asi)
+		return slab;
+
+	if (!asi->kmalloc->caches[type][idx])
+		asi_kmem_cache_create(asi, slab, type, idx);
+
+	return asi->kmalloc->caches[type][idx];
 }

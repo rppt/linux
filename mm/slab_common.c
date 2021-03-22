@@ -24,6 +24,7 @@
 #include <asm/tlbflush.h>
 #include <asm/page.h>
 #include <linux/memcontrol.h>
+#include <linux/asi.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/kmem.h>
@@ -698,6 +699,7 @@ static inline unsigned int size_index_elem(unsigned int bytes)
  */
 struct kmem_cache *kmalloc_slab(size_t size, gfp_t flags)
 {
+	enum kmalloc_cache_type type = kmalloc_type(flags);
 	unsigned int index;
 
 	if (size <= 192) {
@@ -711,7 +713,11 @@ struct kmem_cache *kmalloc_slab(size_t size, gfp_t flags)
 		index = fls(size - 1);
 	}
 
-	return kmalloc_caches[kmalloc_type(flags)][index];
+	if (flags & __GFP_EXCLUSIVE)
+		return asi_kmalloc_slab(kmalloc_caches[type][index],
+					type, index);
+
+	return kmalloc_caches[type][index];
 }
 
 #ifdef CONFIG_ZONE_DMA
