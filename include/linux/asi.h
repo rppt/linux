@@ -2,6 +2,8 @@
 #ifndef _INCLUDE_LINUX_ASI_H
 #define _INCLUDE_LINUX_ASI_H
 
+#include <linux/list.h>
+
 enum asi_clone_level {
 	ASI_LEVEL_LEAF,
         ASI_LEVEL_PTE,
@@ -11,7 +13,10 @@ enum asi_clone_level {
         ASI_LEVEL_PGD,
 };
 
+struct asi_kmem_caches;
+
 struct asi_ctx {
+	struct asi_kmem_caches *kmem_caches;
 	struct mm_struct *mm;
 	pgd_t *pgd;
 };
@@ -37,5 +42,10 @@ static inline int asi_map_page(struct asi_ctx *asi_ctx,
 int asi_mm_init(struct mm_struct *mm);
 void asi_mm_fini(struct mm_struct *mm);
 void asi_exit(struct mm_struct *mm);
+
+struct kmem_cache *asi_get_kmem_cache(struct kmem_cache *cache, size_t size,
+				      gfp_t flags);
+
+int asi_init_slab(struct asi_ctx *asi);
 
 #endif /* _INCLUDE_LINUX_ASI_H */

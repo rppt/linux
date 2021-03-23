@@ -129,6 +129,9 @@ struct kmem_cache {
 	struct kasan_cache kasan_info;
 #endif
 
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+	struct asi_ctx *asi_ctx;
+#endif
 	unsigned int useroffset;	/* Usercopy region offset */
 	unsigned int usersize;		/* Usercopy region size */
 

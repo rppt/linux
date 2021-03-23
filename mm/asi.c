@@ -18,10 +18,27 @@
 
 #include <asm/pgalloc.h>
 
+#include "slab.h"
+
 #undef pr_fmt
 #define pr_fmt(fmt)     "ASI: " fmt
 
 #define ASI_PRIVATE_PT 0xacacacacacacacac;
+
+DEFINE_PER_CPU(struct asi_ctx *, asi_ctx_pcpu);
+
+static atomic64_t asi_kmem_cache_id;
+
+struct asi_kmem_cache {
+	struct list_head list;
+	struct kmem_cache *parent;
+	struct kmem_cache *exclusive;
+};
+
+struct asi_kmem_caches {
+	struct list_head list;
+	u64 id;
+};
 
 static bool asi_private_pt(struct page *page)
 {
@@ -419,4 +436,59 @@ void asi_unmap_range(struct asi_ctx *asi_ctx, unsigned long virt, int nr_pages)
 		set_pte(pte, __pte(pte_val(*pte) & ~_PAGE_PRESENT));
 		pte_unmap_unlock(pte, ptl);
 	}
+}
+
+struct kmem_cache *asi_get_kmem_cache(struct kmem_cache *parent, size_t size,
+				      gfp_t flags)
+{
+	struct asi_kmem_cache *asi_cache;
+	struct kmem_cache *cache;
+	struct asi_ctx *asi;
+	char *name;
+
+	asi = this_cpu_read(asi_ctx_pcpu);
+	if (!asi || !asi->kmem_caches)
+		return parent;
+
+	/* FIXME: rcu_read_lock()? */
+	list_for_each_entry(asi_cache, &asi->kmem_caches->list, list)
+		if (asi_cache->parent == parent)
+			return asi_cache->exclusive;
+
+	name = kasprintf(GFP_KERNEL, "%s-%lld", parent->name, asi->kmem_caches->id);
+	if (!name)
+		return NULL;
+
+	cache = kmem_cache_create(name, size, parent->align,
+				  parent->flags | SLAB_EXCLUSIVE,
+				  NULL);
+	if (!cache)
+		goto err_free_name;
+
+	list_add(&asi_cache->list, &asi->kmem_caches->list);
+	asi_cache->parent = parent;
+	asi_cache->exclusive = cache;
+	cache->asi_ctx = asi;
+
+	return cache;
+
+err_free_name:
+	kfree(name);
+	return NULL;
+}
+
+int asi_init_slab(struct asi_ctx *asi)
+{
+	struct asi_kmem_caches *caches;
+
+	caches = kzalloc(sizeof(*caches), GFP_KERNEL);
+	if (!caches)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&caches->list);
+	caches->id = atomic64_inc_return(&asi_kmem_cache_id);
+
+	asi->kmem_caches = caches;
+
+	return 0;
 }

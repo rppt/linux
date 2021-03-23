@@ -1751,6 +1751,66 @@ static inline bool shuffle_freelist(struct kmem_cache *s, struct page *page)
 }
 #endif /* CONFIG_SLAB_FREELIST_RANDOM */
 
+#ifdef CONFIG_ADDRESS_SPACE_ISOLATION
+static int slub_exclusive_map(struct kmem_cache *s, struct page *page)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+	int err;
+
+	err = asi_map_page(s->asi_ctx, addr + EXCLUSIVE_OFFSET,
+			   page_to_phys(page), PAGE_KERNEL);
+	if (err)
+		return err;
+
+	/*
+	 * create a temporary mapping in the current page table to allow
+	 * slab stup inside the page
+	 */
+	if (current->mm && s->asi_ctx->pgd != current->mm->pgd) {
+		struct asi_ctx tmp_ctx;
+
+		tmp_ctx.mm = current->mm;
+		tmp_ctx.pgd = current->mm->pgd;
+
+		err = asi_map_page(&tmp_ctx, addr, page_to_phys(page),
+				   PAGE_KERNEL);
+		if (err)
+			goto err_unmap;
+	}
+
+	return 0;
+
+err_unmap:
+	asi_unmap_range(s->asi_ctx, addr + EXCLUSIVE_OFFSET, 1);
+
+	return err;
+}
+
+static void slub_exclusive_unmap(struct kmem_cache *s, struct page *page)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+
+	if (current->mm && s->asi_ctx->pgd != current->mm->pgd) {
+		struct asi_ctx tmp_ctx;
+
+		tmp_ctx.mm = current->mm;
+		tmp_ctx.pgd = current->mm->pgd;
+
+		asi_unmap_range(&tmp_ctx, addr, 1);
+	}
+}
+#else
+static inline int slub_exclusive_map(struct kmem_cache *s, struct page *page)
+{
+	return 0;
+}
+
+static inline void slub_exclusive_unmap(struct kmem_cache *s, struct page *page)
+{
+}
+#endif
+
+
 static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 {
 	struct page *page;
@@ -1775,6 +1835,9 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 	if ((alloc_gfp & __GFP_DIRECT_RECLAIM) && oo_order(oo) > oo_order(s->min))
 		alloc_gfp = (alloc_gfp | __GFP_NOMEMALLOC) & ~(__GFP_RECLAIM|__GFP_NOFAIL);
 
+	if (flags & __GFP_EXCLUSIVE)
+		alloc_gfp = (alloc_gfp |__GFP_UNMAP) & ~__GFP_EXCLUSIVE;
+
 	page = alloc_slab_page(s, alloc_gfp, node, oo);
 	if (unlikely(!page)) {
 		oo = s->min;
@@ -1788,6 +1851,9 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 			goto out;
 		stat(s, ORDER_FALLBACK);
 	}
+
+	if (flags & __GFP_EXCLUSIVE)
+		slub_exclusive_map(s, page);
 
 	page->objects = oo_objects(oo);
 
@@ -1821,6 +1887,9 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 
 	page->inuse = page->objects;
 	page->frozen = 1;
+
+	if (flags & __GFP_EXCLUSIVE)
+		slub_exclusive_unmap(s, page);
 
 out:
 	if (gfpflags_allow_blocking(flags))
@@ -2826,6 +2895,14 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 	s = slab_pre_alloc_hook(s, &objcg, 1, gfpflags);
 	if (!s)
 		return NULL;
+
+	if (gfpflags & __GFP_EXCLUSIVE) {
+		/* FIXME: allow __GFP_EXCLUSIVE with kfence */
+		if (s->flags & SLAB_EXCLUSIVE)
+			goto redo;
+		else
+			return NULL;
+	}
 
 	object = kfence_alloc(s, orig_size, gfpflags);
 	if (unlikely(object))
