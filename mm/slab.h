@@ -46,6 +46,7 @@ struct kmem_cache {
 #include <linux/kmemleak.h>
 #include <linux/random.h>
 #include <linux/sched/mm.h>
+#include <linux/asi.h>
 
 /*
  * State of the slab allocator.
@@ -145,7 +146,7 @@ static inline slab_flags_t kmem_cache_flags(unsigned int object_size,
 			  SLAB_ACCOUNT)
 #elif defined(CONFIG_SLUB)
 #define SLAB_CACHE_FLAGS (SLAB_NOLEAKTRACE | SLAB_RECLAIM_ACCOUNT | \
-			  SLAB_TEMPORARY | SLAB_ACCOUNT)
+			  SLAB_TEMPORARY | SLAB_ACCOUNT | SLAB_EXCLUSIVE)
 #else
 #define SLAB_CACHE_FLAGS (0)
 #endif
@@ -164,6 +165,7 @@ static inline slab_flags_t kmem_cache_flags(unsigned int object_size,
 			      SLAB_NOLEAKTRACE | \
 			      SLAB_RECLAIM_ACCOUNT | \
 			      SLAB_TEMPORARY | \
+			      SLAB_EXCLUSIVE | \
 			      SLAB_ACCOUNT)
 
 bool __kmem_cache_empty(struct kmem_cache *);
@@ -410,6 +412,16 @@ static inline void memcg_slab_free_hook(struct kmem_cache *s,
 }
 #endif /* CONFIG_MEMCG_KMEM */
 
+static inline struct kmem_cache *asi_slab_pre_alloc_hook(struct kmem_cache *s,
+							 size_t size,
+							 gfp_t flags)
+{
+	if (flags & __GFP_EXCLUSIVE)
+		return asi_get_kmem_cache(s, size, flags);
+
+	return s;
+}
+
 static inline struct kmem_cache *virt_to_cache(const void *obj)
 {
 	struct page *page;
@@ -501,6 +513,10 @@ static inline struct kmem_cache *slab_pre_alloc_hook(struct kmem_cache *s,
 
 	if (!memcg_slab_pre_alloc_hook(s, objcgp, size, flags))
 		return NULL;
+
+	s = asi_slab_pre_alloc_hook(s, size, flags);
+	if (!s)
+		obj_cgroup_uncharge(*objcgp, obj_full_size(s));
 
 	return s;
 }

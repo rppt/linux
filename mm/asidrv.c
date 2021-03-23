@@ -14,6 +14,7 @@
 #include <linux/page_excl.h>
 #include <linux/syscalls.h>
 #include <linux/miscdevice.h>
+#include <linux/asi.h>
 #include <net/net_namespace.h>
 
 #define MAX_ASS_TEST_OBJS	1024
@@ -144,9 +145,14 @@ static int noinline page_excl_test_page_free(void)
 static int noinline page_excl_test_kmalloc(void)
 {
 	const unsigned int size = sizeof(struct net);
+	struct asi_ctx asi;
 	struct net *new;
+	int err;
 
-	return -EINVAL;
+	asi.mm = current->mm;
+	asi.pgd = current->mm->pgd;
+
+	err = asi_init_slab(&asi);
 
 	if (nr_test_objects >= MAX_ASS_TEST_OBJS)
 		return -ENOSPC;
@@ -248,7 +254,7 @@ static const struct file_operations asidrv_fops = {
 
 static struct miscdevice asidrv_miscdev = {
 	.minor = MISC_DYNAMIC_MINOR,
-	.name = KBUILD_MODNAME,
+	.name = "asi",
 	.fops = &asidrv_fops,
 };
 
