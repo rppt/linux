@@ -847,7 +847,8 @@ config GPIO_IT87
 
 config GPIO_SCH
 	tristate "Intel SCH/TunnelCreek/Centerton/Quark X1000 GPIO"
-	depends on (X86 || COMPILE_TEST) && PCI
+	depends on (X86 || COMPILE_TEST) && ACPI
+	select GPIOLIB_IRQCHIP
 	select MFD_CORE
 	select LPC_SCH
 	help
@@ -1632,6 +1633,14 @@ config GPIO_MOCKUP
 	  User could use it through the script in
 	  tools/testing/selftests/gpio/gpio-mockup.sh. Reference the usage in
 	  it.
+
+config GPIO_SIM
+	tristate "GPIO Simulator Module"
+	select IRQ_SIM
+	select CONFIGFS_FS
+	help
+	  This enables the GPIO simulator - a configfs-based GPIO testing
+	  driver.
 
 endmenu
 
