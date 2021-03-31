@@ -249,18 +249,20 @@ void free_shrinker_info(struct mem_cgroup *memcg)
 	struct shrinker_info *info;
 	int nid;
 
+	down_write(&shrinker_rwsem);
 	for_each_node(nid) {
 		pn = memcg->nodeinfo[nid];
 		info = shrinker_info_protected(memcg, nid);
 		kvfree(info);
 		rcu_assign_pointer(pn->shrinker_info, NULL);
 	}
+	up_write(&shrinker_rwsem);
 }
 
 int alloc_shrinker_info(struct mem_cgroup *memcg)
 {
 	struct shrinker_info *info;
-	int nid, size, ret = 0;
+	int nid, size;
 	int map_size, defer_size = 0;
 
 	down_write(&shrinker_rwsem);
@@ -270,9 +272,9 @@ int alloc_shrinker_info(struct mem_cgroup *memcg)
 	for_each_node(nid) {
 		info = kvzalloc_node(sizeof(*info) + size, GFP_KERNEL, nid);
 		if (!info) {
+			up_write(&shrinker_rwsem);
 			free_shrinker_info(memcg);
-			ret = -ENOMEM;
-			break;
+			return -ENOMEM;
 		}
 		info->nr_deferred = (atomic_long_t *)(info + 1);
 		info->map = (void *)info->nr_deferred + defer_size;
@@ -280,7 +282,7 @@ int alloc_shrinker_info(struct mem_cgroup *memcg)
 	}
 	up_write(&shrinker_rwsem);
 
-	return ret;
+	return 0;
 }
 
 static inline bool need_expand(int nr_max)
