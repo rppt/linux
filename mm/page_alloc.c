@@ -72,6 +72,7 @@
 #include <linux/padata.h>
 #include <linux/khugepaged.h>
 #include <linux/buffer_head.h>
+#include <linux/set_memory.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1215,6 +1216,12 @@ static void kernel_init_free_pages(struct page *page, int numpages)
 	kasan_enable_current();
 }
 
+static void page_make_mapped(struct page *page, unsigned int order)
+{
+	set_direct_map_default_noflush(page, (1 << order));
+	__ClearPageUnmapped(page);
+}
+
 static __always_inline bool free_pages_prepare(struct page *page,
 					unsigned int order, bool check_free)
 {
@@ -1234,6 +1241,9 @@ static __always_inline bool free_pages_prepare(struct page *page,
 		reset_page_owner(page, order);
 		return false;
 	}
+
+	if (PageUnmapped(page))
+		page_make_mapped(page, order);
 
 	/*
 	 * Check tail pages before head page information is cleared to
@@ -4965,6 +4975,28 @@ static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 	return true;
 }
 
+static int page_make_unmapped(struct page *page, gfp_t gfp_mask,
+			      unsigned int order)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+	unsigned long size = PAGE_SIZE * (1 << order);
+	int err;
+
+	if (!(gfp_mask & __GFP_UNMAP))
+		return 0;
+
+	err = set_direct_map_invalid_noflush(page, (1 << order));
+	if (err) {
+		__free_pages(page, order);
+		return err;
+	}
+
+	__SetPageUnmapped(page);
+
+	flush_tlb_kernel_range(addr, addr + size);
+	return 0;
+}
+
 /*
  * This is the 'heart' of the zoned buddy allocator.
  */
@@ -5020,6 +5052,9 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order, int preferred_nid,
 	page = __alloc_pages_slowpath(alloc_mask, order, &ac);
 
 out:
+	if (page && page_make_unmapped(page, gfp_mask, order))
+		page = NULL;
+
 	if (memcg_kmem_enabled() && (gfp_mask & __GFP_ACCOUNT) && page &&
 	    unlikely(__memcg_kmem_charge_page(page, gfp_mask, order) != 0)) {
 		__free_pages(page, order);
