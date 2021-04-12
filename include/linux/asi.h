@@ -3,6 +3,7 @@
 #define _INCLUDE_LINUX_ASI_H
 
 #include <linux/list.h>
+#include <linux/sched.h>
 
 enum asi_clone_level {
 	ASI_LEVEL_LEAF,
@@ -20,6 +21,8 @@ struct asi_ctx {
 	struct mm_struct *mm;
 	pgd_t *pgd;
 };
+
+DECLARE_PER_CPU(struct asi_ctx *, asi_ctx_pcpu);
 
 int asi_clone_pgd_range(struct asi_ctx *asi_ctx,
 			pgd_t *src_pagetable,
@@ -47,5 +50,11 @@ struct kmem_cache *asi_get_kmem_cache(struct kmem_cache *cache, size_t size,
 				      gfp_t flags);
 
 int asi_init_slab(struct asi_ctx *asi);
+
+static inline void asi_ctx_switch(struct task_struct *prev,
+				  struct task_struct *next)
+{
+	this_cpu_write(asi_ctx_pcpu, next->asi_ctx);
+}
 
 #endif /* _INCLUDE_LINUX_ASI_H */
