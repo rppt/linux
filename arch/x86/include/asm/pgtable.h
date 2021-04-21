@@ -117,6 +117,12 @@ extern pmdval_t early_pmd_flags;
 #define arch_end_context_switch(prev)	do {} while(0)
 #endif	/* CONFIG_PARAVIRT_XXL */
 
+#ifdef CONFIG_PKS_PG_TABLES
+bool pks_tables_inited(void);
+#else /* CONFIG_PKS_PG_TABLES */
+#define pks_tables_inited() 0
+#endif /* CONFIG_PKS_PG_TABLES */
+
 /*
  * The following only work if pte_present() is true.
  * Undefined behaviour if not..

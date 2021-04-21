@@ -37,6 +37,7 @@
 #include <linux/page_idle.h>
 #include <linux/local_lock.h>
 #include <linux/buffer_head.h>
+#include <asm/pgalloc.h>
 
 #include "internal.h"
 
@@ -934,6 +935,11 @@ void release_pages(struct page **pages, int nr)
 			}
 			if (put_page_testzero(page))
 				put_dev_pagemap(page->pgmap);
+			continue;
+		}
+
+		if (PageTable(page)) {
+			free_table(page);
 			continue;
 		}
 

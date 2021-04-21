@@ -6,6 +6,8 @@
 #include <asm/tlb.h>
 #include <asm/fixmap.h>
 #include <asm/mtrr.h>
+#include <asm/set_memory.h>
+#include <linux/page-flags.h>
 
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
 phys_addr_t physical_mask __ro_after_init = (1ULL << __PHYSICAL_MASK_SHIFT) - 1;
@@ -32,6 +34,55 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 {
 	return __pte_alloc_one(mm, __userpte_alloc_gfp);
 }
+
+#ifdef CONFIG_PKS_PG_TABLES
+static struct grouped_page_cache gpc_pks;
+static bool __ro_after_init pks_tables_inited_val;
+
+
+struct page *alloc_table(gfp_t gfp)
+{
+	struct page *table;
+
+	if (!pks_tables_inited()) {
+		table = alloc_page(gfp);
+		if (table)
+			__SetPageTable(table);
+		return table;
+	}
+
+	table = get_grouped_page(numa_node_id(), &gpc_pks);
+	if (!table)
+		return NULL;
+	__SetPageTable(table);
+
+	if (gfp & __GFP_ZERO)
+		memset(page_address(table), 0, PAGE_SIZE);
+
+	if (memcg_kmem_enabled() &&
+	    gfp & __GFP_ACCOUNT &&
+	    !__memcg_kmem_charge_page(table, gfp, 0)) {
+		free_table(table);
+		return NULL;
+	}
+
+	return table;
+}
+
+void free_table(struct page *table_page)
+{
+	__ClearPageTable(table_page);
+
+	if (!pks_tables_inited()) {
+		__free_pages(table_page, 0);
+		return;
+	}
+
+	if (memcg_kmem_enabled() && PageMemcgKmem(table_page))
+		__memcg_kmem_uncharge_page(table_page, 0);
+	free_grouped_page(&gpc_pks, table_page);
+}
+#endif /* CONFIG_PKS_PG_TABLES */
 
 static int __init setup_userpte(char *arg)
 {
@@ -411,12 +462,24 @@ static inline void _pgd_free(pgd_t *pgd)
 
 static inline pgd_t *_pgd_alloc(void)
 {
+	if (pks_tables_inited()) {
+		struct page *page = alloc_table(GFP_PGTABLE_USER);
+
+		if (!page)
+			return NULL;
+		return page_address(page);
+	}
+
 	return (pgd_t *)__get_free_pages(GFP_PGTABLE_USER,
 					 PGD_ALLOCATION_ORDER);
 }
 
 static inline void _pgd_free(pgd_t *pgd)
 {
+	if (pks_tables_inited()) {
+		free_table(virt_to_page(pgd));
+		return;
+	}
 	free_pages((unsigned long)pgd, PGD_ALLOCATION_ORDER);
 }
 #endif /* CONFIG_X86_PAE */
@@ -851,6 +914,22 @@ int pmd_free_pte_page(pmd_t *pmd, unsigned long addr)
 	return 1;
 }
 
+#ifdef CONFIG_PKS_PG_TABLES
+bool pks_tables_inited(void)
+{
+	return pks_tables_inited_val;
+}
+
+static int __init pks_page_init(void)
+{
+	pks_tables_inited_val = !init_grouped_page_cache(&gpc_pks, GFP_KERNEL | PGTABLE_HIGHMEM);
+
+out:
+	return !pks_tables_inited_val;
+}
+
+device_initcall(pks_page_init);
+#endif /* CONFIG_PKS_PG_TABLES */
 #else /* !CONFIG_X86_64 */
 
 /*

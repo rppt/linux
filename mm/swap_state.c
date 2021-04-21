@@ -22,6 +22,7 @@
 #include <linux/swap_slots.h>
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
+#include <asm/pgalloc.h>
 #include "internal.h"
 
 /*
@@ -301,6 +302,10 @@ void free_swap_cache(struct page *page)
 void free_page_and_swap_cache(struct page *page)
 {
 	free_swap_cache(page);
+	if (PageTable(page)) {
+		free_table(page);
+		return;
+	}
 	if (!is_huge_zero_page(page))
 		put_page(page);
 }
