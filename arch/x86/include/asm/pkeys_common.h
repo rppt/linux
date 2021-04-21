@@ -15,5 +15,4 @@
 #define PKR_AD_KEY(pkey)     (PKR_AD_BIT << PKR_PKEY_SHIFT(pkey))
 #define PKR_WD_KEY(pkey)     (PKR_WD_BIT << PKR_PKEY_SHIFT(pkey))
 #define PKR_VALUE(pkey, val) (val << PKR_PKEY_SHIFT(pkey))
-
 #endif /*_ASM_X86_PKEYS_COMMON_H */

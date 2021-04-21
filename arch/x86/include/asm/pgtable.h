@@ -1085,7 +1085,9 @@ static inline pte_t ptep_get_and_clear_full(struct mm_struct *mm,
 static inline void ptep_set_wrprotect(struct mm_struct *mm,
 				      unsigned long addr, pte_t *ptep)
 {
+	enable_pgtable_write();
 	clear_bit(_PAGE_BIT_RW, (unsigned long *)&ptep->pte);
+	disable_pgtable_write();
 }
 
 #define flush_tlb_fix_spurious_fault(vma, address) do { } while (0)
@@ -1135,7 +1137,9 @@ static inline pud_t pudp_huge_get_and_clear(struct mm_struct *mm,
 static inline void pmdp_set_wrprotect(struct mm_struct *mm,
 				      unsigned long addr, pmd_t *pmdp)
 {
+	enable_pgtable_write();
 	clear_bit(_PAGE_BIT_RW, (unsigned long *)pmdp);
+	disable_pgtable_write();
 }
 
 #define pud_write pud_write
@@ -1150,10 +1154,18 @@ static inline pmd_t pmdp_establish(struct vm_area_struct *vma,
 		unsigned long address, pmd_t *pmdp, pmd_t pmd)
 {
 	if (IS_ENABLED(CONFIG_SMP)) {
-		return xchg(pmdp, pmd);
+		pmd_t ret;
+
+		enable_pgtable_write();
+		ret = xchg(pmdp, pmd);
+		disable_pgtable_write();
+
+		return ret;
 	} else {
 		pmd_t old = *pmdp;
+		enable_pgtable_write();
 		WRITE_ONCE(*pmdp, pmd);
+		disable_pgtable_write();
 		return old;
 	}
 }
@@ -1236,13 +1248,17 @@ static inline p4d_t *user_to_kernel_p4dp(p4d_t *p4dp)
  */
 static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 {
+	enable_pgtable_write();
 	memcpy(dst, src, count * sizeof(pgd_t));
+	disable_pgtable_write();
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 	if (!static_cpu_has(X86_FEATURE_PTI))
 		return;
 	/* Clone the user space pgd as well */
+	enable_pgtable_write();
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
 	       count * sizeof(pgd_t));
+	disable_pgtable_write();
 #endif
 }
 

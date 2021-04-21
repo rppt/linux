@@ -50,6 +50,7 @@ static inline bool arch_pkeys_enabled(void)
 enum pks_pkey_consumers {
 	PKS_KEY_DEFAULT = 0, /* Must be 0 for default PTE values */
 	PKS_KEY_PGMAP_PROTECTION,
+	PKS_KEY_PG_TABLES,
 	PKS_KEY_NR_CONSUMERS
 };
 extern u32 pkrs_init_value;

@@ -349,3 +349,8 @@ void do_boot_page_fault(struct pt_regs *regs, unsigned long error_code)
 	 */
 	add_identity_map(address, end);
 }
+
+#ifdef CONFIG_PKS_PG_TABLES
+void enable_pgtable_write(void) {}
+void disable_pgtable_write(void) {}
+#endif
