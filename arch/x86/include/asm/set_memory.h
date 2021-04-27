@@ -138,14 +138,20 @@ static inline int clear_mce_nospec(unsigned long pfn)
  */
 #endif
 
+typedef int (*gpc_callback)(struct page*, unsigned int);
+
 struct grouped_page_cache {
 	struct shrinker shrinker;
 	struct list_lru lru;
 	gfp_t gfp;
+	gpc_callback pre_add_to_cache;
+	gpc_callback pre_shrink_free;
 	atomic_t nid_round_robin;
 };
 
-int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp);
+int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp,
+			    gpc_callback pre_add_to_cache,
+			    gpc_callback pre_shrink_free);
 struct page *get_grouped_page(int node, struct grouped_page_cache *gpc);
 void free_grouped_page(struct grouped_page_cache *gpc, struct page *page);
 

@@ -922,7 +922,8 @@ bool pks_tables_inited(void)
 
 static int __init pks_page_init(void)
 {
-	pks_tables_inited_val = !init_grouped_page_cache(&gpc_pks, GFP_KERNEL | PGTABLE_HIGHMEM);
+	pks_tables_inited_val = !init_grouped_page_cache(&gpc_pks, GFP_KERNEL | PGTABLE_HIGHMEM,
+					       NULL, NULL);
 
 out:
 	return !pks_tables_inited_val;

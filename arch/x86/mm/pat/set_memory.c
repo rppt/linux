@@ -2357,6 +2357,9 @@ static void __dispose_pages(struct grouped_page_cache *gpc, struct list_head *he
 
 		list_del(cur);
 
+		if (gpc->pre_shrink_free)
+			gpc->pre_shrink_free(page, 1);
+
 		__free_pages(page, 0);
 	}
 }
@@ -2406,6 +2409,21 @@ static struct page *__remove_first_page(struct grouped_page_cache *gpc, int node
 	return NULL;
 }
 
+/* Helper to try to convert the pages, or clean up and free if it fails */
+static int __try_convert(struct grouped_page_cache *gpc, struct page *page, int cnt)
+{
+	int i;
+
+	if (gpc->pre_add_to_cache && gpc->pre_add_to_cache(page, cnt)) {
+		if (gpc->pre_shrink_free)
+			gpc->pre_shrink_free(page, cnt);
+		for (i = 0; i < cnt; i++)
+			__free_pages(&page[i], 0);
+		return 1;
+	}
+	return 0;
+}
+
 /* Get and add some new pages to the cache to be used by VM_GROUP_PAGES */
 static struct page *__replenish_grouped_pages(struct grouped_page_cache *gpc, int node)
 {
@@ -2414,18 +2432,30 @@ static struct page *__replenish_grouped_pages(struct grouped_page_cache *gpc, in
 	int i;
 
 	page = __alloc_page_order(node, gpc->gfp, HUGETLB_PAGE_ORDER);
-	if (!page)
-		return __alloc_page_order(node, gpc->gfp, 0);
+	if (!page) {
+		page = __alloc_page_order(node, gpc->gfp, 0);
+		if (__try_convert(gpc, page, 1))
+			return NULL;
+
+		return page;
+	}
 
 	split_page(page, HUGETLB_PAGE_ORDER);
 
+	/* If fail to convert to be added, try to clean up and free */
+	if (__try_convert(gpc, page, 1))
+		return NULL;
+
+	/* Add the rest to the cache except for the one returned below */
 	for (i = 1; i < hpage_cnt; i++)
 		free_grouped_page(gpc, &page[i]);
 
 	return &page[0];
 }
 
-int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp)
+int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp,
+			    gpc_callback pre_add_to_cache,
+			    gpc_callback pre_shrink_free)
 {
 	int err = 0;
 
@@ -2443,6 +2473,8 @@ int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp)
 	if (err)
 		list_lru_destroy(&gpc->lru);
 
+	gpc->pre_add_to_cache = pre_add_to_cache;
+	gpc->pre_shrink_free = pre_shrink_free;
 out:
 	return err;
 }
