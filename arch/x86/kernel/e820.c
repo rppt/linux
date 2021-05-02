@@ -1297,23 +1297,6 @@ void __init e820__memblock_setup(void)
 	int i;
 	u64 end;
 
-#ifdef CONFIG_MEMORY_HOTPLUG
-	/*
-	 * Early memory alloctions are not migratable therefore physical
-	 * memory they occupy is not hot-removable.
-	 *
-	 * The ACPI SRAT table that records hotpluggable memory ranges is
-	 * parsed later in the boot process, so it is impossible to rely on
-	 * this table to prevent memory allocations from potentially
-	 * removable memory.
-	 *
-	 * Force bottom-up memblock allocations to prevent their placement
-	 * in hot-unpluggable regions.
-	 */
-	if (movable_node_is_enabled())
-		memblock_set_bottom_up(true);
-#endif
-
 	/*
 	 * The bootstrap memblock region count maximum is 128 entries
 	 * (INIT_MEMBLOCK_REGIONS), but EFI might pass us more E820 entries
