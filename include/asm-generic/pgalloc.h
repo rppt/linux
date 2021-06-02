@@ -14,8 +14,10 @@ static inline struct page *alloc_table(gfp_t gfp)
 {
 	return alloc_page(gfp);
 }
+/* alloc_table_node() stub defined in mm.h */
 #else /* __HAVE_ARCH_ALLOC_TABLE */
 extern struct page *alloc_table(gfp_t gfp);
+extern struct page *alloc_table_node(gfp_t gfp, int node);
 #endif /* __HAVE_ARCH_ALLOC_TABLE */
 
 #ifdef __HAVE_ARCH_FREE_TABLE

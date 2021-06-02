@@ -2332,6 +2332,11 @@ static inline void free_table(struct page *table_page)
 {
 	__free_pages(table_page, 0);
 }
+
+static inline struct page *alloc_table_node(gfp_t gfp, int node)
+{
+	return alloc_pages_node(node, gfp, 0);
+}
 #endif /* CONFIG_PKS_PG_TABLES */
 
 static inline void pgtable_init(void)

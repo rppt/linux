@@ -41,7 +41,7 @@ static struct grouped_page_cache gpc_pks;
 static bool __ro_after_init pks_tables_inited_val;
 
 
-struct page *alloc_table(gfp_t gfp)
+struct page *alloc_table_node(gfp_t gfp, int node)
 {
 	struct page *table;
 
@@ -53,9 +53,9 @@ struct page *alloc_table(gfp_t gfp)
 	}
 
 	if (gfp & GFP_ATOMIC)
-		table = get_grouped_page_atomic(numa_node_id(), &gpc_pks);
+		table = get_grouped_page_atomic(node, &gpc_pks);
 	else
-		table = get_grouped_page(numa_node_id(), &gpc_pks);
+		table = get_grouped_page(node, &gpc_pks);
 	if (!table)
 		return NULL;
 	__SetPageTable(table);
@@ -71,6 +71,10 @@ struct page *alloc_table(gfp_t gfp)
 	}
 
 	return table;
+}
+struct page *alloc_table(gfp_t gfp)
+{
+	return alloc_table_node(gfp, numa_node_id());
 }
 
 void free_table(struct page *table_page)
