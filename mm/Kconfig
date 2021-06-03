@@ -863,6 +863,11 @@ config PKS_PG_TABLES_SOFT_ALWAYS
 	  still like to get notifications of illegitimate attempts to modify
 	  them.
 
+config PKS_PG_TABLES_DEBUG
+	def_bool y
+	depends on PKS_PG_TABLES
+
+
 config PERCPU_STATS
 	bool "Collect percpu memory statistics"
 	help

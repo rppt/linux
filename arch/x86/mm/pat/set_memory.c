@@ -19,6 +19,8 @@
 #include <linux/vmstat.h>
 #include <linux/kernel.h>
 #include <linux/pkeys.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 
 #include <asm/e820/api.h>
 #include <asm/processor.h>
@@ -2703,6 +2705,45 @@ static void traverse_mm(struct mm_struct *mm, traverse_cb cb)
 	traverse_pgd(mm->pgd, cb, 0);
 }
 
+#ifdef CONFIG_PKS_PG_TABLES_DEBUG
+static void check_table_protected(unsigned long pfn, void *vaddr, void *vend)
+{
+	if (is_dmap_protected((unsigned long)__va(pfn << PAGE_SHIFT)))
+		return;
+
+	pr_warn("Found unprotected page, pfn: %lx maps address:0x%p\n", pfn, vaddr);
+}
+
+static int table_scan_fn(void *data)
+{
+	while (1) {
+		msleep(MSEC_PER_SEC);
+		mmap_read_lock(current->active_mm);
+		traverse_mm(current->active_mm, &check_table_protected);
+		mmap_read_unlock(current->active_mm);
+	}
+	return 0;
+}
+
+static void __init init_pks_table_scan(void)
+{
+	struct task_struct *thread;
+	int cpu;
+
+	pr_info("Starting pks_table_debug thread on %d cpus\n", num_online_cpus());
+	for (cpu = 0; cpu < num_online_cpus(); cpu++) {
+		thread = kthread_create_on_cpu(table_scan_fn, NULL, cpu, "pks_table_debug");
+		if (IS_ERR(thread)) {
+			pr_err("Failed to create pks_table_debug threads\n");
+			break;
+		}
+		wake_up_process(thread);
+	}
+}
+#else
+static void __init init_pks_table_scan(void) { }
+#endif
+
 static void free_maybe_reserved(struct page *page)
 {
 	if (PageReserved(page))
@@ -2775,6 +2816,8 @@ static int __init init_pks_dmap_tables(void)
 	 * structure that has already been traversed.
 	 */
 	traverse_mm(&init_mm, &ensure_table_protected);
+
+	init_pks_table_scan();
 
 	return 0;
 out_err:
