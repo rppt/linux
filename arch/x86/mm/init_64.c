@@ -220,16 +220,19 @@ static void sync_global_pgds(unsigned long start, unsigned long end)
 
 /*
  * NOTE: This function is marked __ref because it calls __init function
- * (alloc_bootmem_pages). It's safe to do it ONLY when after_bootmem == 0.
+ * (memblock_alloc). It's safe to do it ONLY when after_bootmem == 0.
  */
 static __ref void *spp_getpage(void)
 {
 	void *ptr;
 
-	if (after_bootmem)
-		ptr = (void *) get_zeroed_page(GFP_ATOMIC);
-	else
+	if (after_bootmem) {
+		struct page *page = alloc_table(GFP_ATOMIC | __GFP_ZERO);
+
+		ptr = page ? page_address(page) : NULL;
+	} else {
 		ptr = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+	}
 
 	if (!ptr || ((unsigned long)ptr & ~PAGE_MASK)) {
 		panic("set_pte_phys: cannot allocate page data %s\n",
