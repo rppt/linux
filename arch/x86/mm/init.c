@@ -719,6 +719,7 @@ void __init init_mem_mapping(void)
 	unsigned long end;
 
 	pti_check_boottime_disable();
+	pks_tables_check_boottime_disable();
 	probe_page_size_mask();
 	setup_pcid();
 

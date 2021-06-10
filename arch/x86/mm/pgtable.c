@@ -7,6 +7,7 @@
 #include <asm/fixmap.h>
 #include <asm/mtrr.h>
 #include <asm/set_memory.h>
+#include <asm/cmdline.h>
 #include <linux/page-flags.h>
 
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
@@ -930,6 +931,24 @@ out:
 }
 
 device_initcall(pks_page_init);
+
+__init void pks_tables_check_boottime_disable(void)
+{
+	if (cmdline_find_option_bool(boot_command_line, "nopkstables"))
+		return;
+
+	/*
+	 * PTI will want to allocate higher order page table pages, which the
+	 * PKS table allocator doesn't support. So don't attempt to enable PKS
+	 * tables in this case.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_PTI)) {
+		pr_info("PTI enabled, not enabling PKS tables");
+		return;
+	}
+	setup_force_cpu_cap(X86_FEATURE_PKS_TABLES);
+}
+
 #endif /* CONFIG_PKS_PG_TABLES */
 #else /* !CONFIG_X86_64 */
 
