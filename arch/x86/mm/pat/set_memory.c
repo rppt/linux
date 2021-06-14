@@ -18,6 +18,7 @@
 #include <linux/libnvdimm.h>
 #include <linux/vmstat.h>
 #include <linux/kernel.h>
+#include <linux/pkeys.h>
 
 #include <asm/e820/api.h>
 #include <asm/processor.h>
@@ -70,6 +71,68 @@ static DEFINE_SPINLOCK(cpa_lock);
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
 #define CPA_NO_CHECK_ALIAS 8 /* Do not search for aliases */
+
+static struct page *alloc_regular_dmap_table(void)
+{
+	return alloc_pages(GFP_KERNEL, 0);
+}
+
+#ifdef CONFIG_PKS_PG_TABLES
+static LLIST_HEAD(tables_cache);
+static bool dmap_tables_inited;
+
+void add_dmap_table(unsigned long addr)
+{
+	struct llist_node *node = (struct llist_node *)addr;
+
+	enable_pgtable_write();
+	llist_add(node, &tables_cache);
+	disable_pgtable_write();
+}
+
+static struct page *get_pks_table(void)
+{
+	void *ptr = llist_del_first(&tables_cache);
+
+	if (!ptr)
+		return NULL;
+
+	return virt_to_page(ptr);
+}
+
+static struct page *alloc_dmap_table(void)
+{
+	struct page *table;
+
+	if (!pks_tables_inited())
+		return alloc_regular_dmap_table();
+
+	table = get_pks_table();
+	/* Fall back to un-protected table is couldn't get one from cache */
+	if (!table) {
+		if (dmap_tables_inited)
+			WARN(1, "Allocating unprotected direct map table\n");
+		table = alloc_regular_dmap_table();
+	}
+
+	return table;
+}
+
+static void free_dmap_table(struct page *table)
+{
+	add_dmap_table((unsigned long)virt_to_page(table));
+}
+#else /* CONFIG_PKS_PG_TABLES */
+static struct page *alloc_dmap_table(void)
+{
+	return alloc_regular_dmap_table();
+}
+
+static void free_dmap_table(struct page *table)
+{
+	__free_page(table);
+}
+#endif
 
 static inline pgprot_t cachemode2pgprot(enum page_cache_mode pcm)
 {
@@ -1076,14 +1139,15 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 
 	if (!debug_pagealloc_enabled())
 		spin_unlock(&cpa_lock);
-	base = alloc_pages(GFP_KERNEL, 0);
+	base = alloc_dmap_table();
+
 	if (!debug_pagealloc_enabled())
 		spin_lock(&cpa_lock);
 	if (!base)
 		return -ENOMEM;
 
 	if (__split_large_page(cpa, kpte, address, base))
-		__free_page(base);
+		free_dmap_table(base);
 
 	return 0;
 }
@@ -1096,7 +1160,7 @@ static bool try_to_free_pte_page(pte_t *pte)
 		if (!pte_none(pte[i]))
 			return false;
 
-	free_page((unsigned long)pte);
+	free_dmap_table(virt_to_page(pte));
 	return true;
 }
 
@@ -1108,7 +1172,7 @@ static bool try_to_free_pmd_page(pmd_t *pmd)
 		if (!pmd_none(pmd[i]))
 			return false;
 
-	free_page((unsigned long)pmd);
+	free_dmap_table(virt_to_page(pmd));
 	return true;
 }
 
@@ -2535,6 +2599,197 @@ void free_grouped_page(struct grouped_page_cache *gpc, struct page *page)
 	list_lru_add_node(&gpc->lru, &page->lru, page_to_nid(page));
 }
 #endif /* !HIGHMEM */
+
+#ifdef CONFIG_PKS_PG_TABLES
+#define IS_TABLE_KEY(val) (((val & _PAGE_PKEY_MASK) >> _PAGE_BIT_PKEY_BIT0) == PKS_KEY_PG_TABLES)
+
+static bool is_dmap_protected(unsigned long addr)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	pgd = init_mm.pgd + pgd_index(addr);
+	if (!pgd_present(*pgd))
+		return true;
+
+	p4d = p4d_offset(pgd, addr);
+	if (!p4d_present(*p4d) || (p4d_large(*p4d) && IS_TABLE_KEY(p4d_val(*p4d))))
+		return true;
+	else if (p4d_large(*p4d))
+		return false;
+
+	pud = pud_offset(p4d, addr);
+	if (!pud_present(*pud) || (pud_large(*pud) && IS_TABLE_KEY(pud_val(*pud))))
+		return true;
+	else if (pud_large(*pud))
+		return false;
+
+	pmd = pmd_offset(pud, addr);
+	if (!pmd_present(*pmd) || (pmd_large(*pmd) && IS_TABLE_KEY(pmd_val(*pmd))))
+		return true;
+	else if (pmd_large(*pmd))
+		return false;
+
+	pte = pte_offset_kernel(pmd, addr);
+	if (!pte_present(*pte) || IS_TABLE_KEY(pte_val(*pte)))
+		return true;
+
+	return false;
+}
+
+static void ensure_table_protected(unsigned long pfn, void *vaddr, void *vend)
+{
+	unsigned long addr_table = (unsigned long)__va(pfn << PAGE_SHIFT);
+
+	if (is_dmap_protected(addr_table))
+		return;
+
+	if (set_memory_pks(addr_table, 1, PKS_KEY_PG_TABLES))
+		pr_warn("Failed to protect page table mapping 0x%pK-0x%pK\n", vaddr, vend);
+}
+
+typedef void (*traverse_cb)(unsigned long pfn, void *vaddr, void *vend);
+
+/*
+ * The pXX_page_vaddr() functions are half way done being renamed to pXX_pgtable(),
+ * leaving no pattern in the names, provide local copies of the missing pXX_pgtable()
+ * implementations for the time being so they can be used in the template below.
+ */
+
+static inline p4d_t *pgd_pgtable(pgd_t pgd)
+{
+	return (p4d_t *)pgd_page_vaddr(pgd);
+}
+
+#define TRAVERSE(upper, lower, ptrs_cnt, upper_size, skip) \
+static void traverse_##upper(upper##_t *upper, traverse_cb cb, unsigned long base) \
+{ \
+	unsigned long cur_addr = base; \
+	upper##_t *cur; \
+\
+	if (skip) { \
+		traverse_##lower((lower##_t *)upper, cb, cur_addr); \
+		return; \
+	} \
+\
+	for (cur = upper; cur < upper + ptrs_cnt; cur++) { \
+		/* \
+		 * Use native_foo_val() instead of foo_none() because pgd_none() always \
+		 * return 0 when in 4 level paging. \
+		 */ \
+		if (native_##upper##_val(*cur) && !upper##_large(*cur)) { \
+			void *vstart = (void *)sign_extend64(cur_addr, __VIRTUAL_MASK_SHIFT); \
+			void *vend = vstart + upper_size - 1; \
+\
+			cb(upper##_pfn(*cur), vstart, vend); \
+			traverse_##lower((lower##_t *)upper##_pgtable(*cur), cb, cur_addr); \
+		} \
+		cur_addr += upper_size; \
+	} \
+}
+
+static void traverse_pte(pte_t *pte, traverse_cb cb, unsigned long base) { }
+TRAVERSE(pmd, pte, PTRS_PER_PMD, PMD_SIZE, false)
+TRAVERSE(pud, pmd, PTRS_PER_PUD, PUD_SIZE, false)
+TRAVERSE(p4d, pud, PTRS_PER_P4D, P4D_SIZE, !pgtable_l5_enabled())
+TRAVERSE(pgd, p4d, PTRS_PER_PGD, PGDIR_SIZE, false)
+
+static void traverse_mm(struct mm_struct *mm, traverse_cb cb)
+{
+	cb(__pa(mm->pgd) >> PAGE_SHIFT, 0, (void *)-1);
+	traverse_pgd(mm->pgd, cb, 0);
+}
+
+static void free_maybe_reserved(struct page *page)
+{
+	if (PageReserved(page))
+		free_reserved_page(page);
+	else
+		__free_page(page);
+}
+
+struct pks_table_llnode {
+	struct llist_node node;
+	void *table;
+};
+
+/* PKS protect reserved dmap tables */
+static int __init init_pks_dmap_tables(void)
+{
+	static LLIST_HEAD(tables_to_covert);
+	struct pks_table_llnode *cur_entry;
+	struct llist_node *cur, *next;
+	struct pks_table_llnode *tmp;
+	bool fail_to_build_list = false;
+
+	/*
+	 * If pks tables failed to initialize, return the pages to the page
+	 * allocator, and don't enable dmap tables.
+	 */
+	if (!pks_tables_inited()) {
+		llist_for_each_safe(cur, next, llist_del_all(&tables_cache))
+			free_maybe_reserved(virt_to_page(cur));
+		return 0;
+	}
+
+	/* Build separate list of tables */
+	llist_for_each_safe(cur, next, llist_del_all(&tables_cache)) {
+		tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);
+		if (!tmp) {
+			fail_to_build_list = true;
+			free_maybe_reserved(virt_to_page(cur));
+			continue;
+		}
+		tmp->table = cur;
+		llist_add(&tmp->node, &tables_to_covert);
+		llist_add(cur, &tables_cache);
+	}
+
+	if (fail_to_build_list)
+		goto out_err;
+
+	/*
+	 * Tables in tables_cache can now be used, because they are being kept track
+	 * of tables_to_covert.
+	 */
+	dmap_tables_inited = true;
+
+	/*
+	 * PKS protect all tables in tables_to_covert. Some of them are also in tables_cache
+	 * and may get used in this process.
+	 */
+	while ((cur = llist_del_first(&tables_to_covert))) {
+		cur_entry = llist_entry(cur, struct pks_table_llnode, node);
+		set_memory_pks((unsigned long)cur_entry->table, 1, PKS_KEY_PG_TABLES);
+		kfree(cur_entry);
+	}
+
+	/*
+	 * It is safe to traverse while the callback ensure_table_protected() may
+	 * change the page tables, because CPA will only split pages and not merge
+	 * them. Any page used for the splits, will have already been protected in
+	 * a previous step, so they will not be missed if tables are mapped by a
+	 * structure that has already been traversed.
+	 */
+	traverse_mm(&init_mm, &ensure_table_protected);
+
+	return 0;
+out_err:
+	while ((cur = llist_del_first(&tables_to_covert))) {
+		cur_entry = llist_entry(cur, struct pks_table_llnode, node);
+		free_maybe_reserved(virt_to_page(cur));
+		kfree(cur_entry);
+	}
+	pr_warn("Unable to protect direct map page cache, direct map unprotected.\n");
+	return 0;
+}
+
+late_initcall(init_pks_dmap_tables);
+#endif /* CONFIG_PKS_PG_TABLES */
+
 /*
  * The testcases use internal knowledge of the implementation that shouldn't
  * be exposed to the rest of the kernel. Include these directly here.
