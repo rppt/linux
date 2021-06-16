@@ -153,6 +153,7 @@ int init_grouped_page_cache(struct grouped_page_cache *gpc, gfp_t gfp,
 			    gpc_callback pre_add_to_cache,
 			    gpc_callback pre_shrink_free);
 struct page *get_grouped_page(int node, struct grouped_page_cache *gpc);
+struct page *get_grouped_page_atomic(int node, struct grouped_page_cache *gpc);
 void free_grouped_page(struct grouped_page_cache *gpc, struct page *page);
 
 #endif /* _ASM_X86_SET_MEMORY_H */

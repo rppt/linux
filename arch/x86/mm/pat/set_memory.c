@@ -2496,6 +2496,32 @@ struct page *get_grouped_page(int node, struct grouped_page_cache *gpc)
 	return __replenish_grouped_pages(gpc, node);
 }
 
+struct page *get_grouped_page_atomic(int node, struct grouped_page_cache *gpc)
+{
+	struct page *page;
+
+	if (in_interrupt()) {
+		pr_warn_once("grouped pages: Cannot allocate grouped page in interrupt");
+		return NULL;
+	}
+
+	/* First see if there are any grouped pages already in the cache */
+	page = __remove_first_page(gpc, node);
+
+	/*
+	 * If there wasn't one in the cache, allocate only a single page to not
+	 * stress the reserves.
+	 */
+	if (!page)
+		page = __alloc_page_order(node, gpc->gfp | GFP_ATOMIC, 0);
+
+	/* Convert the single page if configured for this cache */
+	if (!page || __try_convert(gpc, page, 1))
+		return NULL;
+
+	return page;
+}
+
 void free_grouped_page(struct grouped_page_cache *gpc, struct page *page)
 {
 	INIT_LIST_HEAD(&page->lru);
