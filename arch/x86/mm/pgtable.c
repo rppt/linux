@@ -52,7 +52,10 @@ struct page *alloc_table(gfp_t gfp)
 		return table;
 	}
 
-	table = get_grouped_page(numa_node_id(), &gpc_pks);
+	if (gfp & GFP_ATOMIC)
+		table = get_grouped_page_atomic(numa_node_id(), &gpc_pks);
+	else
+		table = get_grouped_page(numa_node_id(), &gpc_pks);
 	if (!table)
 		return NULL;
 	__SetPageTable(table);
