@@ -975,7 +975,7 @@ int arch_add_memory(int nid, u64 start, u64 size,
 	return add_pages(nid, start_pfn, nr_pages, params);
 }
 
-static void __meminit free_pagetable(struct page *page, int order)
+static void __meminit free_pagetable(struct page *page, int order, bool table)
 {
 	unsigned long magic;
 	unsigned int nr_pages = 1 << order;
@@ -991,8 +991,14 @@ static void __meminit free_pagetable(struct page *page, int order)
 		} else
 			while (nr_pages--)
 				free_reserved_page(page++);
-	} else
-		free_pages((unsigned long)page_address(page), order);
+	} else {
+		if (table) {
+			/* The page tables will always be order 0. */
+			free_table(page);
+		} else {
+			free_pages((unsigned long)page_address(page), order);
+		}
+	}
 }
 
 static void __meminit gather_table(struct page *page, struct list_head *tables)
@@ -1008,7 +1014,7 @@ static void __meminit gather_table_finish(struct list_head *tables)
 
 	list_for_each_entry_safe(page, next, tables, lru) {
 		list_del(&page->lru);
-		free_pagetable(page, 0);
+		free_pagetable(page, 0, true);
 	}
 }
 
@@ -1018,7 +1024,7 @@ static void __meminit free_hugepage_table(struct page *page,
 	if (altmap)
 		vmem_altmap_free(altmap, PMD_SIZE / PAGE_SIZE);
 	else
-		free_pagetable(page, get_order(PMD_SIZE));
+		free_pagetable(page, get_order(PMD_SIZE), false);
 }
 
 static void __meminit free_pte_table(pte_t *pte_start, pmd_t *pmd, struct list_head *tables)
@@ -1102,7 +1108,7 @@ remove_pte_table(pte_t *pte_start, unsigned long addr, unsigned long end,
 			return;
 
 		if (!direct)
-			free_pagetable(pte_page(*pte), 0);
+			free_pagetable(pte_page(*pte), 0, false);
 
 		spin_lock(&init_mm.page_table_lock);
 		pte_clear(&init_mm, addr, pte);
