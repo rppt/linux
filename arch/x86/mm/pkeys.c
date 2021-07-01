@@ -247,6 +247,9 @@ static const pks_key_callback pks_key_callbacks[PKS_KEY_NR_CONSUMERS] = {
 #ifdef CONFIG_DEVMAP_ACCESS_PROTECTION
 	[PKS_KEY_PGMAP_PROTECTION]   = pgmap_pks_fault_callback,
 #endif
+#ifdef CONFIG_PKS_PG_TABLES
+	[PKS_KEY_PG_TABLES] = pks_tables_fault,
+#endif
 };
 
 bool handle_pks_key_callback(unsigned long address, bool write, u16 key)

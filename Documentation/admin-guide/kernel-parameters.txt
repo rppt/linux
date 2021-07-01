@@ -4254,6 +4254,10 @@
 	nopti		[X86-64]
 			Equivalent to pti=off
 
+	nopkstables	[X86-64] Disable PKS page table protection
+
+	pkstablessoft	[X86-64] Warn instead of oops on pks tables violations
+
 	pty.legacy_count=
 			[KNL] Number of legacy pty's. Overwrites compiled-in
 			default number.

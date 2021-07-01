@@ -851,6 +851,18 @@ config PKS_PG_TABLES
 	depends on !HIGHMEM && !X86_PAE && SPARSEMEM_VMEMMAP
 	depends on ARCH_HAS_SUPERVISOR_PKEYS
 
+config PKS_PG_TABLES_SOFT_ALWAYS
+	bool
+	default y
+	depends on PKS_PG_TABLES
+	help
+	  This features enables PKS tables "soft" mode by default, such that
+	  the first PKS table violation is logged and after that protections
+	  are disabled. This is useful for cases where users would not like
+	  to treat bugs that incorrectly modify page tables as fatal, but would
+	  still like to get notifications of illegitimate attempts to modify
+	  them.
+
 config PERCPU_STATS
 	bool "Collect percpu memory statistics"
 	help

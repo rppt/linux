@@ -122,6 +122,7 @@ void pks_tables_check_boottime_disable(void);
 void enable_pgtable_write(void);
 void disable_pgtable_write(void);
 bool pks_tables_inited(void);
+bool pks_tables_fault(unsigned long addr, bool write);
 #else /* CONFIG_PKS_PG_TABLES */
 static inline void pks_tables_check_boottime_disable(void) { }
 static void enable_pgtable_write(void) { }

@@ -40,7 +40,7 @@ pgtable_t pte_alloc_one(struct mm_struct *mm)
 #ifdef CONFIG_PKS_PG_TABLES
 static struct grouped_page_cache gpc_pks;
 static bool __ro_after_init pks_tables_inited_val;
-
+static bool __ro_after_init pks_tables_soft;
 
 struct page *alloc_table_node(gfp_t gfp, int node)
 {
@@ -971,6 +971,16 @@ bool pks_tables_inited(void)
 	return pks_tables_inited_val;
 }
 
+bool pks_tables_fault(unsigned long addr, bool write)
+{
+	WARN(1, "Write to protected page table, exploit attempt?");
+	if (!pks_tables_soft)
+		return 0;
+
+	pks_abandon_protections(PKS_KEY_PG_TABLES);
+	return 1;
+}
+
 static int __init pks_page_init(void)
 {
 	/*
@@ -998,6 +1008,10 @@ __init void pks_tables_check_boottime_disable(void)
 {
 	if (cmdline_find_option_bool(boot_command_line, "nopkstables"))
 		return;
+
+	if (IS_ENABLED(CONFIG_PKS_PG_TABLES_SOFT_ALWAYS) ||
+	    cmdline_find_option_bool(boot_command_line, "pkstablessoft"))
+		pks_tables_soft = true;
 
 	/*
 	 * PTI will want to allocate higher order page table pages, which the
