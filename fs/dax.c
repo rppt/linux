@@ -728,7 +728,9 @@ static int copy_cow_page_dax(struct block_device *bdev, struct dax_device *dax_d
 		return rc;
 	}
 	vto = kmap_atomic(to);
+	dax_mk_readwrite(dax_dev);
 	copy_user_page(vto, (void __force *)kaddr, vaddr, to);
+	dax_mk_noaccess(dax_dev);
 	kunmap_atomic(vto);
 	dax_read_unlock(id);
 	return 0;
@@ -1096,8 +1098,10 @@ s64 dax_iomap_zero(loff_t pos, u64 length, struct iomap *iomap)
 	}
 
 	if (!page_aligned) {
+		dax_mk_readwrite(iomap->dax_dev);
 		memset(kaddr + offset, 0, size);
 		dax_flush(iomap->dax_dev, kaddr + offset, size);
+		dax_mk_noaccess(iomap->dax_dev);
 	}
 	dax_read_unlock(id);
 	return size;
@@ -1169,6 +1173,8 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		if (map_len > end - pos)
 			map_len = end - pos;
 
+		dax_mk_readwrite(dax_dev);
+
 		/*
 		 * The userspace address for the memory copy has already been
 		 * validated via access_ok() in either vfs_read() or
@@ -1180,6 +1186,8 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		else
 			xfer = dax_copy_to_iter(dax_dev, pgoff, kaddr,
 					map_len, iter);
+
+		dax_mk_noaccess(dax_dev);
 
 		pos += xfer;
 		length -= xfer;
