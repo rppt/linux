@@ -227,7 +227,7 @@ static __ref void *spp_getpage(void)
 	void *ptr;
 
 	if (after_bootmem)
-		ptr = (void *) get_zeroed_page(GFP_ATOMIC);
+		ptr = (void *) get_zeroed_page(GFP_KERNEL);
 	else
 		ptr = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
 
