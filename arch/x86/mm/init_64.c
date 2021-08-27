@@ -302,7 +302,8 @@ static void __set_pte_vaddr(pud_t *pud, unsigned long vaddr, pte_t new_pte)
 	flush_tlb_one_kernel(vaddr);
 }
 
-void set_pte_vaddr_p4d(p4d_t *p4d_page, unsigned long vaddr, pte_t new_pte)
+static void set_pte_vaddr_p4d(p4d_t *p4d_page, unsigned long vaddr,
+			      pte_t new_pte)
 {
 	p4d_t *p4d = p4d_page + p4d_index(vaddr);
 	pud_t *pud = fill_pud(p4d, vaddr);
