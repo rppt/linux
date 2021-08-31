@@ -1580,40 +1580,6 @@ int __meminit vmemmap_populate_pmd(pmd_t *pmd, unsigned long addr,
 	return 0;
 }
 
-static int __meminit vmemmap_populate_hugepages(unsigned long start,
-		unsigned long end, int node, struct vmem_altmap *altmap)
-{
-	unsigned long addr;
-	unsigned long next;
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-	int err;
-
-	for (addr = start; addr < end; addr = next) {
-		next = pmd_addr_end(addr, end);
-
-		pgd = vmemmap_pgd_populate(addr, node);
-		if (!pgd)
-			return -ENOMEM;
-
-		p4d = vmemmap_p4d_populate(pgd, addr, node);
-		if (!p4d)
-			return -ENOMEM;
-
-		pud = vmemmap_pud_populate(p4d, addr, node);
-		if (!pud)
-			return -ENOMEM;
-
-		pmd = pmd_offset(pud, addr);
-		err = vmemmap_populate_pmd(pmd, addr, next, node, altmap);
-		if (err)
-			return err;
-	}
-	return 0;
-}
-
 int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		struct vmem_altmap *altmap)
 {
