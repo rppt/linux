@@ -1122,6 +1122,27 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 	return vmemmap_populate_basepages(start, end, node, altmap);
 }
 #else	/* !ARM64_KERNEL_USES_PMD_MAPS */
+static int __meminit vmemmap_populate_pmd(pmd_t *pmdp, unsigned long addr,
+					  unsigned long next, int node,
+					  struct vmem_altmap *altmap)
+{
+	if (pmd_none(READ_ONCE(*pmdp))) {
+		void *p = NULL;
+
+		p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
+		if (!p) {
+			if (vmemmap_populate_basepages(addr, next, node, altmap))
+				return -ENOMEM;
+			return 0;
+		}
+
+		pmd_set_huge(pmdp, __pa(p), __pgprot(PROT_SECT_NORMAL));
+	} else
+		vmemmap_verify((pte_t *)pmdp, node, addr, next);
+
+	return 0;
+}
+
 int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		struct vmem_altmap *altmap)
 {
@@ -1131,6 +1152,7 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 	p4d_t *p4dp;
 	pud_t *pudp;
 	pmd_t *pmdp;
+	int err;
 
 	WARN_ON((start < VMEMMAP_START) || (end > VMEMMAP_END));
 	do {
@@ -1149,19 +1171,9 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 			return -ENOMEM;
 
 		pmdp = pmd_offset(pudp, addr);
-		if (pmd_none(READ_ONCE(*pmdp))) {
-			void *p = NULL;
-
-			p = vmemmap_alloc_block_buf(PMD_SIZE, node, altmap);
-			if (!p) {
-				if (vmemmap_populate_basepages(addr, next, node, altmap))
-					return -ENOMEM;
-				continue;
-			}
-
-			pmd_set_huge(pmdp, __pa(p), __pgprot(PROT_SECT_NORMAL));
-		} else
-			vmemmap_verify((pte_t *)pmdp, node, addr, next);
+		err = vmemmap_populate_pmd(pmdp, addr, next, node, altmap);
+		if (err)
+			return err;
 	} while (addr = next, addr != end);
 
 	return 0;
