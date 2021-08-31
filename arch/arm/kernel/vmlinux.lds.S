@@ -72,6 +72,8 @@ SECTIONS
 
 	RO_DATA(PAGE_SIZE)
 
+	_sdata = .;
+
 	. = ALIGN(4);
 	__ex_table : AT(ADDR(__ex_table) - LOAD_OFFSET) {
 		__start___ex_table = .;
@@ -88,6 +90,10 @@ SECTIONS
 #else
 	. = ALIGN(PAGE_SIZE);
 #endif
+
+	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, THREAD_SIZE)
+	_edata = .;
+
 	__init_begin = .;
 
 	ARM_VECTORS
@@ -141,10 +147,6 @@ SECTIONS
 	. = ALIGN(THREAD_SIZE);
 #endif
 	__init_end = .;
-
-	_sdata = .;
-	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, THREAD_SIZE)
-	_edata = .;
 
 	BSS_SECTION(0, 0, 0)
 #ifdef CONFIG_ARM_MPU
