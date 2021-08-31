@@ -5,7 +5,7 @@
  *  Copyright (C) 1996-1999 David S. Miller (davem@caip.rutgers.edu)
  *  Copyright (C) 1997-1999 Jakub Jelinek (jj@sunsite.mff.cuni.cz)
  */
- 
+
 #include <linux/extable.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -2390,11 +2390,11 @@ void __init paging_init(void)
 	 * work.
 	 */
 	init_mm.pgd += ((shift) / (sizeof(pgd_t)));
-	
+
 	memset(swapper_pg_dir, 0, sizeof(swapper_pg_dir));
 
 	inherit_prom_mappings();
-	
+
 	/* Ok, we can use our TLB miss and window trap handlers safely.  */
 	setup_tba();
 
@@ -2578,10 +2578,12 @@ unsigned long _PAGE_CACHE __read_mostly;
 EXPORT_SYMBOL(_PAGE_CACHE);
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
-int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
-			       int node, struct vmem_altmap *altmap)
+int __meminit vmemmap_populate_pmd(pmd_t *pmd, unsigned long addr,
+				   unsigned long next, int node,
+				   struct vmem_altmap *altmap)
 {
 	unsigned long pte_base;
+	unsigned long pte;
 
 	pte_base = (_PAGE_VALID | _PAGE_SZ4MB_4U |
 		    _PAGE_CP_4U | _PAGE_CV_4U |
@@ -2592,39 +2594,25 @@ int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
 
 	pte_base |= _PAGE_PMD_HUGE;
 
-	vstart = vstart & PMD_MASK;
-	vend = ALIGN(vend, PMD_SIZE);
-	for (; vstart < vend; vstart += PMD_SIZE) {
-		pgd_t *pgd = vmemmap_pgd_populate(vstart, node);
-		unsigned long pte;
-		p4d_t *p4d;
-		pud_t *pud;
-		pmd_t *pmd;
+	pte = pmd_val(*pmd);
+	if (!(pte & _PAGE_VALID)) {
+		void *block = vmemmap_alloc_block(PMD_SIZE, node);
 
-		if (!pgd)
+		if (!block)
 			return -ENOMEM;
 
-		p4d = vmemmap_p4d_populate(pgd, vstart, node);
-		if (!p4d)
-			return -ENOMEM;
-
-		pud = vmemmap_pud_populate(p4d, vstart, node);
-		if (!pud)
-			return -ENOMEM;
-
-		pmd = pmd_offset(pud, vstart);
-		pte = pmd_val(*pmd);
-		if (!(pte & _PAGE_VALID)) {
-			void *block = vmemmap_alloc_block(PMD_SIZE, node);
-
-			if (!block)
-				return -ENOMEM;
-
-			pmd_val(*pmd) = pte_base | __pa(block);
-		}
+		pmd_val(*pmd) = pte_base | __pa(block);
 	}
 
 	return 0;
+}
+
+int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
+			       int node, struct vmem_altmap *altmap)
+{
+	vstart = vstart & PMD_MASK;
+	vend = ALIGN(vend, PMD_SIZE);
+	return vmemmap_populate_hugepages(vstart, vend, node, altmap);
 }
 
 void vmemmap_free(unsigned long start, unsigned long end,
