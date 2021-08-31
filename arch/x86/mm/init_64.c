@@ -1533,9 +1533,9 @@ static long __meminitdata addr_start, addr_end;
 static void __meminitdata *p_start, *p_end;
 static int __meminitdata node_start;
 
-static int __meminit vmemmap_populate_pmd(pmd_t *pmd, unsigned long addr,
-					  unsigned long next, int node,
-					  struct vmem_altmap *altmap)
+int __meminit vmemmap_populate_pmd(pmd_t *pmd, unsigned long addr,
+				   unsigned long next, int node,
+				   struct vmem_altmap *altmap)
 {
 	if (pmd_none(*pmd)) {
 		void *p;
