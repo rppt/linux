@@ -2578,10 +2578,12 @@ unsigned long _PAGE_CACHE __read_mostly;
 EXPORT_SYMBOL(_PAGE_CACHE);
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
-int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
-			       int node, struct vmem_altmap *altmap)
+static int __meminit vmemmap_populate_pmd(pmd_t *pmd, unsigned long addr,
+					  unsigned long next, int node,
+					  struct vmem_altmap *altmap)
 {
 	unsigned long pte_base;
+	unsigned long pte;
 
 	pte_base = (_PAGE_VALID | _PAGE_SZ4MB_4U |
 		    _PAGE_CP_4U | _PAGE_CV_4U |
@@ -2592,14 +2594,30 @@ int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
 
 	pte_base |= _PAGE_PMD_HUGE;
 
+	pte = pmd_val(*pmd);
+	if (!(pte & _PAGE_VALID)) {
+		void *block = vmemmap_alloc_block(PMD_SIZE, node);
+
+		if (!block)
+			return -ENOMEM;
+
+		pmd_val(*pmd) = pte_base | __pa(block);
+	}
+
+	return 0;
+}
+
+int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
+			       int node, struct vmem_altmap *altmap)
+{
 	vstart = vstart & PMD_MASK;
 	vend = ALIGN(vend, PMD_SIZE);
 	for (; vstart < vend; vstart += PMD_SIZE) {
 		pgd_t *pgd = vmemmap_pgd_populate(vstart, node);
-		unsigned long pte;
 		p4d_t *p4d;
 		pud_t *pud;
 		pmd_t *pmd;
+		int err;
 
 		if (!pgd)
 			return -ENOMEM;
@@ -2613,15 +2631,9 @@ int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
 			return -ENOMEM;
 
 		pmd = pmd_offset(pud, vstart);
-		pte = pmd_val(*pmd);
-		if (!(pte & _PAGE_VALID)) {
-			void *block = vmemmap_alloc_block(PMD_SIZE, node);
-
-			if (!block)
-				return -ENOMEM;
-
-			pmd_val(*pmd) = pte_base | __pa(block);
-		}
+		err = vmemmap_populate_pmd(pmd, vstart, vstart + PMD_SIZE, node, altmap);
+		if (!err)
+			return err;
 	}
 
 	return 0;
