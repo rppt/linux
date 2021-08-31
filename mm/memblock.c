@@ -2211,8 +2211,8 @@ void __init memblock_setup_resources(void)
 	}
 }
 
-#ifdef CONFIG_ARCH_WANTS_RESERVE_MEMBLOCK_RESERVED_REGIONS
-static int __init reserve_memblock_reserved_regions(void)
+#ifdef CONFIG_ARCH_WANTS_MEMBLOCK_RESERVE_RESOURCES
+static int __init memblock_reserve_resources(void)
 {
 	u64 i, j;
 
@@ -2238,7 +2238,7 @@ static int __init reserve_memblock_reserved_regions(void)
 
 	return 0;
 }
-arch_initcall(reserve_memblock_reserved_regions);
+arch_initcall(memblock_reserve_resources);
 #endif
 
 #if defined(CONFIG_DEBUG_FS) && defined(CONFIG_ARCH_KEEP_MEMBLOCK)
