@@ -2612,31 +2612,7 @@ int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
 {
 	vstart = vstart & PMD_MASK;
 	vend = ALIGN(vend, PMD_SIZE);
-	for (; vstart < vend; vstart += PMD_SIZE) {
-		pgd_t *pgd = vmemmap_pgd_populate(vstart, node);
-		p4d_t *p4d;
-		pud_t *pud;
-		pmd_t *pmd;
-		int err;
-
-		if (!pgd)
-			return -ENOMEM;
-
-		p4d = vmemmap_p4d_populate(pgd, vstart, node);
-		if (!p4d)
-			return -ENOMEM;
-
-		pud = vmemmap_pud_populate(p4d, vstart, node);
-		if (!pud)
-			return -ENOMEM;
-
-		pmd = pmd_offset(pud, vstart);
-		err = vmemmap_populate_pmd(pmd, vstart, vstart + PMD_SIZE, node, altmap);
-		if (!err)
-			return err;
-	}
-
-	return 0;
+	return vmemmap_populate_hugepages(vstart, vend, node, altmap);
 }
 
 void vmemmap_free(unsigned long start, unsigned long end,
