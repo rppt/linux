@@ -1122,9 +1122,9 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 	return vmemmap_populate_basepages(start, end, node, altmap);
 }
 #else	/* !ARM64_KERNEL_USES_PMD_MAPS */
-static int __meminit vmemmap_populate_pmd(pmd_t *pmdp, unsigned long addr,
-					  unsigned long next, int node,
-					  struct vmem_altmap *altmap)
+int __meminit vmemmap_populate_pmd(pmd_t *pmdp, unsigned long addr,
+				   unsigned long next, int node,
+				   struct vmem_altmap *altmap)
 {
 	if (pmd_none(READ_ONCE(*pmdp))) {
 		void *p = NULL;
