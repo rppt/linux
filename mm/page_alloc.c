@@ -72,12 +72,19 @@
 #include <linux/padata.h>
 #include <linux/khugepaged.h>
 #include <linux/buffer_head.h>
+#include <linux/set_memory.h>
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
 #include "internal.h"
 #include "shuffle.h"
 #include "page_reporting.h"
+
+/*
+ * FIXME: add a proper definition in include/linux/mm.h once DAX and arch
+ * people agree on the name
+ */
+#define PMD_ORDER      (PMD_SHIFT - PAGE_SHIFT)
 
 /* Free Page Internal flags: for internal, non-pcp variants of free_pages(). */
 typedef int __bitwise fpi_t;
@@ -316,6 +323,9 @@ const char * const migratetype_names[MIGRATE_TYPES] = {
 	"Unmovable",
 	"Movable",
 	"Reclaimable",
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+	"Unmapped",
+#endif
 	"HighAtomic",
 #ifdef CONFIG_CMA
 	"CMA",
@@ -563,6 +573,9 @@ void set_pageblock_migratetype(struct page *page, int migratetype)
 	if (unlikely(page_group_by_mobility_disabled &&
 		     migratetype < MIGRATE_PCPTYPES))
 		migratetype = MIGRATE_UNMOVABLE;
+
+	/* if (is_migrate_unmapped(migratetype)) */
+	/* 	pr_info("===> %pS: set UNMAPPED %px\n", __builtin_return_address(0), page_address(page)); */
 
 	set_pfnblock_flags_mask(page, (unsigned long)migratetype,
 				page_to_pfn(page), MIGRATETYPE_MASK);
@@ -925,9 +938,10 @@ compaction_capture(struct capture_control *capc, struct page *page,
 	if (!capc || order != capc->cc->order)
 		return false;
 
-	/* Do not accidentally pollute CMA or isolated regions*/
+	/* Do not accidentally pollute CMA or isolated or unmapped regions */
 	if (is_migrate_cma(migratetype) ||
-	    is_migrate_isolate(migratetype))
+	    is_migrate_isolate(migratetype) ||
+	    is_migrate_unmapped(migratetype))
 		return false;
 
 	/*
@@ -1077,6 +1091,9 @@ static inline void __free_one_page(struct page *page,
 	VM_BUG_ON_PAGE(pfn & ((1 << order) - 1), page);
 	VM_BUG_ON_PAGE(bad_range(zone, page), page);
 
+	/* if (is_migrate_unmapped(migratetype)) */
+	/* 	pr_info("===> %s(%pS)\n", __func__, __builtin_return_address(0)); */
+
 continue_merging:
 	while (order < max_order) {
 		if (compaction_capture(capc, page, order, migratetype)) {
@@ -1129,6 +1146,18 @@ continue_merging:
 
 done_merging:
 	set_buddy_order(page, order);
+
+#if 0
+	/*
+	 * FIXME: collapse 2M page in the direct map and move the pageblock
+	 * from MIGRATE_UNMAPPED to another migrate type.
+	 */
+	if ((order == PMD_ORDER) && is_migrate_unmapped_page(page)) {
+		set_direct_map_2M(page);
+		set_pageblock_migratetype(page, MIGRATE_MOVABLE);
+	}
+#endif
+
 
 	if (fpi_flags & FPI_TO_TAIL)
 		to_tail = true;
@@ -1270,12 +1299,18 @@ static void kernel_init_free_pages(struct page *page, int numpages, bool zero_ta
 
 	/* s390's use of memset() could override KASAN redzones. */
 	kasan_disable_current();
+	/* FIXME: maybe_map(page); */
 	for (i = 0; i < numpages; i++) {
 		u8 tag = page_kasan_tag(page + i);
 		page_kasan_tag_reset(page + i);
+		if (is_migrate_unmapped_page(page))
+			set_direct_map_default_noflush(page);
 		clear_highpage(page + i);
+		if (is_migrate_unmapped_page(page))
+			set_direct_map_invalid_noflush(page);
 		page_kasan_tag_set(page + i, tag);
 	}
+	/* FIXME: maybe_unmap(page); */
 	kasan_enable_current();
 }
 
@@ -2468,6 +2503,9 @@ static int fallbacks[MIGRATE_TYPES][3] = {
 	[MIGRATE_UNMOVABLE]   = { MIGRATE_RECLAIMABLE, MIGRATE_MOVABLE,   MIGRATE_TYPES },
 	[MIGRATE_MOVABLE]     = { MIGRATE_RECLAIMABLE, MIGRATE_UNMOVABLE, MIGRATE_TYPES },
 	[MIGRATE_RECLAIMABLE] = { MIGRATE_UNMOVABLE,   MIGRATE_MOVABLE,   MIGRATE_TYPES },
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+	[MIGRATE_UNMAPPED]    = { MIGRATE_TYPES },
+#endif
 #ifdef CONFIG_CMA
 	[MIGRATE_CMA]         = { MIGRATE_TYPES }, /* Never used */
 #endif
@@ -2486,6 +2524,25 @@ static __always_inline struct page *__rmqueue_cma_fallback(struct zone *zone,
 static inline struct page *__rmqueue_cma_fallback(struct zone *zone,
 					unsigned int order) { return NULL; }
 #endif
+
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+static __always_inline struct page *__rmqueue_unmapped_fallback(struct zone *zone,
+					unsigned int order)
+{
+	struct page *page = __rmqueue_smallest(zone, order, MIGRATE_UNMAPPED);
+	int i;
+
+	if (page)
+		for (i = 0; i < (1 << order); i++)
+			set_direct_map_default_noflush(page + i);
+
+	return page;
+}
+#else
+static inline struct page *__rmqueue_unmapped_fallback(struct zone *zone,
+					unsigned int order) { return NULL; }
+#endif
+
 
 /*
  * Move the free pages in a range to the freelist tail of the requested type.
@@ -2549,6 +2606,35 @@ int move_freepages_block(struct zone *zone, struct page *page,
 
 	return move_freepages(zone, start_pfn, end_pfn, migratetype,
 								num_movable);
+}
+
+static void set_pageblock_unmapped(struct page *page)
+{
+	unsigned long start_pfn, end_pfn, pfn, start_addr, end_addr;
+
+	pr_info("===> %s(%pS): pa: %px\n", __func__, __builtin_return_address(0), page_address(page));
+
+	pfn = page_to_pfn(page);
+	start_pfn = pfn & ~(pageblock_nr_pages - 1);
+	end_pfn = start_pfn + pageblock_nr_pages;
+
+	start_addr = PFN_PHYS(start_pfn);
+	end_addr = PFN_PHYS(end_pfn);
+
+	set_memory_4k(start_addr, pageblock_nr_pages);
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn++) {
+		page = pfn_to_page(pfn);
+		if (PageBuddy(page))
+			set_direct_map_default_noflush(page);
+	}
+
+	/*
+	 * No need to flush TLB here. The call for set_memory_4k() flushed
+	 * TLB entries for large mappings and the pages that were unmapped
+	 * are free and they are not refrenced anywhere, so no stale TLB
+	 * entries for them should exist.
+	 */
 }
 
 static void change_pageblock_range(struct page *pageblock_page,
@@ -2655,6 +2741,16 @@ static void steal_suitable_fallback(struct zone *zone, struct page *page,
 	 */
 	if (is_migrate_highatomic(old_block_type))
 		goto single_page;
+
+	/*
+	 * take the entire page block if start_type is MIGRATE_UNMAPPED
+	 */
+	if (unlikely(is_migrate_unmapped(start_type))) {
+		free_pages = move_freepages_block(zone, page, start_type, NULL);
+		set_pageblock_migratetype(page, start_type);
+		set_pageblock_unmapped(page);
+		return;
+	}
 
 	/* Take ownership for orders >= pageblock_order */
 	if (current_order >= pageblock_order) {
@@ -2992,6 +3088,9 @@ retry:
 		if (!page && __rmqueue_fallback(zone, order, migratetype,
 								alloc_flags))
 			goto retry;
+
+		if (!page && IS_ENABLED(CONFIG_ARCH_WANTS_GFP_UNMAPPED))
+			page = __rmqueue_unmapped_fallback(zone, order);
 	}
 out:
 	if (page)
@@ -4146,6 +4245,9 @@ try_this_zone:
 		page = rmqueue(ac->preferred_zoneref->zone, zone, order,
 				gfp_mask, alloc_flags, ac->migratetype);
 		if (page) {
+			if (alloc_flags & ALLOC_UNMAPPED)
+				return page;
+
 			prep_new_page(page, order, gfp_mask, alloc_flags);
 
 			/*
@@ -4843,6 +4945,82 @@ check_retry_cpuset(int cpuset_mems_cookie, struct alloc_context *ac)
 	return false;
 }
 
+static struct page *
+__alloc_pages_unmapped(gfp_t gfp, unsigned int alloc_order, int alloc_flags,
+		       struct alloc_context *ac)
+{
+	int migratetype = MIGRATE_UNMAPPED;
+	unsigned long nr_pages, flags, addr;
+	unsigned int order;
+	struct page *page;
+	struct zone *zone;
+	int err;
+
+	gfp &= ~__GFP_UNMAPPED;
+	ac->migratetype = gfp_migratetype(gfp);
+
+	pr_info("===> %s: gfp: %pGg, mig: %s\n", __func__, &gfp, migratetype_names[ac->migratetype]);
+
+	/*
+	 * Try getting an entire pageblock to refill the unmapped free
+	 * list, if this fails fallback to the allocation of exact order
+	 * requested
+	 */
+	order = PMD_ORDER;
+	page = get_page_from_freelist(gfp, order, alloc_flags | ALLOC_UNMAPPED, ac);
+	if (page) {
+		zone = page_zone(page);
+
+		nr_pages = (1 << order);
+		addr = (unsigned long)page_address(page);
+		err = set_memory_np(addr, nr_pages);
+		if (err) {
+			add_to_free_list(page, zone, order, ac->migratetype);
+			ac->migratetype = migratetype;
+			return NULL;
+		}
+
+		/* FIXME: need to grab zone->lock here */
+		add_to_free_list(page, zone, order, migratetype);
+		set_pageblock_migratetype(page, MIGRATE_UNMAPPED);
+		set_buddy_order(page, order);
+
+		pr_info("===> %s: got 2M\n", __func__);
+
+		gfp |= __GFP_UNMAPPED;
+		page = get_page_from_freelist(gfp, alloc_order, alloc_flags, ac);
+		ac->migratetype = migratetype;
+
+		return page;
+	} else {
+		order = alloc_order;
+		page = get_page_from_freelist(gfp, order, alloc_flags, ac);
+		if (!page) {
+			ac->migratetype = migratetype;
+			return NULL;
+		}
+
+		nr_pages = (1 << order);
+		addr = (unsigned long)page_address(page);
+		err = set_memory_np(addr, nr_pages);
+		if (err) {
+			__free_pages(page, order);
+			ac->migratetype = migratetype;
+			return NULL;
+		}
+		/* FIXME: flush_tlb_kernel_range()? */
+
+		zone = page_zone(page);
+		nr_pages = move_freepages_block(zone, page, migratetype, &err);
+		__mod_zone_freepage_state(zone, nr_pages, migratetype);
+		pr_info("===> %s: moved %ld pages, movable: %d\n", __func__, nr_pages, err);
+
+		set_pageblock_migratetype(page, MIGRATE_UNMAPPED);
+		ac->migratetype = migratetype;
+		return page;
+	}
+}
+
 static inline struct page *
 __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 						struct alloc_context *ac)
@@ -4971,6 +5149,16 @@ retry_cpuset:
 	}
 
 retry:
+	/*
+	 * MIGRATE_UNMAPPED might be almost empty after boot, try
+	 * populating it before starting reclaim.
+	 */
+	if (gfp_mask & __GFP_UNMAPPED) {
+		page = __alloc_pages_unmapped(gfp_mask, order, alloc_flags, ac);
+		if (page)
+			goto got_pg;
+	}
+
 	/* Ensure kswapd doesn't accidentally go to sleep as long as we loop */
 	if (alloc_flags & ALLOC_KSWAPD)
 		wake_all_kswapds(order, gfp_mask, ac);

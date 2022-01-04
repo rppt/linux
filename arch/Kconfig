@@ -1312,6 +1312,14 @@ config ARCH_HAS_PARANOID_L1D_FLUSH
 config DYNAMIC_SIGFRAME
 	bool
 
+#
+# Select if the architecture wants to minimize fragmentation of its
+# direct/linear map cauesd by set_memory and set_direct_map operations
+#
+config ARCH_WANTS_GFP_UNMAPPED
+	bool
+	depends on ARCH_HAS_SET_MEMORY || ARCH_HAS_SET_DIRECT_MAP
+
 source "kernel/gcov/Kconfig"
 
 source "scripts/gcc-plugins/Kconfig"
