@@ -32,7 +32,7 @@ struct folio_batch;
 #define GFP_CONSTRAINT_MASK (__GFP_HARDWALL|__GFP_THISNODE)
 
 /* Do not use these with a slab allocator */
-#define GFP_SLAB_BUG_MASK (__GFP_DMA32|__GFP_HIGHMEM|~__GFP_BITS_MASK)
+#define GFP_SLAB_BUG_MASK (__GFP_DMA32|__GFP_HIGHMEM|__GFP_UNMAPPED|~__GFP_BITS_MASK)
 
 void page_writeback_init(void);
 
