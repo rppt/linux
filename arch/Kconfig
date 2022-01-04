@@ -1321,6 +1321,13 @@ config DYNAMIC_SIGFRAME
 # Select, if arch has a named attribute group bound to NUMA device nodes.
 config HAVE_ARCH_NODE_DEV_GROUP
 	bool
+#
+# Select if the architecture wants to minimize fragmentation of its
+# direct/linear map cauesd by set_memory and set_direct_map operations
+#
+config ARCH_WANTS_GFP_UNMAPPED
+	bool
+	depends on ARCH_HAS_SET_MEMORY || ARCH_HAS_SET_DIRECT_MAP
 
 source "kernel/gcov/Kconfig"
 
