@@ -1069,6 +1069,8 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	flush_tlb_all();
 	spin_unlock(&pgd_lock);
 
+	pr_info("=====> %pS::%s: splitting large maping for %lx\n", __builtin_return_address(0), __func__, address);
+
 	return 0;
 }
 

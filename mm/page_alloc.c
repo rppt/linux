@@ -2624,7 +2624,7 @@ static int set_pageblock_unmapped(struct zone *zone, struct page *page,
 	/*
 	 * FIXME: add comment
 	 */
-	pr_info("====> %s: unmapping %px\n", __func__, page_address(page));
+	pr_info("====> %s: splitting large maping for %lx\n", __func__, start_addr);
 	err = set_direct_map_invalid_noflush(page);
 	if (err) {
 		int migratetype = get_pageblock_migratetype(page);
@@ -2644,6 +2644,9 @@ static int set_pageblock_unmapped(struct zone *zone, struct page *page,
 	flush_tlb_kernel_range(start_addr, end_addr);
 	set_pageblock_migratetype(page, MIGRATE_UNMAPPED);
 	move_freepages_block(zone, page, MIGRATE_UNMAPPED, NULL);
+
+	pr_info("===> %s(%pS): pa: %px done\n", __func__, __builtin_return_address(0), page_address(page));
+#endif
 
 	return 0;
 }
