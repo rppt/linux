@@ -1287,6 +1287,37 @@ out:
 	return ret;
 }
 
+static void migrate_unmapped_map_pages(struct page *page, unsigned int nr)
+{
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+	int i;
+
+	if (!is_migrate_unmapped_page(page))
+		return;
+
+	for (i = 0; i < nr; i++)
+		set_direct_map_default_noflush(page + i);
+#endif
+}
+
+static void migrate_unmapped_unmap_pages(struct page *page, unsigned int nr)
+{
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+	unsigned long start = (unsigned long)page_address(page);
+	unsigned long end = start + nr * PAGE_SIZE;
+	int i;
+
+	if (!is_migrate_unmapped_page(page))
+		return;
+
+	for (i = 0; i < nr; i++)
+		set_direct_map_invalid_noflush(page + i);
+
+	flush_tlb_kernel_range(start, end);
+#endif
+}
+
+
 static void kernel_init_free_pages(struct page *page, int numpages, bool zero_tags)
 {
 	int i;
@@ -1375,6 +1406,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 					   PAGE_SIZE << order);
 	}
 
+	migrate_unmapped_map_pages(page, 1 << order);
 	kernel_poison_pages(page, 1 << order);
 
 	/*
@@ -1405,6 +1437,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 	arch_free_page(page, order);
 
 	debug_pagealloc_unmap_pages(page, 1 << order);
+	migrate_unmapped_unmap_pages(page, 1 << order);
 
 	return true;
 }
@@ -2416,6 +2449,7 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 
 	arch_alloc_page(page, order);
 	debug_pagealloc_map_pages(page, 1 << order);
+	migrate_unmapped_map_pages(page, 1 << order);
 
 	/*
 	 * Page unpoisoning must happen before memory initialization.
@@ -2441,6 +2475,7 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 	}
 
 	set_page_owner(page, order, gfp_flags);
+	migrate_unmapped_unmap_pages(page, 1 << order);
 }
 
 static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
