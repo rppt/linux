@@ -63,7 +63,7 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 retry:
 	page = find_lock_page(mapping, offset);
 	if (!page) {
-		page = alloc_page(gfp /* | __GFP_ZERO */ | __GFP_UNMAPPED);
+		page = alloc_page(gfp | __GFP_ZERO | __GFP_UNMAPPED);
 		if (!page)
 			return VM_FAULT_OOM;
 
