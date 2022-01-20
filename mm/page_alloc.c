@@ -5001,82 +5001,6 @@ check_retry_cpuset(int cpuset_mems_cookie, struct alloc_context *ac)
 	return false;
 }
 
-static struct page *
-__alloc_pages_unmapped(gfp_t gfp, unsigned int alloc_order, int alloc_flags,
-		       struct alloc_context *ac)
-{
-	int migratetype = MIGRATE_UNMAPPED;
-	unsigned long nr_pages, flags, addr;
-	unsigned int order;
-	struct page *page;
-	struct zone *zone;
-	int err;
-
-	gfp &= ~__GFP_UNMAPPED;
-	ac->migratetype = gfp_migratetype(gfp);
-
-	pr_info("===> %s: gfp: %pGg, mig: %s\n", __func__, &gfp, migratetype_names[ac->migratetype]);
-
-	/*
-	 * Try getting an entire pageblock to refill the unmapped free
-	 * list, if this fails fallback to the allocation of exact order
-	 * requested
-	 */
-	order = PMD_ORDER;
-	page = get_page_from_freelist(gfp, order, alloc_flags | ALLOC_UNMAPPED, ac);
-	if (page) {
-		zone = page_zone(page);
-
-		nr_pages = (1 << order);
-		addr = (unsigned long)page_address(page);
-		err = set_memory_np(addr, nr_pages);
-		if (err) {
-			add_to_free_list(page, zone, order, ac->migratetype);
-			ac->migratetype = migratetype;
-			return NULL;
-		}
-
-		/* FIXME: need to grab zone->lock here */
-		add_to_free_list(page, zone, order, migratetype);
-		set_pageblock_migratetype(page, MIGRATE_UNMAPPED);
-		set_buddy_order(page, order);
-
-		pr_info("===> %s: got 2M\n", __func__);
-
-		gfp |= __GFP_UNMAPPED;
-		page = get_page_from_freelist(gfp, alloc_order, alloc_flags, ac);
-		ac->migratetype = migratetype;
-
-		return page;
-	} else {
-		order = alloc_order;
-		page = get_page_from_freelist(gfp, order, alloc_flags, ac);
-		if (!page) {
-			ac->migratetype = migratetype;
-			return NULL;
-		}
-
-		nr_pages = (1 << order);
-		addr = (unsigned long)page_address(page);
-		err = set_memory_np(addr, nr_pages);
-		if (err) {
-			__free_pages(page, order);
-			ac->migratetype = migratetype;
-			return NULL;
-		}
-		/* FIXME: flush_tlb_kernel_range()? */
-
-		zone = page_zone(page);
-		nr_pages = move_freepages_block(zone, page, migratetype, &err);
-		__mod_zone_freepage_state(zone, nr_pages, migratetype);
-		pr_info("===> %s: moved %ld pages, movable: %d\n", __func__, nr_pages, err);
-
-		set_pageblock_migratetype(page, MIGRATE_UNMAPPED);
-		ac->migratetype = migratetype;
-		return page;
-	}
-}
-
 static inline struct page *
 __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 						struct alloc_context *ac)
@@ -5205,16 +5129,6 @@ retry_cpuset:
 	}
 
 retry:
-	/* /\* */
-	/*  * MIGRATE_UNMAPPED might be almost empty after boot, try */
-	/*  * populating it before starting reclaim. */
-	/*  *\/ */
-	/* if (gfp_mask & __GFP_UNMAPPED) { */
-	/* 	page = __alloc_pages_unmapped(gfp_mask, order, alloc_flags, ac); */
-	/* 	if (page) */
-	/* 		goto got_pg; */
-	/* } */
-
 	/* Ensure kswapd doesn't accidentally go to sleep as long as we loop */
 	if (alloc_flags & ALLOC_KSWAPD)
 		wake_all_kswapds(order, gfp_mask, ac);
