@@ -2645,11 +2645,14 @@ int move_freepages_block(struct zone *zone, struct page *page,
 static int set_pageblock_unmapped(struct zone *zone, struct page *page,
 				  unsigned int order)
 {
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
 	unsigned long start_pfn = page_to_pfn(page) & ~(pageblock_nr_pages - 1);
 	unsigned long end_pfn = start_pfn + pageblock_nr_pages;
 	unsigned long start_addr = PFN_PHYS(start_pfn);
 	unsigned long end_addr = PFN_PHYS(end_pfn);
 	unsigned long pfn, err;
+
+	BUILD_BUG_ON(pageblock_order != PMD_ORDER);
 
 	if (is_migrate_unmapped_page(page))
 		return 0;
@@ -2669,11 +2672,9 @@ static int set_pageblock_unmapped(struct zone *zone, struct page *page,
 	}
 
 	for (pfn = start_pfn; pfn < end_pfn; pfn++) {
-		page = pfn_to_page(pfn);
-		if (PageBuddy(page)) {
-			pr_info("====> %s: unmapping %px\n", __func__, page_address(page));
-			set_direct_map_invalid_noflush(page);
-		}
+               page = pfn_to_page(pfn);
+               if (PageBuddy(page))
+                       set_direct_map_invalid_noflush(page);
 	}
 
 	flush_tlb_kernel_range(start_addr, end_addr);
