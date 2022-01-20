@@ -2796,7 +2796,7 @@ static void steal_suitable_fallback(struct zone *zone, struct page *page,
 	/*
 	 * FIXME: add comment
 	 */
-	if (start_type == MIGRATE_UNMAPPED) {
+	if (is_migrate_unmapped(start_type)) {
 		pr_info("=====> old: %s, new: %s\n", migratetype_names[old_block_type], migratetype_names[start_type]);
 		goto single_page;
 	}
