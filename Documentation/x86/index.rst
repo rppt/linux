@@ -21,6 +21,7 @@ x86-specific Documentation
    tlb
    mtrr
    pat
+   cet
    intel-iommu
    intel_txt
    amd-memory-encryption
