@@ -517,6 +517,14 @@ __setup("nopku", setup_disable_pku);
 
 static __always_inline void setup_cet(struct cpuinfo_x86 *c)
 {
+	/*
+	 * Shadow stack is supported on AMD processors, but has not been
+	 * tested. Only support it on Intel processors until this is done.
+	 * At which point, this vendor check should be removed.
+	 */
+	if (c->x86_vendor != X86_VENDOR_INTEL)
+		setup_clear_cpu_cap(X86_FEATURE_SHSTK);
+
 	if (!cpu_feature_enabled(X86_FEATURE_SHSTK))
 		return;
 
