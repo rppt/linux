@@ -15,6 +15,7 @@
 #include <linux/compat.h>
 #include <linux/sizes.h>
 #include <linux/user.h>
+#include <linux/syscalls.h>
 #include <asm/msr.h>
 #include <asm/fpu/internal.h>
 #include <asm/fpu/xstate.h>
@@ -45,12 +46,14 @@ static int create_rstor_token(bool proc32, unsigned long ssp,
 	if (write_user_shstk_64((u64 __user *)addr, (u64)ssp))
 		return -EFAULT;
 
-	*token_addr = addr;
+	if (token_addr)
+		*token_addr = addr;
 
 	return 0;
 }
 
-static unsigned long alloc_shstk(unsigned long size)
+static unsigned long alloc_shstk(unsigned long size, unsigned long token_offset,
+				 bool set_res_tok)
 {
 	int flags = MAP_ANONYMOUS | MAP_PRIVATE;
 	struct mm_struct *mm = current->mm;
@@ -61,6 +64,15 @@ static unsigned long alloc_shstk(unsigned long size)
 		       &unused, NULL);
 	mmap_write_unlock(mm);
 
+	if (!set_res_tok || IS_ERR_VALUE(addr))
+		goto out;
+
+	if (create_rstor_token(in_ia32_syscall(), addr + token_offset, NULL)) {
+		vm_munmap(addr, size);
+		return -EINVAL;
+	}
+
+out:
 	return addr;
 }
 
@@ -103,7 +115,7 @@ int shstk_setup(void)
 		return 1;
 
 	size = PAGE_ALIGN(min_t(unsigned long long, rlimit(RLIMIT_STACK), SZ_4G));
-	addr = alloc_shstk(size);
+	addr = alloc_shstk(size, size, false);
 	if (IS_ERR_VALUE(addr))
 		return 1;
 
@@ -181,7 +193,7 @@ int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
 		return -EINVAL;
 
 	stack_size = PAGE_ALIGN(stack_size);
-	addr = alloc_shstk(stack_size);
+	addr = alloc_shstk(stack_size, stack_size, false);
 	if (IS_ERR_VALUE(addr)) {
 		shstk->base = 0;
 		shstk->size = 0;
@@ -379,4 +391,23 @@ int restore_signal_shadow_stack(void)
 	end_update_xsave_msrs();
 
 	return err;
+}
+
+SYSCALL_DEFINE2(map_shadow_stack, unsigned long, size, unsigned int, flags)
+{
+	unsigned long aligned_size;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK))
+		return -ENOSYS;
+
+	/*
+	 * An overflow would result in attempting to write the restore token
+	 * to the wrong location. Not catastrophic, but just return the right
+	 * error code and block it.
+	 */
+	aligned_size = PAGE_ALIGN(size);
+	if (aligned_size < size)
+		return -EOVERFLOW;
+
+	return alloc_shstk(aligned_size, size, flags & SHADOW_STACK_SET_TOKEN);
 }
