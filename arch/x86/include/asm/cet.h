@@ -19,6 +19,9 @@ int shstk_alloc_thread_stack(struct task_struct *p, unsigned long clone_flags,
 void shstk_free(struct task_struct *p);
 int shstk_disable(void);
 void reset_thread_shstk(void);
+int shstk_setup_rstor_token(bool proc32, unsigned long restorer,
+			    unsigned long *new_ssp);
+int shstk_check_rstor_token(bool proc32, unsigned long *new_ssp);
 #else
 static inline void shstk_setup(void) {}
 static inline int shstk_alloc_thread_stack(struct task_struct *p,
@@ -27,6 +30,10 @@ static inline int shstk_alloc_thread_stack(struct task_struct *p,
 static inline void shstk_free(struct task_struct *p) {}
 static inline void shstk_disable(void) {}
 static inline void reset_thread_shstk(void) {}
+static inline int shstk_setup_rstor_token(bool proc32, unsigned long restorer,
+					  unsigned long *new_ssp) { return 0; }
+static inline int shstk_check_rstor_token(bool proc32,
+					  unsigned long *new_ssp) { return 0; }
 #endif /* CONFIG_X86_SHADOW_STACK */
 
 #endif /* __ASSEMBLY__ */
