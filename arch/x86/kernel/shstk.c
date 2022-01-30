@@ -130,6 +130,7 @@ int shstk_setup(void)
 
 void reset_thread_shstk(void)
 {
+	current->thread.feat_prctl_locked = 0;
 	memset(&current->thread.shstk, 0, sizeof(struct thread_shstk));
 }
 

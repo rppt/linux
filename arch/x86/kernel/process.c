@@ -1005,5 +1005,5 @@ long do_arch_prctl_common(struct task_struct *task, int option,
 		return fpu_xstate_prctl(task, option, arg2);
 	}
 
-	return -EINVAL;
+	return prctl_elf_feature(option, arg2);
 }
