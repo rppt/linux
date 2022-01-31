@@ -14,6 +14,7 @@
 
 #include <uapi/linux/psci.h>
 
+#include <asm/virtconvert.h>
 #include <asm/psci.h>
 #include <asm/smp_plat.h>
 

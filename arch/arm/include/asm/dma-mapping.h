@@ -7,6 +7,8 @@
 #include <linux/mm_types.h>
 #include <linux/scatterlist.h>
 
+#include <asm/virtconvert.h>
+
 #include <xen/xen.h>
 #include <asm/xen/hypervisor.h>
 

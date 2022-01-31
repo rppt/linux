@@ -24,6 +24,7 @@
 #include <linux/types.h>
 #include <asm/byteorder.h>
 #include <asm/memory.h>
+#include <asm/virtconvert.h>
 #include <asm-generic/pci_iomap.h>
 
 /*

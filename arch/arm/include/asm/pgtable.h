@@ -19,6 +19,7 @@
 
 #include <asm-generic/pgtable-nopud.h>
 #include <asm/memory.h>
+#include <asm/virtconvert.h>
 #include <asm/pgtable-hwdef.h>
 
 
