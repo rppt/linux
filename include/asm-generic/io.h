@@ -8,6 +8,7 @@
 #define __ASM_GENERIC_IO_H
 
 #include <asm/page.h> /* I/O is all done through memory accesses */
+#include <asm/virtconvert.h> /* virtual to physical conversion */
 #include <linux/string.h> /* for memset() and memcpy() */
 #include <linux/types.h>
 
@@ -910,26 +911,6 @@ static inline void iowrite64_rep(volatile void __iomem *addr,
 
 #include <linux/vmalloc.h>
 #define __io_virt(x) ((void __force *)(x))
-
-/*
- * Change virtual addresses to physical addresses and vv.
- * These are pretty trivial
- */
-#ifndef virt_to_phys
-#define virt_to_phys virt_to_phys
-static inline unsigned long virt_to_phys(volatile void *address)
-{
-	return __pa((unsigned long)address);
-}
-#endif
-
-#ifndef phys_to_virt
-#define phys_to_virt phys_to_virt
-static inline void *phys_to_virt(unsigned long address)
-{
-	return __va(address);
-}
-#endif
 
 /**
  * DOC: ioremap() and ioremap_*() variants
