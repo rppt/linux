@@ -6,4 +6,3 @@ generic-y += gpio.h
 generic-y += kvm_para.h
 generic-y += parport.h
 generic-y += user.h
-generic-y += virtconvert.h
