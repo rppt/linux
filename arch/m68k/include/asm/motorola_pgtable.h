@@ -35,6 +35,7 @@
  * and has the rest of the bits reserved.
  */
 #define _TABLE_MASK	(0xffffff00)
+#define _TABLE_SHIFT	8
 
 #define _PAGE_TABLE	(_PAGE_SHORT)
 #define _PAGE_CHG_MASK  (PAGE_MASK | _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_NOCACHE)
@@ -147,6 +148,7 @@ static inline void pud_set(pud_t *pudp, pmd_t *pmdp)
 #define pmd_present(pmd)	(pmd_val(pmd) & _PAGE_TABLE)
 #define pmd_clear(pmdp)		({ pmd_val(*pmdp) = 0; })
 
+#define pmd_pfn(pmd)		(pmd_val(pmd) >> _TABLE_SHIFT)
 /*
  * m68k does not have huge pages (020/030 actually could), but generic code
  * expects pmd_page() to exists, only to then DCE it all. Provide a dummy to

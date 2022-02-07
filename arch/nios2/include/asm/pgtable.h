@@ -235,6 +235,7 @@ static inline void pte_clear(struct mm_struct *mm,
  * and a page entry and page directory to the page they refer to.
  */
 #define pmd_phys(pmd)		virt_to_phys((void *)pmd_val(pmd))
+#define pmd_pfn(pfn)		phys_to_pfn(pmd_pfn(pmd))
 #define pmd_page(pmd)		(pfn_to_page(pmd_phys(pmd) >> PAGE_SHIFT))
 
 static inline unsigned long pmd_page_vaddr(pmd_t pmd)

@@ -241,6 +241,7 @@ static inline void paging_init(void) { }
  * The pmd contains the kernel virtual address of the pte page.
  */
 #define pmd_page_vaddr(pmd) ((unsigned long)(pmd_val(pmd) & PAGE_MASK))
+#define pmd_pfn(pmd) phys_to_pfn(__pa(pmd_val(pmd)))
 #define pmd_page(pmd) virt_to_page(pmd_val(pmd))
 
 /*
