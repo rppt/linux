@@ -333,6 +333,9 @@ enum vmcs_field {
 	GUEST_SYSENTER_ESP              = 0x00006824,
 	GUEST_SYSENTER_EIP              = 0x00006826,
 	GUEST_S_CET			= 0x00006828,
+	GUEST_U_CET			= 0x0000682a,
+	GUEST_SSP                       = 0x0000682c,
+	/* GUEST_INTR_SSP_TABLE            = 0x0000682e, */
 	HOST_CR0                        = 0x00006c00,
 	HOST_CR3                        = 0x00006c02,
 	HOST_CR4                        = 0x00006c04,
@@ -346,6 +349,9 @@ enum vmcs_field {
 	HOST_RSP                        = 0x00006c14,
 	HOST_RIP                        = 0x00006c16,
 	HOST_S_CET			= 0x00006c18,
+	HOST_U_CET			= 0x00006c1a,
+	HOST_SSP                        = 0x00006c1c,
+	/* HOST_INTR_SSP_TABLE             = 0x00006c1e */
 };
 
 /*

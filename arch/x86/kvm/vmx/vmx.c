@@ -582,6 +582,8 @@ static bool is_valid_passthrough_msr(u32 msr)
 		return true;
 	case MSR_IA32_U_CET:
 	case MSR_IA32_S_CET:
+	/* case MSR_IA32_PL0_SSP ... MSR_IA32_INT_SSP_TAB: */
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
 		return true;
 	}
 
@@ -1775,6 +1777,30 @@ static int vmx_get_msr_feature(struct kvm_msr_entry *msr)
 }
 
 /*
+ * The kernel's FPU coudl be used in IRQ contex t.  Disable IRQs
+ * and ensure the guest's FPU state is loaded when accessing MSRs
+ * that are switched through XSAVES.
+ */
+
+static inline void kvm_get_xsave_msr(struct msr_data *msr_info)
+{
+       local_irq_disable();
+       if (test_thread_flag(TIF_NEED_FPU_LOAD))
+               switch_fpu_return();
+       rdmsrl(msr_info->index, msr_info->data);
+       local_irq_enable();
+}
+
+static inline void kvm_set_xsave_msr(struct msr_data *msr_info)
+{
+       local_irq_disable();
+       if (test_thread_flag(TIF_NEED_FPU_LOAD))
+               switch_fpu_return();
+       wrmsrl(msr_info->index, msr_info->data);
+       local_irq_enable();
+}
+
+/*
  * Reads an msr value (of 'msr_info->index') into 'msr_info->data'.
  * Returns 0 on success, non-0 otherwise.
  * Assumes vcpu_load() was already called.
@@ -1922,7 +1948,21 @@ static int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data = vmcs_readl(GUEST_S_CET);
 		break;
 	case MSR_IA32_U_CET:
-		return kvm_get_msr_common(vcpu, msr_info);
+		if (!(guest_cpuid_has(vcpu, X86_FEATURE_IBT) ||
+		      guest_cpuid_has(vcpu, X86_FEATURE_SHSTK)))
+			return 1;
+		kvm_get_xsave_msr(msr_info);
+		break;
+	/* case MSR_IA32_INT_SSP_TAB: */
+	/* 	if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK)) */
+	/* 		return 1; */
+	/* 	kvm_get_xsave_msr(msr_info); */
+	/* 	break; */
+	case MSR_IA32_PL3_SSP:
+		if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK))
+			return 1;
+		kvm_get_xsave_msr(msr_info);
+		break;
 	default:
 	find_uret_msr:
 		msr = vmx_find_uret_msr(vmx, msr_info->index);
@@ -2258,7 +2298,21 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		vmcs_writel(GUEST_S_CET, data);
 		break;
 	case MSR_IA32_U_CET:
-		ret = kvm_set_msr_common(vcpu, msr_info);
+		if (!(guest_cpuid_has(vcpu, X86_FEATURE_IBT) ||
+		      guest_cpuid_has(vcpu, X86_FEATURE_SHSTK)))
+			return 1;
+		kvm_set_xsave_msr(msr_info);
+		break;
+	/* case MSR_IA32_INT_SSP_TAB: */
+	/* 	if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK)) */
+	/* 		return 1; */
+	/* 	kvm_set_xsave_msr(msr_info); */
+	/* 	break; */
+	case MSR_IA32_PL3_SSP:
+		if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK))
+			return 1;
+		/* vmcs_writel(GUEST_SSP, data); */
+		kvm_set_xsave_msr(msr_info);
 		break;
 	case MSR_IA32_PERF_CAPABILITIES:
 		if (data && !vcpu_to_pmu(vcpu)->version)
@@ -5962,6 +6016,9 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 
 	if (vmentry_ctl & VM_ENTRY_LOAD_CET_STATE) {
 		pr_err("S_CET = 0x%016lx\n", vmcs_readl(GUEST_S_CET));
+		pr_err("U_CET = 0x%016lx\n", vmcs_readl(GUEST_U_CET));
+		pr_err("SSP = 0x%016lx\n", vmcs_readl(GUEST_SSP));
+		/* pr_err("INTR_SSP_TABLE = 0x%016lx\n", vmcs_readl(GUEST_INTR_SSP_TABLE)); */
 	}
 
 	pr_err("*** Host State ***\n");
@@ -6043,6 +6100,9 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 
 	if (vmexit_ctl & VM_EXIT_LOAD_CET_STATE) {
 		pr_err("S_CET = 0x%016lx\n", vmcs_readl(HOST_S_CET));
+		pr_err("U_CET = 0x%016lx\n", vmcs_readl(HOST_U_CET));
+		pr_err("SSP = 0x%016lx\n", vmcs_readl(HOST_SSP));
+		/* pr_err("INTR_SSP_TABLE = 0x%016lx\n", vmcs_readl(HOST_INTR_SSP_TABLE)); */
 	}
 }
 
@@ -6123,6 +6183,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 		return handle_invalid_guest_state(vcpu);
 
 	if (exit_reason.failed_vmentry) {
+		pr_info("===> failed vmentry\n");
 		dump_vmcs(vcpu);
 		vcpu->run->exit_reason = KVM_EXIT_FAIL_ENTRY;
 		vcpu->run->fail_entry.hardware_entry_failure_reason
@@ -6132,6 +6193,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	}
 
 	if (unlikely(vmx->fail)) {
+		pr_info("===> vmx->fail\n");
 		dump_vmcs(vcpu);
 		vcpu->run->exit_reason = KVM_EXIT_FAIL_ENTRY;
 		vcpu->run->fail_entry.hardware_entry_failure_reason
@@ -7368,6 +7430,9 @@ static void update_intel_pt_cfg(struct kvm_vcpu *vcpu)
 static void vmx_update_intercept_for_cet_msr(struct kvm_vcpu *vcpu)
 {
 	vmx_set_intercept_for_msr(vcpu, MSR_IA32_S_CET, MSR_TYPE_RW, true);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_U_CET, MSR_TYPE_RW, true);
+	/* vmx_set_intercept_for_msr(vcpu, MSR_IA32_INT_SSP_TAB, MSR_TYPE_RW, true); */
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_PL3_SSP, MSR_TYPE_RW, true);
 }
 
 static void vmx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)

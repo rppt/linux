@@ -1401,7 +1401,7 @@ static const u32 msrs_to_save_all[] = {
 	MSR_F15H_PERF_CTR3, MSR_F15H_PERF_CTR4, MSR_F15H_PERF_CTR5,
 	MSR_IA32_XFD, MSR_IA32_XFD_ERR,
 
-	MSR_IA32_U_CET, MSR_IA32_S_CET,
+	MSR_IA32_U_CET, MSR_IA32_S_CET, MSR_IA32_PL3_SSP,
 };
 
 static u32 msrs_to_save[ARRAY_SIZE(msrs_to_save_all)];
