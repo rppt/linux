@@ -52,16 +52,19 @@ static int create_rstor_token(bool proc32, unsigned long ssp,
 	return 0;
 }
 
-static unsigned long alloc_shstk(unsigned long size, unsigned long token_offset,
-				 bool set_res_tok)
+static unsigned long alloc_shstk(unsigned long fixed_addr, unsigned long size,
+				 unsigned long token_offset, bool set_res_tok)
 {
 	int flags = MAP_ANONYMOUS | MAP_PRIVATE;
 	struct mm_struct *mm = current->mm;
 	unsigned long addr, unused;
 
+	if (fixed_addr)
+		flags |= MAP_FIXED;
+
 	mmap_write_lock(mm);
-	addr = do_mmap(NULL, 0, size, PROT_READ, flags, VM_SHADOW_STACK, 0,
-		       &unused, NULL);
+	addr = do_mmap(NULL, fixed_addr, size, PROT_READ, flags,
+		       VM_SHADOW_STACK, 0, &unused, NULL);
 	mmap_write_unlock(mm);
 
 	if (!set_res_tok || IS_ERR_VALUE(addr))
@@ -115,7 +118,7 @@ int shstk_setup(void)
 		return 1;
 
 	size = PAGE_ALIGN(min_t(unsigned long long, rlimit(RLIMIT_STACK), SZ_4G));
-	addr = alloc_shstk(size, size, false);
+	addr = alloc_shstk(0, size, size, false);
 	if (IS_ERR_VALUE(addr))
 		return 1;
 
@@ -193,7 +196,7 @@ int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
 		return -EINVAL;
 
 	stack_size = PAGE_ALIGN(stack_size);
-	addr = alloc_shstk(stack_size, stack_size, false);
+	addr = alloc_shstk(0, stack_size, stack_size, false);
 	if (IS_ERR_VALUE(addr)) {
 		shstk->base = 0;
 		shstk->size = 0;
@@ -426,7 +429,8 @@ int restore_signal_shadow_stack(void)
 	return err;
 }
 
-SYSCALL_DEFINE2(map_shadow_stack, unsigned long, size, unsigned int, flags)
+SYSCALL_DEFINE3(map_shadow_stack, unsigned long, addr, unsigned long, size,
+		unsigned int, flags)
 {
 	unsigned long aligned_size;
 
@@ -442,5 +446,6 @@ SYSCALL_DEFINE2(map_shadow_stack, unsigned long, size, unsigned int, flags)
 	if (aligned_size < size)
 		return -EOVERFLOW;
 
-	return alloc_shstk(aligned_size, size, flags & SHADOW_STACK_SET_TOKEN);
+	return alloc_shstk(addr, aligned_size, size,
+			   flags & SHADOW_STACK_SET_TOKEN);
 }
