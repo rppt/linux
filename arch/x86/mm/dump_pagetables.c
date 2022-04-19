@@ -201,6 +201,10 @@ static void printk_prot(struct seq_file *m, pgprotval_t pr, int level, bool dmsg
 			pt_dump_cont_printf(m, dmsg, "PCD ");
 		else
 			pt_dump_cont_printf(m, dmsg, "    ");
+		if (pr & _PAGE_ENC)
+			pt_dump_cont_printf(m, dmsg, "ENC ");
+		else
+			pt_dump_cont_printf(m, dmsg, "    ");
 
 		/* Bit 7 has a different meaning on level 3 vs 4 */
 		if (level <= 3 && pr & _PAGE_PSE)
