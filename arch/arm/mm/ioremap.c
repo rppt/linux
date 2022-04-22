@@ -42,6 +42,13 @@
 #include <asm/mach/pci.h>
 #include "mm.h"
 
+bool arch_memremap_can_ram_remap(resource_size_t offset, size_t size,
+				 unsigned long flags)
+{
+	unsigned long pfn = PHYS_PFN(offset);
+
+	return memblock_is_map_memory(pfn);
+}
 
 LIST_HEAD(static_vmlist);
 

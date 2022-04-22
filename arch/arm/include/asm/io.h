@@ -144,6 +144,10 @@ extern void __iomem * (*arch_ioremap_caller)(phys_addr_t, size_t,
 	unsigned int, void *);
 extern void (*arch_iounmap)(volatile void __iomem *);
 
+extern bool arch_memremap_can_ram_remap(resource_size_t offset, size_t size,
+					unsigned long flags);
+#define arch_memremap_can_ram_remap arch_memremap_can_ram_remap
+
 /*
  * Bad read/write accesses...
  */
