@@ -33,7 +33,7 @@ static void *try_ram_remap(resource_size_t offset, size_t size,
 	unsigned long pfn = PHYS_PFN(offset);
 
 	/* In the simple case just return the existing linear address */
-	if (pfn_valid(pfn) && !PageHighMem(pfn_to_page(pfn)) &&
+	if (!PageHighMem(pfn_to_page(pfn)) &&
 	    arch_memremap_can_ram_remap(offset, size, flags))
 		return __va(offset);
 

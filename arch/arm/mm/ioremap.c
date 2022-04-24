@@ -43,7 +43,6 @@
 #include <asm/mach/pci.h>
 #include "mm.h"
 
-
 LIST_HEAD(static_vmlist);
 
 static struct static_vm *find_static_vm_paddr(phys_addr_t paddr,
@@ -492,4 +491,12 @@ EXPORT_SYMBOL_GPL(pci_remap_cfgspace);
 void __init early_ioremap_init(void)
 {
 	early_ioremap_setup();
+}
+
+bool arch_memremap_can_ram_remap(resource_size_t offset, size_t size,
+				 unsigned long flags)
+{
+	unsigned long pfn = PHYS_PFN(offset);
+
+	return memblock_is_map_memory(pfn);
 }
