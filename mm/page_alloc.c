@@ -563,6 +563,28 @@ void set_pageblock_migratetype(struct page *page, int migratetype)
 				page_to_pfn(page), MIGRATETYPE_MASK);
 }
 
+#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
+static inline bool is_migrate_unmapped(int migratetype)
+{
+	return migratetype == MIGRATE_UNMAPPED;
+}
+
+static inline bool is_migrate_unmapped_page(struct page *page)
+{
+	return get_pageblock_migratetype(page) == MIGRATE_UNMAPPED;
+}
+#else
+static inline bool is_migrate_unmapped(int migratetype)
+{
+	return false;
+}
+
+static inline bool is_migrate_unmapped_page(struct page *page)
+{
+	return false;
+}
+#endif
+
 #ifdef CONFIG_DEBUG_VM
 static int page_outside_zone_boundaries(struct zone *zone, struct page *page)
 {
@@ -2489,7 +2511,9 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 
 	set_page_owner(page, order, gfp_flags);
 	page_table_check_alloc(page, order);
-	migrate_unmapped_unmap_pages(page, 1 << order);
+
+	if (gfp_flags & __GFP_UNMAPPED)
+		migrate_unmapped_unmap_pages(page, 1 << order);
 }
 
 static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,

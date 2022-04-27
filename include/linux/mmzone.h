@@ -81,14 +81,6 @@ extern const char * const migratetype_names[MIGRATE_TYPES];
 #  define is_migrate_cma_page(_page) false
 #endif
 
-#ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
-#  define is_migrate_unmapped(migratetype) unlikely(migratetype) == MIGRATE_UNMAPPED
-#  define is_migrate_unmapped_page(_page) (get_pageblock_migratetype(_page) == MIGRATE_UNMAPPED)
-#else
-#  define is_migrate_unmapped(migratetype) false
-#  define is_migrate_unmapped_page(_page) false
-#endif
-
 static inline bool is_migrate_movable(int mt)
 {
 	return is_migrate_cma(mt) || mt == MIGRATE_MOVABLE;
@@ -102,7 +94,11 @@ static inline bool is_migrate_movable(int mt)
  */
 static inline bool migratetype_is_mergeable(int mt)
 {
+#ifndef CONFIG_ARCH_WANTS_GFP_UNMAPPED
 	return mt < MIGRATE_PCPTYPES;
+#else
+	return mt < MIGRATE_UNMAPPED;
+#endif
 }
 
 #define for_each_migratetype_order(order, type) \
