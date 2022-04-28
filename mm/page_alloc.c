@@ -1310,7 +1310,8 @@ static void migrate_unmapped_map_pages(struct page *page, unsigned int nr)
 #endif
 }
 
-static void migrate_unmapped_unmap_pages(struct page *page, unsigned int nr)
+static void migrate_unmapped_unmap_pages(struct page *page, unsigned int nr,
+					 bool tlb_flush)
 {
 #ifdef CONFIG_ARCH_WANTS_GFP_UNMAPPED
 	unsigned long start = (unsigned long)page_address(page);
@@ -1323,7 +1324,8 @@ static void migrate_unmapped_unmap_pages(struct page *page, unsigned int nr)
 	for (i = 0; i < nr; i++)
 		set_direct_map_invalid_noflush(page + i);
 
-	flush_tlb_kernel_range(start, end);
+	if (tlb_flush)
+		flush_tlb_kernel_range(start, end);
 #endif
 }
 
@@ -1467,7 +1469,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 	arch_free_page(page, order);
 
 	debug_pagealloc_unmap_pages(page, 1 << order);
-	migrate_unmapped_unmap_pages(page, 1 << order);
+	migrate_unmapped_unmap_pages(page, 1 << order, false);
 
 	return true;
 }
@@ -2513,7 +2515,7 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 	page_table_check_alloc(page, order);
 
 	if (gfp_flags & __GFP_UNMAPPED)
-		migrate_unmapped_unmap_pages(page, 1 << order);
+		migrate_unmapped_unmap_pages(page, 1 << order, true);
 }
 
 static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
