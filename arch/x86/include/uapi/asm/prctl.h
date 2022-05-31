@@ -24,6 +24,8 @@
 #define ARCH_X86_FEATURE_DISABLE	0x3002
 #define ARCH_X86_FEATURE_LOCK		0x3003
 #define ARCH_X86_FEATURE_ENABLE		0x3004
+/* available only via ptrace(PTRACE_ARCH_PRCTL) */
+#define ARCH_X86_FEATURE_UNLOCK		0x3005
 
 /* x86 feature bits to be used with ARCH_X86_FEATURE arch_prctl()s */
 #define LINUX_X86_FEATURE_IBT		0x00000001

@@ -832,6 +832,14 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 		return prctl_map_vdso(&vdso_image_64, arg2);
 #endif
 
+#ifdef CONFIG_X86_SHADOW_STACK
+	case ARCH_X86_FEATURE_UNLOCK:
+		if (task == current)
+			return -EINVAL;
+		task->thread.feat_prctl_locked &= ~arg2;
+		break;
+#endif
+
 	default:
 		ret = -EINVAL;
 		break;
