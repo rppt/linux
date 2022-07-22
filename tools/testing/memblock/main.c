@@ -5,6 +5,7 @@
 #include "tests/alloc_nid_api.h"
 #include "tests/alloc_raw_api.h"
 #include "tests/alloc_exact_nid_raw_api.h"
+#include "tests/alloc_nid_raw_api.h"
 #include "tests/common.h"
 
 int main(int argc, char **argv)
@@ -16,6 +17,7 @@ int main(int argc, char **argv)
 	memblock_alloc_nid_checks();
 	memblock_alloc_raw_checks();
 	memblock_alloc_exact_nid_raw_checks();
+	memblock_alloc_nid_raw_checks();
 
 	return 0;
 }
