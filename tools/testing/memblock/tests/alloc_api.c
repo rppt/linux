@@ -9,6 +9,7 @@ static int alloc_top_down_simple_check(void)
 {
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -20,8 +21,11 @@ static int alloc_top_down_simple_check(void)
 	expected_start = memblock_end_of_DRAM() - SMP_CACHE_BYTES;
 
 	allocated_ptr = memblock_alloc(size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, size);
 	ASSERT_EQ(rgn->base, expected_start);
 
@@ -58,6 +62,7 @@ static int alloc_top_down_disjoint_check(void)
 	struct memblock_region *rgn2 = &memblock.reserved.regions[0];
 	struct region r1;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -78,8 +83,11 @@ static int alloc_top_down_disjoint_check(void)
 	memblock_reserve(r1.base, r1.size);
 
 	allocated_ptr = memblock_alloc(r2_size, alignment);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn1->size, r1.size);
 	ASSERT_EQ(rgn1->base, r1.base);
 
@@ -108,6 +116,7 @@ static int alloc_top_down_before_check(void)
 {
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -123,8 +132,11 @@ static int alloc_top_down_before_check(void)
 	memblock_reserve(memblock_end_of_DRAM() - total_size, r1_size);
 
 	allocated_ptr = memblock_alloc(r2_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, total_size);
 	ASSERT_EQ(rgn->base, memblock_end_of_DRAM() - total_size);
 
@@ -152,6 +164,7 @@ static int alloc_top_down_after_check(void)
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	struct region r1;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -171,8 +184,11 @@ static int alloc_top_down_after_check(void)
 	memblock_reserve(r1.base, r1.size);
 
 	allocated_ptr = memblock_alloc(r2_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, total_size);
 	ASSERT_EQ(rgn->base, r1.base - r2_size);
 
@@ -201,6 +217,7 @@ static int alloc_top_down_second_fit_check(void)
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	struct region r1, r2;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -221,8 +238,11 @@ static int alloc_top_down_second_fit_check(void)
 	memblock_reserve(r2.base, r2.size);
 
 	allocated_ptr = memblock_alloc(r3_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, r2.size + r3_size);
 	ASSERT_EQ(rgn->base, r2.base - r3_size);
 
@@ -250,6 +270,7 @@ static int alloc_in_between_generic_check(void)
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	struct region r1, r2;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -275,8 +296,11 @@ static int alloc_in_between_generic_check(void)
 	memblock_reserve(r2.base, r2.size);
 
 	allocated_ptr = memblock_alloc(r3_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, total_size);
 	ASSERT_EQ(rgn->base, r1.base - r2.size - r3_size);
 
@@ -404,6 +428,7 @@ static int alloc_limited_space_generic_check(void)
 {
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -416,8 +441,11 @@ static int alloc_limited_space_generic_check(void)
 	memblock_reserve(memblock_start_of_DRAM(), reserved_size);
 
 	allocated_ptr = memblock_alloc(available_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, MEM_SIZE);
 	ASSERT_EQ(rgn->base, memblock_start_of_DRAM());
 
@@ -464,14 +492,18 @@ static int alloc_bottom_up_simple_check(void)
 {
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
 	setup_memblock();
 
 	allocated_ptr = memblock_alloc(SZ_2, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, SZ_2);
 	ASSERT_EQ(rgn->base, memblock_start_of_DRAM());
 
@@ -506,6 +538,7 @@ static int alloc_bottom_up_disjoint_check(void)
 	struct memblock_region *rgn2 = &memblock.reserved.regions[1];
 	struct region r1;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -526,8 +559,10 @@ static int alloc_bottom_up_disjoint_check(void)
 	memblock_reserve(r1.base, r1.size);
 
 	allocated_ptr = memblock_alloc(r2_size, alignment);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
 
 	ASSERT_EQ(rgn1->size, r1.size);
 	ASSERT_EQ(rgn1->base, r1.base);
@@ -557,6 +592,7 @@ static int alloc_bottom_up_before_check(void)
 {
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -569,8 +605,11 @@ static int alloc_bottom_up_before_check(void)
 	memblock_reserve(memblock_start_of_DRAM() + r1_size, r2_size);
 
 	allocated_ptr = memblock_alloc(r1_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, total_size);
 	ASSERT_EQ(rgn->base, memblock_start_of_DRAM());
 
@@ -597,6 +636,7 @@ static int alloc_bottom_up_after_check(void)
 	struct memblock_region *rgn = &memblock.reserved.regions[0];
 	struct region r1;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -616,8 +656,11 @@ static int alloc_bottom_up_after_check(void)
 	memblock_reserve(r1.base, r1.size);
 
 	allocated_ptr = memblock_alloc(r2_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, total_size);
 	ASSERT_EQ(rgn->base, r1.base);
 
@@ -647,6 +690,7 @@ static int alloc_bottom_up_second_fit_check(void)
 	struct memblock_region *rgn  = &memblock.reserved.regions[1];
 	struct region r1, r2;
 	void *allocated_ptr = NULL;
+	char *b;
 
 	PREFIX_PUSH();
 
@@ -667,8 +711,11 @@ static int alloc_bottom_up_second_fit_check(void)
 	memblock_reserve(r2.base, r2.size);
 
 	allocated_ptr = memblock_alloc(r3_size, SMP_CACHE_BYTES);
+	b = (char *)allocated_ptr;
 
 	ASSERT_NE(allocated_ptr, NULL);
+	ASSERT_EQ(*b, 0);
+
 	ASSERT_EQ(rgn->size, r2.size + r3_size);
 	ASSERT_EQ(rgn->base, r2.base);
 
