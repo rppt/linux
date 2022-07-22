@@ -776,9 +776,9 @@ static int alloc_in_between_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_in_between_generic_check();
+	top_down_run(alloc_in_between_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_in_between_generic_check();
+	bottom_up_run(alloc_in_between_generic_check);
 
 	return 0;
 }
@@ -798,9 +798,9 @@ static int alloc_small_gaps_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_small_gaps_generic_check();
+	top_down_run(alloc_small_gaps_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_small_gaps_generic_check();
+	bottom_up_run(alloc_small_gaps_generic_check);
 
 	return 0;
 }
@@ -809,9 +809,9 @@ static int alloc_all_reserved_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_all_reserved_generic_check();
+	top_down_run(alloc_all_reserved_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_all_reserved_generic_check();
+	bottom_up_run(alloc_all_reserved_generic_check);
 
 	return 0;
 }
@@ -820,9 +820,9 @@ static int alloc_no_space_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_no_space_generic_check();
+	top_down_run(alloc_no_space_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_no_space_generic_check();
+	bottom_up_run(alloc_no_space_generic_check);
 
 	return 0;
 }
@@ -831,9 +831,9 @@ static int alloc_limited_space_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_limited_space_generic_check();
+	top_down_run(alloc_limited_space_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_limited_space_generic_check();
+	bottom_up_run(alloc_limited_space_generic_check);
 
 	return 0;
 }
@@ -842,9 +842,9 @@ static int alloc_no_memory_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_no_memory_generic_check();
+	top_down_run(alloc_no_memory_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_no_memory_generic_check();
+	bottom_up_run(alloc_no_memory_generic_check);
 
 	return 0;
 }

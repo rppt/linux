@@ -85,4 +85,16 @@ static inline void test_pass_pop(void)
 	prefix_pop();
 }
 
+void push_run(const char *prefix, int (*funct)());
+
+static inline void bottom_up_run(int (*funct)())
+{
+	push_run("bottom-up", funct);
+}
+
+static inline void top_down_run(int (*funct)())
+{
+	push_run("top-down", funct);
+}
+
 #endif

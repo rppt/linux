@@ -1179,9 +1179,9 @@ static int alloc_try_nid_min_reserved_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_min_reserved_generic_check();
+	top_down_run(alloc_try_nid_min_reserved_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_min_reserved_generic_check();
+	bottom_up_run(alloc_try_nid_min_reserved_generic_check);
 
 	return 0;
 }
@@ -1190,9 +1190,9 @@ static int alloc_try_nid_max_reserved_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_max_reserved_generic_check();
+	top_down_run(alloc_try_nid_max_reserved_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_max_reserved_generic_check();
+	bottom_up_run(alloc_try_nid_max_reserved_generic_check);
 
 	return 0;
 }
@@ -1201,9 +1201,9 @@ static int alloc_try_nid_exact_address_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_exact_address_generic_check();
+	top_down_run(alloc_try_nid_exact_address_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_exact_address_generic_check();
+	bottom_up_run(alloc_try_nid_exact_address_generic_check);
 
 	return 0;
 }
@@ -1212,9 +1212,9 @@ static int alloc_try_nid_reserved_full_merge_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_reserved_full_merge_generic_check();
+	top_down_run(alloc_try_nid_reserved_full_merge_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_reserved_full_merge_generic_check();
+	bottom_up_run(alloc_try_nid_reserved_full_merge_generic_check);
 
 	return 0;
 }
@@ -1223,9 +1223,9 @@ static int alloc_try_nid_reserved_all_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_reserved_all_generic_check();
+	top_down_run(alloc_try_nid_reserved_all_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_reserved_all_generic_check();
+	bottom_up_run(alloc_try_nid_reserved_all_generic_check);
 
 	return 0;
 }
@@ -1234,9 +1234,9 @@ static int alloc_try_nid_low_max_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_try_nid_low_max_generic_check();
+	top_down_run(alloc_try_nid_low_max_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_try_nid_low_max_generic_check();
+	bottom_up_run(alloc_try_nid_low_max_generic_check);
 
 	return 0;
 }

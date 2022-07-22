@@ -362,9 +362,9 @@ static int alloc_from_simple_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_from_simple_generic_check();
+	top_down_run(alloc_from_simple_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_from_simple_generic_check();
+	bottom_up_run(alloc_from_simple_generic_check);
 
 	return 0;
 }
@@ -373,9 +373,9 @@ static int alloc_from_misaligned_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
 	memblock_set_bottom_up(false);
-	alloc_from_misaligned_generic_check();
+	top_down_run(alloc_from_misaligned_generic_check);
 	memblock_set_bottom_up(true);
-	alloc_from_misaligned_generic_check();
+	bottom_up_run(alloc_from_misaligned_generic_check);
 
 	return 0;
 }

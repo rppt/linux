@@ -164,3 +164,10 @@ void prefix_pop(void)
 		nr_prefixes--;
 	}
 }
+
+void push_run(const char *prefix, int (*funct)())
+{
+	prefix_push(prefix);
+	funct();
+	prefix_pop();
+}
