@@ -51,6 +51,18 @@
 	assert((_expected) < (_seen)); \
 } while (0)
 
+/**
+ * ASSERT_MEM_EQ():
+ * Check that the first @_size bytes of @_seen are all equal to @_expected.
+ * If false, print failed test message (if running with --verbose) and then
+ * assert.
+ */
+#define ASSERT_MEM_EQ(_seen, _expected, _size) do { \
+	for (int _i = 0; _i < (_size); _i++) { \
+		ASSERT_EQ(_seen[_i], _expected); \
+	} \
+} while (0)
+
 #define PREFIX_PUSH() prefix_push(__func__)
 
 /*
@@ -70,6 +82,7 @@ struct region {
 
 void reset_memblock_regions(void);
 void reset_memblock_attributes(void);
+void fill_memblock(void);
 void setup_memblock(void);
 void dummy_physical_memory_init(void);
 void dummy_physical_memory_cleanup(void);
