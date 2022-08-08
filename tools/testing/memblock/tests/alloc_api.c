@@ -775,10 +775,8 @@ static int alloc_after_check(void)
 static int alloc_in_between_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_in_between_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_in_between_generic_check();
+	run_top_down(alloc_in_between_generic_check);
+	run_bottom_up(alloc_in_between_generic_check);
 
 	return 0;
 }
@@ -797,10 +795,8 @@ static int alloc_second_fit_check(void)
 static int alloc_small_gaps_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_small_gaps_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_small_gaps_generic_check();
+	run_top_down(alloc_small_gaps_generic_check);
+	run_bottom_up(alloc_small_gaps_generic_check);
 
 	return 0;
 }
@@ -808,10 +804,8 @@ static int alloc_small_gaps_check(void)
 static int alloc_all_reserved_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_all_reserved_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_all_reserved_generic_check();
+	run_top_down(alloc_all_reserved_generic_check);
+	run_bottom_up(alloc_all_reserved_generic_check);
 
 	return 0;
 }
@@ -819,10 +813,8 @@ static int alloc_all_reserved_check(void)
 static int alloc_no_space_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_no_space_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_no_space_generic_check();
+	run_top_down(alloc_no_space_generic_check);
+	run_bottom_up(alloc_no_space_generic_check);
 
 	return 0;
 }
@@ -830,10 +822,8 @@ static int alloc_no_space_check(void)
 static int alloc_limited_space_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_limited_space_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_limited_space_generic_check();
+	run_top_down(alloc_limited_space_generic_check);
+	run_bottom_up(alloc_limited_space_generic_check);
 
 	return 0;
 }
@@ -841,10 +831,8 @@ static int alloc_limited_space_check(void)
 static int alloc_no_memory_check(void)
 {
 	test_print("\tRunning %s...\n", __func__);
-	memblock_set_bottom_up(false);
-	alloc_no_memory_generic_check();
-	memblock_set_bottom_up(true);
-	alloc_no_memory_generic_check();
+	run_top_down(alloc_no_memory_generic_check);
+	run_bottom_up(alloc_no_memory_generic_check);
 
 	return 0;
 }
