@@ -34,6 +34,10 @@ static const char * const help_opts[] = {
 
 static int verbose;
 
+static const phys_addr_t node_sizes[] = {
+	SZ_4K, SZ_1K, SZ_2K, SZ_2K, SZ_1K, SZ_1K, SZ_4K, SZ_1K
+};
+
 /* sets global variable returned by movable_node_is_enabled() stub */
 bool movable_node_enabled;
 
@@ -70,6 +74,40 @@ void setup_memblock(void)
 	reset_memblock_regions();
 	memblock_add((phys_addr_t)memory_block.base, MEM_SIZE);
 	fill_memblock();
+}
+
+/**
+ * setup_numa_memblock_generic:
+ * Set up a memory layout with multiple NUMA nodes in a previously allocated
+ * dummy physical memory.
+ * @nodes: an array containing the amount of memory in each node
+ * @node_cnt: the size of @nodes
+ * @factor: a factor that will be used to scale the memory in each node
+ *
+ * The nids will be set to 0 through node_cnt - 1.
+ */
+void setup_numa_memblock_generic(const phys_addr_t nodes[], int node_cnt,
+				 int factor)
+{
+	phys_addr_t base;
+	int flags;
+
+	reset_memblock_regions();
+	base = (phys_addr_t)memory_block.base;
+	flags = (movable_node_is_enabled()) ? MEMBLOCK_NONE : MEMBLOCK_HOTPLUG;
+
+	for (int i = 0; i < node_cnt; i++) {
+		phys_addr_t size = factor * nodes[i];
+
+		memblock_add_node(base, size, i, flags);
+		base += size;
+	}
+	fill_memblock();
+}
+
+void setup_numa_memblock(void)
+{
+	setup_numa_memblock_generic(node_sizes, NUMA_NODES, MEM_FACTOR);
 }
 
 void dummy_physical_memory_init(void)

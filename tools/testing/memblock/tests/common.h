@@ -10,7 +10,11 @@
 #include <linux/printk.h>
 #include <../selftests/kselftest.h>
 
-#define MEM_SIZE SZ_16K
+#define MEM_SIZE		SZ_16K
+#define NUMA_NODES		8
+
+/* used to resize values that need to scale with MEM_SIZE */
+#define MEM_FACTOR		(MEM_SIZE / SZ_16K)
 
 enum test_flags {
 	TEST_ZEROED = 0x0,
@@ -113,6 +117,9 @@ void reset_memblock_regions(void);
 void reset_memblock_attributes(void);
 void fill_memblock(void);
 void setup_memblock(void);
+void setup_numa_memblock_generic(const phys_addr_t node_sizes[], int node_cnt,
+				 int factor);
+void setup_numa_memblock(void);
 void dummy_physical_memory_init(void);
 void dummy_physical_memory_cleanup(void);
 void parse_args(int argc, char **argv);
