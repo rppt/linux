@@ -12,6 +12,11 @@
 
 #define MEM_SIZE SZ_16K
 
+enum test_flags {
+	TEST_ZEROED = 0x0,
+	TEST_RAW = 0x1
+};
+
 /**
  * ASSERT_EQ():
  * Check the condition
@@ -60,6 +65,30 @@
 #define ASSERT_MEM_EQ(_seen, _expected, _size) do { \
 	for (int _i = 0; _i < (_size); _i++) { \
 		ASSERT_EQ(_seen[_i], _expected); \
+	} \
+} while (0)
+
+/**
+ * ASSERT_MEM_NE():
+ * Check that none of the first @_size bytes of @_seen are equal to @_expected.
+ * If false, print failed test message (if running with --verbose) and then
+ * assert.
+ */
+#define ASSERT_MEM_NE(_seen, _expected, _size) do { \
+	for (int _i = 0; _i < (_size); _i++) { \
+		ASSERT_NE(_seen[_i], _expected); \
+	} \
+} while (0)
+
+/**
+ * ASSERT_MEM():
+ * Run ASSERT_MEM_EQ() or ASSERT_MEM_NE() depending on the value of @_flags.
+ */
+#define ASSERT_MEM(_seen, _expected, _size, _flags) do { \
+	if ((_flags) & TEST_RAW) { \
+		ASSERT_MEM_NE(_seen, _expected, _size); \
+	} else { \
+		ASSERT_MEM_EQ(_seen, _expected, _size); \
 	} \
 } while (0)
 
