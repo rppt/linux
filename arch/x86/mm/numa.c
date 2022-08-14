@@ -189,6 +189,15 @@ static void __init numa_move_tail_memblk(struct numa_meminfo *dst, int idx,
  */
 int __init numa_add_memblk(int nid, u64 start, u64 end)
 {
+	int ret;
+
+	ret = memblock_set_node(start, (end - start), &memblock.memory, nid);
+	if (ret < 0) {
+		pr_err("memblock [0x%llx - 0x%llx] failed to add on node %d\n",
+			start, (end - 1), nid);
+		return ret;
+	}
+
 	return numa_add_memblk_to(nid, start, end, &numa_meminfo);
 }
 
@@ -553,12 +562,6 @@ static int __init numa_register_memblks(struct numa_meminfo *mi)
 	numa_nodemask_from_meminfo(&node_possible_map, mi);
 	if (WARN_ON(nodes_empty(node_possible_map)))
 		return -EINVAL;
-
-	for (i = 0; i < mi->nr_blks; i++) {
-		struct numa_memblk *mb = &mi->blk[i];
-		memblock_set_node(mb->start, mb->end - mb->start,
-				  &memblock.memory, mb->nid);
-	}
 
 	/*
 	 * At very early time, the kernel have to use some memory such as
