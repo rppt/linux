@@ -198,6 +198,17 @@ int __init numa_add_memblk(int nid, u64 start, u64 end)
 		return ret;
 	}
 
+	/*
+	 * Set nid in memblock.reserved so that nodes that have reserved
+	 * memory could be marked as not-hotswappable
+	 */
+	ret = memblock_set_node(start, end - start, &memblock.reserved, nid);
+	if (ret < 0) {
+		pr_err("memblock [0x%llx - 0x%llx] failed to add on node %d\n",
+			start, (end - 1), nid);
+		return ret;
+	}
+
 	return numa_add_memblk_to(nid, start, end, &numa_meminfo);
 }
 
@@ -488,68 +499,44 @@ static bool __init numa_meminfo_cover_memory(const struct numa_meminfo *mi)
 }
 
 /*
- * Mark all currently memblock-reserved physical memory (which covers the
- * kernel's own memory ranges) as hot-unswappable.
+ * Mark all nodes containing currently memblock-reserved physical memory
+ * (which covers the kernel's own memory ranges) as hot-unswappable.
+ *
+ * Note, that if the firmware reports all nodes as hotswappabe and the node
+ * containing the kernel image is *really* small, the system won't boot
  */
 static void __init numa_clear_kernel_node_hotplug(void)
 {
 	nodemask_t reserved_nodemask = NODE_MASK_NONE;
 	struct memblock_region *mb_region;
-	int i;
+	int nid;
 
 	/*
-	 * We have to do some preprocessing of memblock regions, to
-	 * make them suitable for reservation.
-	 *
-	 * At this time, all memory regions reserved by memblock are
-	 * used by the kernel, but those regions are not split up
-	 * along node boundaries yet, and don't necessarily have their
-	 * node ID set yet either.
-	 *
-	 * So iterate over all memory known to the x86 architecture,
-	 * and use those ranges to set the nid in memblock.reserved.
-	 * This will split up the memblock regions along node
-	 * boundaries and will set the node IDs as well.
-	 */
-	for (i = 0; i < numa_meminfo.nr_blks; i++) {
-		struct numa_memblk *mb = numa_meminfo.blk + i;
-		int ret;
-
-		ret = memblock_set_node(mb->start, mb->end - mb->start, &memblock.reserved, mb->nid);
-		WARN_ON_ONCE(ret);
-	}
-
-	/*
-	 * Now go over all reserved memblock regions, to construct a
+	 * Go over all reserved memblock regions, to construct a
 	 * node mask of all kernel reserved memory areas.
-	 *
-	 * [ Note, when booting with mem=nn[kMG] or in a kdump kernel,
-	 *   numa_meminfo might not include all memblock.reserved
-	 *   memory ranges, because quirks such as trim_snb_memory()
-	 *   reserve specific pages for Sandy Bridge graphics. ]
 	 */
 	for_each_reserved_mem_region(mb_region) {
-		int nid = memblock_get_region_node(mb_region);
+		nid = memblock_get_region_node(mb_region);
 
 		if (nid != MAX_NUMNODES)
 			node_set(nid, reserved_nodemask);
 	}
 
 	/*
-	 * Finally, clear the MEMBLOCK_HOTPLUG flag for all memory
-	 * belonging to the reserved node mask.
+	 * Clear the MEMBLOCK_HOTPLUG flag for all memory belonging to the
+	 * reserved node mask.
 	 *
 	 * Note that this will include memory regions that reside
 	 * on nodes that contain kernel memory - entire nodes
 	 * become hot-unpluggable:
 	 */
-	for (i = 0; i < numa_meminfo.nr_blks; i++) {
-		struct numa_memblk *mb = numa_meminfo.blk + i;
+	for_each_mem_region(mb_region) {
+		nid = memblock_get_region_node(mb_region);
 
-		if (!node_isset(mb->nid, reserved_nodemask))
+		if (!node_isset(mb_region->nid, reserved_nodemask))
 			continue;
 
-		memblock_clear_hotplug(mb->start, mb->end - mb->start);
+		memblock_clear_hotplug(mb_region->base, mb_region->size);
 	}
 }
 
