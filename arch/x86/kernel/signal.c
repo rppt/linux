@@ -47,6 +47,7 @@
 #include <asm/syscall.h>
 #include <asm/sigframe.h>
 #include <asm/signal.h>
+#include <asm/cet.h>
 
 #ifdef CONFIG_X86_64
 /*
@@ -472,6 +473,9 @@ static int __setup_rt_frame(int sig, struct ksignal *ksig,
 	frame = get_sigframe(&ksig->ka, regs, sizeof(struct rt_sigframe), &fp);
 	uc_flags = frame_uc_flags(regs);
 
+	if (setup_signal_shadow_stack(ksig))
+		return -EFAULT;
+
 	if (!user_access_begin(frame, sizeof(*frame)))
 		return -EFAULT;
 
@@ -673,6 +677,9 @@ SYSCALL_DEFINE0(rt_sigreturn)
 	set_current_blocked(&set);
 
 	if (!restore_sigcontext(regs, &frame->uc.uc_mcontext, uc_flags))
+		goto badframe;
+
+	if (restore_signal_shadow_stack())
 		goto badframe;
 
 	if (restore_altstack(&frame->uc.uc_stack))
@@ -990,6 +997,9 @@ COMPAT_SYSCALL_DEFINE0(x32_rt_sigreturn)
 	set_current_blocked(&set);
 
 	if (!restore_sigcontext(regs, &frame->uc.uc_mcontext, uc_flags))
+		goto badframe;
+
+	if (restore_signal_shadow_stack())
 		goto badframe;
 
 	if (compat_restore_altstack(&frame->uc.uc_stack))

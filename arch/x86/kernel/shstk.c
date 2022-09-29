@@ -227,41 +227,129 @@ static int get_shstk_data(unsigned long *data, unsigned long __user *addr)
 }
 
 /*
- * Verify the user shadow stack has a valid token on it, and then set
- * *new_ssp according to the token.
+ * Create a restore token on shadow stack, and then push the user-mode
+ * function return address.
  */
-static int shstk_check_rstor_token(unsigned long *new_ssp)
+static int shstk_setup_rstor_token(unsigned long ret_addr, unsigned long *new_ssp)
 {
-	unsigned long token_addr;
-	unsigned long token;
+	unsigned long ssp, token_addr;
+	int err;
 
-	token_addr = get_user_shstk_addr();
-	if (!token_addr)
+	if (!ret_addr)
 		return -EINVAL;
 
-	if (get_user(token, (unsigned long __user *)token_addr))
+	ssp = get_user_shstk_addr();
+	if (!ssp)
+		return -EINVAL;
+
+	err = create_rstor_token(ssp, &token_addr);
+	if (err)
+		return err;
+
+	ssp = token_addr - sizeof(u64);
+	err = write_user_shstk_64((u64 __user *)ssp, (u64)ret_addr);
+
+	if (!err)
+		*new_ssp = ssp;
+
+	return err;
+}
+
+static int shstk_push_sigframe(unsigned long *ssp)
+{
+	unsigned long target_ssp = *ssp;
+
+	/* Token must be aligned */
+	if (!IS_ALIGNED(*ssp, 8))
+		return -EINVAL;
+
+	if (!IS_ALIGNED(target_ssp, 8))
+		return -EINVAL;
+
+	*ssp -= SS_FRAME_SIZE;
+	if (put_shstk_data((void *__user)*ssp, target_ssp))
 		return -EFAULT;
 
-	/* Is mode flag correct? */
-	if (!(token & BIT(0)))
+	return 0;
+}
+
+
+static int shstk_pop_sigframe(unsigned long *ssp)
+{
+	unsigned long token_addr;
+	int err;
+
+	err = get_shstk_data(&token_addr, (unsigned long __user *)*ssp);
+	if (unlikely(err))
+		return err;
+
+	/* Restore SSP aligned? */
+	if (unlikely(!IS_ALIGNED(token_addr, 8)))
 		return -EINVAL;
 
-	/* Is busy flag set? */
-	if (token & BIT(1))
+	/* SSP in userspace? */
+	if (unlikely(token_addr >= TASK_SIZE_MAX))
 		return -EINVAL;
 
-	/* Mask out flags */
-	token &= ~3UL;
+	*ssp = token_addr;
 
-	/* Restore address aligned? */
-	if (!IS_ALIGNED(token, 8))
+	return 0;
+}
+
+int setup_signal_shadow_stack(struct ksignal *ksig)
+{
+	void __user *restorer = ksig->ka.sa.sa_restorer;
+	unsigned long ssp;
+	int err;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK) ||
+	    !feature_enabled(CET_SHSTK))
+		return 0;
+
+	if (!restorer)
 		return -EINVAL;
 
-	/* Token placed properly? */
-	if (((ALIGN_DOWN(token, 8) - 8) != token_addr) || token >= TASK_SIZE_MAX)
+	ssp = get_user_shstk_addr();
+	if (unlikely(!ssp))
 		return -EINVAL;
 
-	*new_ssp = token;
+	err = shstk_push_sigframe(&ssp);
+	if (unlikely(err))
+		return err;
+
+	/* Push restorer address */
+	ssp -= SS_FRAME_SIZE;
+	err = write_user_shstk_64((u64 __user *)ssp, (u64)restorer);
+	if (unlikely(err))
+		return -EFAULT;
+
+	fpu_lock_and_load();
+	wrmsrl(MSR_IA32_PL3_SSP, ssp);
+	fpregs_unlock();
+
+	return 0;
+}
+
+int restore_signal_shadow_stack(void)
+{
+	unsigned long ssp;
+	int err;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK) ||
+	    !feature_enabled(CET_SHSTK))
+		return 0;
+
+	ssp = get_user_shstk_addr();
+	if (unlikely(!ssp))
+		return -EINVAL;
+
+	err = shstk_pop_sigframe(&ssp);
+	if (unlikely(err))
+		return err;
+
+	fpu_lock_and_load();
+	wrmsrl(MSR_IA32_PL3_SSP, ssp);
+	fpregs_unlock();
 
 	return 0;
 }
