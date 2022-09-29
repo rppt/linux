@@ -82,6 +82,12 @@ static inline void fpregs_unlock(void)
 		preempt_enable();
 }
 
+/*
+ * Lock and load the fpu state into the registers, if they are not already
+ * loaded.
+ */
+void fpu_lock_and_load(void);
+
 #ifdef CONFIG_X86_DEBUG_FPU
 extern void fpregs_assert_state_consistent(void);
 #else
