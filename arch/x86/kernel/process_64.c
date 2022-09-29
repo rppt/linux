@@ -834,6 +834,7 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 	case ARCH_CET_ENABLE:
 	case ARCH_CET_DISABLE:
 	case ARCH_CET_LOCK:
+	case ARCH_CET_UNLOCK:
 		return cet_prctl(task, option, arg2);
 	default:
 		ret = -EINVAL;
