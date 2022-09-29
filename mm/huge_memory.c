@@ -554,8 +554,15 @@ __setup("transparent_hugepage=", setup_transparent_hugepage);
 
 pmd_t maybe_pmd_mkwrite(pmd_t pmd, struct vm_area_struct *vma)
 {
-	if (likely(vma->vm_flags & VM_WRITE))
+	if (!(vma->vm_flags & VM_WRITE))
+		goto out;
+
+	if (vma->vm_flags & VM_SHADOW_STACK)
+		pmd = pmd_mkwrite_shstk(pmd);
+	else
 		pmd = pmd_mkwrite(pmd);
+
+out:
 	return pmd;
 }
 
