@@ -25,6 +25,8 @@
 #include <asm/fpu/api.h>
 #include <asm/prctl.h>
 
+#define SS_FRAME_SIZE 8
+
 static bool feature_enabled(unsigned long features)
 {
 	return current->thread.features & features;
@@ -38,6 +40,31 @@ static void feature_set(unsigned long features)
 static void feature_clr(unsigned long features)
 {
 	current->thread.features &= ~features;
+}
+
+/*
+ * Create a restore token on the shadow stack.  A token is always 8-byte
+ * and aligned to 8.
+ */
+static int create_rstor_token(unsigned long ssp, unsigned long *token_addr)
+{
+	unsigned long addr;
+
+	/* Token must be aligned */
+	if (!IS_ALIGNED(ssp, 8))
+		return -EINVAL;
+
+	addr = ssp - SS_FRAME_SIZE;
+
+	/* Mark the token 64-bit */
+	ssp |= BIT(0);
+
+	if (write_user_shstk_64((u64 __user *)addr, (u64)ssp))
+		return -EFAULT;
+
+	*token_addr = addr;
+
+	return 0;
 }
 
 static unsigned long alloc_shstk(unsigned long size)
@@ -154,6 +181,87 @@ int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
 	shstk->size = stack_size;
 
 	*shstk_addr = addr + stack_size;
+
+	return 0;
+}
+
+static unsigned long get_user_shstk_addr(void)
+{
+	unsigned long long ssp;
+
+	fpu_lock_and_load();
+
+	rdmsrl(MSR_IA32_PL3_SSP, ssp);
+
+	fpregs_unlock();
+
+	return ssp;
+}
+
+static int put_shstk_data(u64 __user *addr, u64 data)
+{
+	WARN_ON(data & BIT(63));
+
+	/*
+	 * Mark the high bit so that the sigframe can't be processed as a
+	 * return address.
+	 */
+	if (write_user_shstk_64(addr, data | BIT(63)))
+		return -EFAULT;
+	return 0;
+}
+
+static int get_shstk_data(unsigned long *data, unsigned long __user *addr)
+{
+	unsigned long ldata;
+
+	if (unlikely(get_user(ldata, addr)))
+		return -EFAULT;
+
+	if (!(ldata & BIT(63)))
+		return -EINVAL;
+
+	*data = ldata & ~BIT(63);
+
+	return 0;
+}
+
+/*
+ * Verify the user shadow stack has a valid token on it, and then set
+ * *new_ssp according to the token.
+ */
+static int shstk_check_rstor_token(unsigned long *new_ssp)
+{
+	unsigned long token_addr;
+	unsigned long token;
+
+	token_addr = get_user_shstk_addr();
+	if (!token_addr)
+		return -EINVAL;
+
+	if (get_user(token, (unsigned long __user *)token_addr))
+		return -EFAULT;
+
+	/* Is mode flag correct? */
+	if (!(token & BIT(0)))
+		return -EINVAL;
+
+	/* Is busy flag set? */
+	if (token & BIT(1))
+		return -EINVAL;
+
+	/* Mask out flags */
+	token &= ~3UL;
+
+	/* Restore address aligned? */
+	if (!IS_ALIGNED(token, 8))
+		return -EINVAL;
+
+	/* Token placed properly? */
+	if (((ALIGN_DOWN(token, 8) - 8) != token_addr) || token >= TASK_SIZE_MAX)
+		return -EINVAL;
+
+	*new_ssp = token;
 
 	return 0;
 }
