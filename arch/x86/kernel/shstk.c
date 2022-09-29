@@ -25,6 +25,7 @@
 #include <asm/special_insns.h>
 #include <asm/fpu/api.h>
 #include <asm/prctl.h>
+#include <asm/signal.h>
 
 #define SS_FRAME_SIZE 8
 
@@ -149,11 +150,18 @@ int shstk_setup(void)
 	return 0;
 }
 
+void reset_alt_shstk(void)
+{
+	current->thread.sas_shstk_sp = 0;
+	current->thread.sas_shstk_size = 0;
+}
+
 void reset_thread_shstk(void)
 {
 	memset(&current->thread.shstk, 0, sizeof(struct thread_shstk));
 	current->thread.features = 0;
 	current->thread.features_locked = 0;
+	reset_alt_shstk();
 }
 
 int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
@@ -238,39 +246,67 @@ static int get_shstk_data(unsigned long *data, unsigned long __user *addr)
 	return 0;
 }
 
-/*
- * Create a restore token on shadow stack, and then push the user-mode
- * function return address.
- */
-static int shstk_setup_rstor_token(unsigned long ret_addr, unsigned long *new_ssp)
+static bool on_alt_shstk(unsigned long ssp)
 {
-	unsigned long ssp, token_addr;
-	int err;
+	unsigned long alt_ss_start = current->thread.sas_shstk_sp;
+	unsigned long alt_ss_end = alt_ss_start + current->thread.sas_shstk_size;
 
-	if (!ret_addr)
-		return -EINVAL;
-
-	ssp = get_user_shstk_addr();
-	if (!ssp)
-		return -EINVAL;
-
-	err = create_rstor_token(ssp, &token_addr);
-	if (err)
-		return err;
-
-	ssp = token_addr - sizeof(u64);
-	err = write_user_shstk_64((u64 __user *)ssp, (u64)ret_addr);
-
-	if (!err)
-		*new_ssp = ssp;
-
-	return err;
+	return ssp >= alt_ss_start && ssp < alt_ss_end;
 }
 
-static int shstk_push_sigframe(unsigned long *ssp)
+static bool alt_shstk_active(void)
 {
-	unsigned long target_ssp = *ssp;
+	return current->thread.sas_shstk_sp;
+}
 
+static bool alt_shstk_valid(unsigned long ssp, size_t size)
+{
+	if (ssp && (size < PAGE_SIZE || size >= TASK_SIZE_MAX))
+		return -EINVAL;
+
+	if (ssp >= TASK_SIZE_MAX)
+		return -EINVAL;
+
+	return 0;
+}
+
+/*
+ * Verify the user shadow stack has a valid token on it, and then set
+ * *new_ssp according to the token.
+ */
+static int shstk_check_rstor_token(unsigned long token_addr, unsigned long *new_ssp)
+{
+	unsigned long token;
+
+	if (get_user(token, (unsigned long __user *)token_addr))
+		return -EFAULT;
+
+	/* Is mode flag correct? */
+	if (!(token & BIT(0)))
+		return -EINVAL;
+
+	/* Is busy flag set? */
+	if (token & BIT(1))
+		return -EINVAL;
+
+	/* Mask out flags */
+	token &= ~3UL;
+
+	/* Restore address aligned? */
+	if (!IS_ALIGNED(token, 8))
+		return -EINVAL;
+
+	/* Token placed properly? */
+	if (((ALIGN_DOWN(token, 8) - 8) != token_addr) || token >= TASK_SIZE_MAX)
+		return -EINVAL;
+
+	*new_ssp = token;
+
+	return 0;
+}
+
+static int shstk_push_sigframe(unsigned long *ssp, unsigned long target_ssp)
+{
 	/* Token must be aligned */
 	if (!IS_ALIGNED(*ssp, 8))
 		return -EINVAL;
@@ -279,8 +315,23 @@ static int shstk_push_sigframe(unsigned long *ssp)
 		return -EINVAL;
 
 	*ssp -= SS_FRAME_SIZE;
+	if (write_user_shstk_64((u64 __user *)*ssp, 0))
+		return -EFAULT;
+
+	*ssp -= SS_FRAME_SIZE;
+	if (put_shstk_data((u64 __user *)*ssp, current->thread.sas_shstk_sp))
+		return -EFAULT;
+
+	*ssp -= SS_FRAME_SIZE;
+	if (put_shstk_data((u64 __user *)*ssp, current->thread.sas_shstk_size))
+		return -EFAULT;
+
+	*ssp -= SS_FRAME_SIZE;
 	if (put_shstk_data((void *__user)*ssp, target_ssp))
 		return -EFAULT;
+
+	current->thread.sas_shstk_sp = 0;
+	current->thread.sas_shstk_size = 0;
 
 	return 0;
 }
@@ -288,7 +339,7 @@ static int shstk_push_sigframe(unsigned long *ssp)
 
 static int shstk_pop_sigframe(unsigned long *ssp)
 {
-	unsigned long token_addr;
+	unsigned long token_addr, shstk_sp, shstk_size;
 	int err;
 
 	err = get_shstk_data(&token_addr, (unsigned long __user *)*ssp);
@@ -303,7 +354,38 @@ static int shstk_pop_sigframe(unsigned long *ssp)
 	if (unlikely(token_addr >= TASK_SIZE_MAX))
 		return -EINVAL;
 
+	*ssp += SS_FRAME_SIZE;
+	err = get_shstk_data(&shstk_size, (void __user *)*ssp);
+	if (unlikely(err))
+		return err;
+
+	*ssp += SS_FRAME_SIZE;
+	err = get_shstk_data(&shstk_sp, (void __user *)*ssp);
+	if (unlikely(err))
+		return err;
+
+	if (unlikely(alt_shstk_valid((unsigned long)shstk_sp, shstk_size)))
+		return -EINVAL;
+
 	*ssp = token_addr;
+	current->thread.sas_shstk_sp = shstk_sp;
+	current->thread.sas_shstk_size = shstk_size;
+
+	return 0;
+}
+
+static unsigned long get_sig_start_ssp(unsigned long orig_ssp, unsigned long *ssp)
+{
+	unsigned long sp_end = (current->thread.sas_shstk_sp +
+				current->thread.sas_shstk_size) - SS_FRAME_SIZE;
+
+	if (!alt_shstk_active() || on_alt_shstk(*ssp)) {
+		*ssp = orig_ssp;
+		return 0;
+	}
+
+	if (shstk_check_rstor_token(sp_end, ssp))
+		return -EINVAL;
 
 	return 0;
 }
@@ -311,7 +393,7 @@ static int shstk_pop_sigframe(unsigned long *ssp)
 int setup_signal_shadow_stack(struct ksignal *ksig)
 {
 	void __user *restorer = ksig->ka.sa.sa_restorer;
-	unsigned long ssp;
+	unsigned long ssp, orig_ssp;
 	int err;
 
 	if (!cpu_feature_enabled(X86_FEATURE_SHSTK) ||
@@ -321,11 +403,15 @@ int setup_signal_shadow_stack(struct ksignal *ksig)
 	if (!restorer)
 		return -EINVAL;
 
-	ssp = get_user_shstk_addr();
-	if (unlikely(!ssp))
+	orig_ssp = get_user_shstk_addr();
+	if (unlikely(!orig_ssp))
 		return -EINVAL;
 
-	err = shstk_push_sigframe(&ssp);
+	err = get_sig_start_ssp(orig_ssp, &ssp);
+	if (unlikely(err))
+		return err;
+
+	err = shstk_push_sigframe(&ssp, orig_ssp);
 	if (unlikely(err))
 		return err;
 
@@ -495,4 +581,48 @@ long cet_prctl(struct task_struct *task, int option, unsigned long features)
 	if (features & CET_WRSS)
 		return wrss_control(true);
 	return -EINVAL;
+}
+
+SYSCALL_DEFINE2(sigaltshstk, const stack_t __user *, uss, stack_t __user *, uoss)
+{
+	unsigned long ssp;
+	stack_t new, old;
+
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK))
+		return -ENOSYS;
+
+	ssp = get_user_shstk_addr();
+
+	if (unlikely(!ssp || on_alt_shstk(ssp)))
+		return -EPERM;
+
+	if (uss) {
+		if (unlikely(copy_from_user(&new, uss, sizeof(stack_t))))
+			return -EFAULT;
+
+		if (unlikely(alt_shstk_valid((unsigned long)new.ss_sp,
+					     new.ss_size)))
+			return -EINVAL;
+
+		if (new.ss_flags & SS_DISABLE) {
+			current->thread.sas_shstk_sp = 0;
+			current->thread.sas_shstk_size = 0;
+			return 0;
+		}
+
+		current->thread.sas_shstk_sp = (unsigned long) new.ss_sp;
+		current->thread.sas_shstk_size = new.ss_size;
+		/* No saved flags for now */
+	}
+
+	if (!uoss)
+		return 0;
+
+	memset(&old, 0, sizeof(stack_t));
+	old.ss_sp = (void __user *)current->thread.sas_shstk_sp;
+	old.ss_size = current->thread.sas_shstk_size;
+	if (copy_to_user(uoss, &old, sizeof(stack_t)))
+		return -EFAULT;
+
+	return 0;
 }

@@ -536,6 +536,9 @@ struct thread_struct {
 
 #ifdef CONFIG_X86_SHADOW_STACK
 	struct thread_shstk	shstk;
+	unsigned long			sas_shstk_sp;
+	size_t				sas_shstk_size;
+	unsigned int			sas_shstk_flags;
 #endif
 
 	/* Floating point and extended processor state */

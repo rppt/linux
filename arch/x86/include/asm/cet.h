@@ -26,6 +26,7 @@ void reset_thread_shstk(void);
 int setup_signal_shadow_stack(struct ksignal *ksig);
 int restore_signal_shadow_stack(void);
 int wrss_control(bool enable);
+void reset_alt_shstk(void);
 #else
 static inline long cet_prctl(struct task_struct *task, int option,
 		      unsigned long features) { return -EINVAL; }
@@ -40,6 +41,7 @@ static inline void reset_thread_shstk(void) {}
 static inline int setup_signal_shadow_stack(struct ksignal *ksig) { return 0; }
 static inline int restore_signal_shadow_stack(void) { return 0; }
 static inline int wrss_control(bool enable) { return -EOPNOTSUPP; }
+static inline void reset_alt_shstk(void) {}
 #endif /* CONFIG_X86_SHADOW_STACK */
 
 #endif /* __ASSEMBLY__ */

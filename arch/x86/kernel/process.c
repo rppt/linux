@@ -176,6 +176,9 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	frame->flags = X86_EFLAGS_FIXED;
 #endif
 
+	if ((clone_flags & (CLONE_VM|CLONE_VFORK)) == CLONE_VM)
+		reset_alt_shstk();
+
 	/* Allocate a new shadow stack for pthread if needed */
 	ret = shstk_alloc_thread_stack(p, clone_flags, args->flags, &shstk_addr);
 	if (ret)

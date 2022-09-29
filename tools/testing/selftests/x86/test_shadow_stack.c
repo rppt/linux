@@ -492,6 +492,76 @@ err:
 	return 1;
 }
 
+volatile bool segv_pass;
+
+long sigaltshstk(stack_t *uss, stack_t *ouss)
+{
+	return syscall(__NR_sigaltshstk, uss, ouss);
+}
+
+void segv_alt_handler(int signum, siginfo_t *si, void *uc)
+{
+	unsigned long min = (unsigned long)shstk_ptr;
+	unsigned long max = (unsigned long)shstk_ptr + SS_SIZE;
+	unsigned long ssp = get_ssp();
+	stack_t alt_shstk_stackt;
+
+	if (sigaltshstk(NULL, &alt_shstk_stackt))
+		goto fail;
+
+	if (alt_shstk_stackt.ss_sp || alt_shstk_stackt.ss_size)
+		goto fail;
+
+	if (ssp < min || ssp > max - 8)
+		goto fail;
+
+	segv_pass = true;
+	return;
+fail:
+	segv_pass = false;
+}
+
+int test_shstk_alt_stack(void)
+{
+	stack_t alt_shstk_stackt;
+	struct sigaction sa;
+	int ret = 1;
+
+	sa.sa_sigaction = segv_alt_handler;
+	if (sigaction(SIGUSR1, &sa, NULL))
+		return 1;
+	sa.sa_flags = SA_SIGINFO;
+
+	shstk_ptr = create_shstk(0);
+	if (shstk_ptr == MAP_FAILED)
+		goto err_sig;
+
+	alt_shstk_stackt.ss_sp = shstk_ptr;
+	alt_shstk_stackt.ss_size = SS_SIZE;
+	if (sigaltshstk(&alt_shstk_stackt, NULL) == -1)
+		goto err_shstk;
+
+	segv_pass = false;
+
+	/* Make sure segv_was_on_alt is set before signal */
+	asm volatile("" : : : "memory");
+
+	raise(SIGUSR1);
+
+	if (segv_pass) {
+		printf("[OK]\tAlt shadow stack test.\n");
+		ret = 0;
+	}
+
+err_shstk:
+	alt_shstk_stackt.ss_flags = SS_DISABLE;
+	sigaltshstk(&alt_shstk_stackt, NULL);
+	free_shstk(shstk_ptr);
+err_sig:
+	signal(SIGUSR1, SIG_DFL);
+	return ret;
+}
+
 int main(int argc, char *argv[])
 {
 	int ret = 0;
@@ -554,6 +624,11 @@ int main(int argc, char *argv[])
 	if (test_userfaultfd()) {
 		ret = 1;
 		printf("[FAIL]\tUserfaultfd test\n");
+	}
+
+	if (test_shstk_alt_stack()) {
+		ret = 1;
+		printf("[FAIL]\tAlt shadow stack test\n");
 	}
 
 out:
