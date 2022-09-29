@@ -598,16 +598,21 @@ __noendbr void ibt_restore(u64 save)
 
 static __always_inline void setup_cet(struct cpuinfo_x86 *c)
 {
-	u64 msr = CET_ENDBR_EN;
+	bool kernel_ibt = HAS_KERNEL_IBT && cpu_feature_enabled(X86_FEATURE_IBT);
+	bool user_shstk = IS_ENABLED(CONFIG_X86_SHADOW_STACK) &&
+			  cpu_feature_enabled(X86_FEATURE_SHSTK);
+	u64 msr = 0;
 
-	if (!HAS_KERNEL_IBT ||
-	    !cpu_feature_enabled(X86_FEATURE_IBT))
+	if (!kernel_ibt && !user_shstk)
 		return;
+
+	if (kernel_ibt)
+		msr = CET_ENDBR_EN;
 
 	wrmsrl(MSR_IA32_S_CET, msr);
 	cr4_set_bits(X86_CR4_CET);
 
-	if (!ibt_selftest()) {
+	if (kernel_ibt && !ibt_selftest()) {
 		pr_err("IBT selftest: Failed!\n");
 		setup_clear_cpu_cap(X86_FEATURE_IBT);
 		return;
@@ -616,9 +621,14 @@ static __always_inline void setup_cet(struct cpuinfo_x86 *c)
 
 __noendbr void cet_disable(void)
 {
-	if (cpu_feature_enabled(X86_FEATURE_IBT))
-		wrmsrl(MSR_IA32_S_CET, 0);
+	if (!(cpu_feature_enabled(X86_FEATURE_IBT) ||
+	      cpu_feature_enabled(X86_FEATURE_SHSTK)))
+		return;
+
+	wrmsrl(MSR_IA32_S_CET, 0);
+	wrmsrl(MSR_IA32_U_CET, 0);
 }
+
 
 /*
  * Some CPU features depend on higher CPUID levels, which may not always
