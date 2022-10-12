@@ -13559,6 +13559,26 @@ int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 }
 EXPORT_SYMBOL_GPL(kvm_sev_es_string_io);
 
+bool kvm_cet_is_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	u64 mask;
+
+	if (!kvm_cet_supported())
+		return false;
+
+	if (msr->host_initiated)
+		return true;
+
+	if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK) &&
+	    !guest_cpuid_has(vcpu, X86_FEATURE_IBT))
+		return false;
+
+	mask = (msr->index == MSR_IA32_U_CET) ? XFEATURE_MASK_CET_USER :
+						XFEATURE_MASK_CET_KERNEL;
+	return !!(vcpu->arch.guest_supported_xss & mask);
+}
+EXPORT_SYMBOL_GPL(kvm_cet_is_msr_accessible);
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);

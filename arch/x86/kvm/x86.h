@@ -513,6 +513,8 @@ int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 unsigned int port, void *data,  unsigned int count,
 			 int in);
 
+bool kvm_cet_is_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr);
+
 /*
  * The kernel's FPU coudl be used in IRQ contex t.  Disable IRQs
  * and ensure the guest's FPU state is loaded when accessing MSRs
