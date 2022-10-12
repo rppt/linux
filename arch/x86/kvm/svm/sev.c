@@ -3028,6 +3028,19 @@ void sev_es_prepare_switch_to_guest(struct sev_es_save_area *hostsa)
 
 	/* MSR_IA32_XSS is restored on VMEXIT, save the currnet host value */
 	hostsa->xss = host_xss;
+
+	if (boot_cpu_has(X86_FEATURE_SHSTK)) {
+		/*
+		 * MSR_IA32_U_CET, MSR_IA32_PL0_SSP, MSR_IA32_PL1_SSP,
+		 * MSR_IA32_PL2_SSP, and MSR_IA32_PL3_SSP are restored on
+		 * VMEXIT, save the current host values.
+		 */
+		rdmsrl(MSR_IA32_U_CET, hostsa->u_cet);
+		rdmsrl(MSR_IA32_PL0_SSP, hostsa->vmpl0_ssp);
+		rdmsrl(MSR_IA32_PL1_SSP, hostsa->vmpl1_ssp);
+		rdmsrl(MSR_IA32_PL2_SSP, hostsa->vmpl2_ssp);
+		rdmsrl(MSR_IA32_PL3_SSP, hostsa->vmpl3_ssp);
+	}
 }
 
 void sev_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
