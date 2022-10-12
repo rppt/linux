@@ -142,6 +142,7 @@ static const struct svm_direct_access_msrs {
 	{ .index = MSR_IA32_PL1_SSP,                    .always = false },
 	{ .index = MSR_IA32_PL2_SSP,                    .always = false },
 	{ .index = MSR_IA32_PL3_SSP,                    .always = false },
+	{ .index = MSR_IA32_XSS,                        .always = false },
 	{ .index = MSR_INVALID,				.always = false },
 };
 

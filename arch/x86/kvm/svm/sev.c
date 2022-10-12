@@ -2419,8 +2419,13 @@ static void sev_es_sync_from_ghcb(struct vcpu_svm *svm)
 
 	svm->vmcb->save.cpl = ghcb_get_cpl_if_valid(ghcb);
 
-	if (ghcb_xcr0_is_valid(ghcb)) {
-		vcpu->arch.xcr0 = ghcb_get_xcr0(ghcb);
+	if (ghcb_xcr0_is_valid(ghcb) || ghcb_xss_is_valid(ghcb)) {
+		if (ghcb_xcr0_is_valid(ghcb))
+			vcpu->arch.xcr0 = ghcb_get_xcr0(ghcb);
+
+		if (ghcb_xss_is_valid(ghcb))
+			vcpu->arch.ia32_xss = ghcb_get_xss(ghcb);
+
 		kvm_update_cpuid_runtime(vcpu);
 	}
 
@@ -2989,6 +2994,9 @@ static void sev_es_init_vmcb(struct vcpu_svm *svm)
 		if (guest_cpuid_has(&svm->vcpu, X86_FEATURE_RDTSCP))
 			svm_clr_intercept(svm, INTERCEPT_RDTSCP);
 	}
+
+	if (kvm_caps.supported_xss)
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_XSS, 1, 1);
 }
 
 void sev_init_vmcb(struct vcpu_svm *svm)
