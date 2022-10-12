@@ -1958,29 +1958,6 @@ static int vmx_get_msr_feature(struct kvm_msr_entry *msr)
 	}
 }
 
-static bool cet_is_ssp_msr_accessible(struct kvm_vcpu *vcpu,
-				      struct msr_data *msr)
-{
-	u64 mask;
-
-	if (!kvm_cet_supported())
-		return false;
-
-	if (msr->host_initiated)
-		return true;
-
-	if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK) ||
-	    msr->index == MSR_KVM_GUEST_SSP)
-		return false;
-
-	if (msr->index == MSR_IA32_INT_SSP_TAB)
-		return true;
-
-	mask = (msr->index == MSR_IA32_PL3_SSP) ? XFEATURE_MASK_CET_USER :
-						  XFEATURE_MASK_CET_KERNEL;
-	return !!(vcpu->arch.guest_supported_xss & mask);
-}
-
 /*
  * Reads an msr value (of 'msr_info->index') into 'msr_info->data'.
  * Returns 0 on success, non-0 otherwise.
@@ -2129,13 +2106,13 @@ static int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			kvm_get_xsave_msr(msr_info);
 		break;
 	case MSR_IA32_INT_SSP_TAB:
-		if (!cet_is_ssp_msr_accessible(vcpu, msr_info))
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
 			return 1;
 		msr_info->data = vmcs_readl(GUEST_INTR_SSP_TABLE);
 		break;
 	case MSR_KVM_GUEST_SSP:
 	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
-		if (!cet_is_ssp_msr_accessible(vcpu, msr_info))
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
 			return 1;
 		if (msr_info->index == MSR_KVM_GUEST_SSP)
 			msr_info->data = vmcs_readl(GUEST_SSP);
@@ -2506,7 +2483,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_KVM_GUEST_SSP:
 	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
-		if (!cet_is_ssp_msr_accessible(vcpu, msr_info))
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
 			return 1;
 		if ((data & GENMASK(2, 0)) || is_noncanonical_address(data, vcpu))
 			return 1;

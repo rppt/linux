@@ -514,6 +514,7 @@ int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 int in);
 
 bool kvm_cet_is_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr);
+bool kvm_is_ssp_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr);
 
 /*
  * The kernel's FPU coudl be used in IRQ contex t.  Disable IRQs

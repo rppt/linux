@@ -13579,6 +13579,29 @@ bool kvm_cet_is_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr)
 }
 EXPORT_SYMBOL_GPL(kvm_cet_is_msr_accessible);
 
+bool kvm_is_ssp_msr_accessible(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	u64 mask;
+
+	if (!kvm_cet_supported())
+		return false;
+
+	if (msr->host_initiated)
+		return true;
+
+	if (!guest_cpuid_has(vcpu, X86_FEATURE_SHSTK) ||
+	    msr->index == MSR_KVM_GUEST_SSP)
+		return false;
+
+	if (msr->index == MSR_IA32_INT_SSP_TAB)
+		return true;
+
+	mask = (msr->index == MSR_IA32_PL3_SSP) ? XFEATURE_MASK_CET_USER :
+						  XFEATURE_MASK_CET_KERNEL;
+	return !!(vcpu->arch.guest_supported_xss & mask);
+}
+EXPORT_SYMBOL_GPL(kvm_is_ssp_msr_accessible);
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
