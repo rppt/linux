@@ -2771,6 +2771,31 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (guest_cpuid_is_intel(vcpu))
 			msr_info->data |= (u64)svm->sysenter_esp_hi << 32;
 		break;
+	case MSR_IA32_S_CET:
+		if (!kvm_cet_is_msr_accessible(vcpu, msr_info))
+			return 1;
+		msr_info->data = svm->vmcb->save.s_cet;
+		break;
+	case MSR_IA32_U_CET:
+		if (!kvm_cet_is_msr_accessible(vcpu, msr_info))
+			return 1;
+		kvm_get_xsave_msr(msr_info);
+		break;
+	case MSR_IA32_INT_SSP_TAB:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
+			return 1;
+		msr_info->data = svm->vmcb->save.isst_addr;
+		break;
+	case MSR_KVM_GUEST_SSP:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
+			return 1;
+		msr_info->data = svm->vmcb->save.ssp;
+		break;
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr_info))
+			return 1;
+		kvm_get_xsave_msr(msr_info);
+		break;
 	case MSR_TSC_AUX:
 		msr_info->data = svm->tsc_aux;
 		break;
@@ -3001,6 +3026,39 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	case MSR_IA32_SYSENTER_ESP:
 		svm->vmcb01.ptr->save.sysenter_esp = (u32)data;
 		svm->sysenter_esp_hi = guest_cpuid_is_intel(vcpu) ? (data >> 32) : 0;
+		break;
+	case MSR_IA32_S_CET:
+		if (!kvm_cet_is_msr_accessible(vcpu, msr))
+			return 1;
+		svm->vmcb->save.s_cet = data;
+		break;
+	case MSR_IA32_U_CET:
+		if (!kvm_cet_is_msr_accessible(vcpu, msr))
+			return 1;
+		kvm_set_xsave_msr(msr);
+		break;
+	case MSR_IA32_INT_SSP_TAB:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr))
+			return 1;
+		if (is_noncanonical_address(data, vcpu))
+			return 1;
+		svm->vmcb->save.isst_addr = data;
+		break;
+	case MSR_KVM_GUEST_SSP:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr))
+			return 1;
+		/* SSP MSR values should be a 4-byte aligned canonical addresses */
+		if ((data & GENMASK(1, 0)) || is_noncanonical_address(data, vcpu))
+			return 1;
+		svm->vmcb->save.ssp = data;
+		break;
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+		if (!kvm_is_ssp_msr_accessible(vcpu, msr))
+			return 1;
+		/* SSP MSR values should be a 4-byte aligned canonical addresses */
+		if ((data & GENMASK(1, 0)) || is_noncanonical_address(data, vcpu))
+			return 1;
+		kvm_set_xsave_msr(msr);
 		break;
 	case MSR_TSC_AUX:
 		/*
