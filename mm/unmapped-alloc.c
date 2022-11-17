@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/gfp.h>
+#include <linux/mmzone.h>
+#include <linux/printk.h>
+#include <linux/spinlock.h>
+#include <linux/set_memory.h>
+#include <linux/unmapped-alloc.h>
+
+#include "internal.h"
+
+struct unmapped_free_area {
+	struct list_head	free_list;
+	unsigned long		nr_free;
+	spinlock_t		lock;
+};
+
+static struct unmapped_free_area free_area[MAX_ORDER];
+
+static inline void add_to_free_list(struct page *page, unsigned int order)
+{
+	struct unmapped_free_area *area = &free_area[order];
+
+	list_add(&page->buddy_list, &area->free_list);
+	area->nr_free++;
+}
+
+static inline void del_page_from_free_list(struct page *page, unsigned int order)
+{
+	list_del(&page->buddy_list);
+	__ClearPageUnmapped(page);
+	set_page_private(page, 0);
+	free_area[order].nr_free--;
+}
+
+static inline void set_unmapped_order(struct page *page, unsigned int order)
+{
+	set_page_private(page, order);
+	__SetPageUnmapped(page);
+}
+
+static inline bool page_is_unmapped_buddy(struct page *page, struct page *buddy,
+					  unsigned int order)
+{
+	if (!PageUnmapped(buddy))
+		return false;
+
+	if (buddy_order(buddy) != order)
+		return false;
+
+	return true;
+}
+
+static struct page *find_unmapped_buddy_page_pfn(struct page *page,
+						 unsigned long pfn,
+						 unsigned int order,
+						 unsigned long *buddy_pfn)
+{
+	unsigned long __buddy_pfn = __find_buddy_pfn(pfn, order);
+	struct page *buddy;
+
+	buddy = page + (__buddy_pfn - pfn);
+	if (buddy_pfn)
+		*buddy_pfn = __buddy_pfn;
+
+	if (page_is_unmapped_buddy(page, buddy, order))
+		return buddy;
+
+	return NULL;
+}
+
+static inline void __free_one_page(struct page *page, unsigned int order)
+{
+	unsigned long pfn = page_to_pfn(page);
+	unsigned long buddy_pfn;
+	unsigned long combined_pfn;
+	struct page *buddy;
+	unsigned long flags;
+
+	/* VM_BUG_ON(!zone_is_initialized(zone)); */
+	/* VM_BUG_ON_PAGE(page->flags & PAGE_FLAGS_CHECK_AT_PREP, page); */
+
+	/* VM_BUG_ON_PAGE(pfn & ((1 << order) - 1), page); */
+	/* VM_BUG_ON_PAGE(bad_range(zone, page), page); */
+
+	spin_lock_irqsave(&free_area->lock, flags);
+	while (order < MAX_ORDER - 1) {
+		buddy = find_unmapped_buddy_page_pfn(page, pfn, order,
+						     &buddy_pfn);
+		if (!buddy)
+			break;
+
+		del_page_from_free_list(buddy, order);
+		combined_pfn = buddy_pfn & pfn;
+		page = page + (combined_pfn - pfn);
+		pfn = combined_pfn;
+		order++;
+	}
+
+	set_unmapped_order(page, order);
+	add_to_free_list(page, order);
+	spin_unlock_irqrestore(&free_area->lock, flags);
+}
+
+static inline void expand(struct page *page, int low, int high)
+{
+	unsigned long size = 1 << high;
+
+	while (high > low) {
+		high--;
+		size >>= 1;
+
+		add_to_free_list(&page[size], high);
+		set_unmapped_order(&page[size], high);
+	}
+}
+
+static struct page *__rmqueue_smallest(unsigned int order)
+{
+	unsigned int current_order;
+	struct unmapped_free_area *area;
+	struct page *page = NULL;
+	unsigned long flags;
+
+	spin_lock_irqsave(&free_area->lock, flags);
+
+	/* Find a page of the appropriate size in the preferred list */
+	for (current_order = order; current_order < MAX_ORDER; ++current_order) {
+		area = &free_area[current_order];
+		page = list_first_entry_or_null(&area->free_list, struct page,
+						lru);
+		if (!page)
+			continue;
+
+		del_page_from_free_list(page, current_order);
+		expand(page, order, current_order);
+
+		break;
+	}
+
+	spin_unlock_irqrestore(&free_area->lock, flags);
+
+	return page;
+}
+
+/* FIXME: have PMD_ORDER at last available in include/linux */
+#define PMD_ORDER	(PMD_SHIFT - PAGE_SHIFT)
+
+void __prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
+		     unsigned int alloc_flags);
+
+struct page *unmapped_pages_alloc(int order)
+{
+
+	int cache_order = PMD_ORDER;
+	struct page *page;
+
+	/* pr_info("===> %s: order: %d\n", __func__, order); */
+
+	page = __rmqueue_smallest(order);
+	if (page)
+		goto out;
+
+	while (cache_order >= order) {
+		page = alloc_pages(GFP_KERNEL | __GFP_ZERO, cache_order);
+		if (page)
+			break;
+		cache_order--;
+	}
+
+	if (page) {
+		unsigned long addr = (unsigned long)page_address(page);
+
+		/* FIXME: use set_direct_map and check return value */
+		set_memory_np(addr, (1 << order));
+		set_pageblock_unmapped(page);
+
+		/* addr = (unsigned long)page_address(page); */
+		/* flush_tlb_kernel_range(addr, addr + PAGE_SIZE); */
+
+		/*
+		 * FIXME: have this under lock so that allocation running
+		 * in parallel won't steal all pages from the newly cached
+		 * ones
+		 */
+		__free_one_page(page, cache_order);
+		page = __rmqueue_smallest(order);
+
+	}
+
+out:
+	if (page) {
+		/* FIXME: __prep_new_page() expects page count of 0 */
+		set_page_count(page, 0);
+		__prep_new_page(page, order, GFP_KERNEL, 0);
+	}
+
+	return page;
+}
+
+void unmapped_pages_free(struct page *page, int order)
+{
+	/* pr_info("===> %s\n", __func__); */
+
+	__free_one_page(page, order);
+}
+
+int unmapped_alloc_init(void)
+{
+	/* pr_info("===> %s\n", __func__); */
+
+	for (int order = 0; order < MAX_ORDER; order++) {
+		INIT_LIST_HEAD(&free_area[order].free_list);
+		free_area[order].nr_free = 0;
+	}
+
+	spin_lock_init(&free_area->lock);
+	return 0;
+}
