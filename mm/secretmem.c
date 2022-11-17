@@ -53,7 +53,6 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 	struct inode *inode = file_inode(vmf->vma->vm_file);
 	pgoff_t offset = vmf->pgoff;
 	gfp_t gfp = vmf->gfp_mask;
-	unsigned long addr;
 	struct page *page;
 	vm_fault_t ret;
 	int err;
@@ -66,16 +65,9 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 retry:
 	page = find_lock_page(mapping, offset);
 	if (!page) {
-		page = alloc_page(gfp | __GFP_ZERO);
+		page = alloc_page(gfp | __GFP_ZERO | __GFP_UNMAPPED);
 		if (!page) {
 			ret = VM_FAULT_OOM;
-			goto out;
-		}
-
-		err = set_direct_map_invalid_noflush(page);
-		if (err) {
-			put_page(page);
-			ret = vmf_error(err);
 			goto out;
 		}
 
@@ -83,21 +75,12 @@ retry:
 		err = add_to_page_cache_lru(page, mapping, offset, gfp);
 		if (unlikely(err)) {
 			put_page(page);
-			/*
-			 * If a split of large page was required, it
-			 * already happened when we marked the page invalid
-			 * which guarantees that this call won't fail
-			 */
-			set_direct_map_default_noflush(page);
 			if (err == -EEXIST)
 				goto retry;
 
 			ret = vmf_error(err);
 			goto out;
 		}
-
-		addr = (unsigned long)page_address(page);
-		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
 	}
 
 	vmf->page = page;
@@ -150,15 +133,8 @@ static int secretmem_migrate_folio(struct address_space *mapping,
 	return -EBUSY;
 }
 
-static void secretmem_free_folio(struct folio *folio)
-{
-	set_direct_map_default_noflush(&folio->page);
-	folio_zero_segment(folio, 0, folio_size(folio));
-}
-
 const struct address_space_operations secretmem_aops = {
 	.dirty_folio	= noop_dirty_folio,
-	.free_folio	= secretmem_free_folio,
 	.migrate_folio	= secretmem_migrate_folio,
 };
 
