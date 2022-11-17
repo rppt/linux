@@ -66,18 +66,18 @@ static vm_fault_t secretmem_fault(struct vm_fault *vmf)
 retry:
 	page = find_lock_page(mapping, offset);
 	if (!page) {
-		page = alloc_page(gfp | __GFP_ZERO);
+		page = alloc_page(gfp | __GFP_ZERO | __GFP_UNMAPPED);
 		if (!page) {
 			ret = VM_FAULT_OOM;
 			goto out;
 		}
 
-		err = set_direct_map_invalid_noflush(page);
-		if (err) {
-			put_page(page);
-			ret = vmf_error(err);
-			goto out;
-		}
+		/* err = set_direct_map_invalid_noflush(page); */
+		/* if (err) { */
+		/* 	put_page(page); */
+		/* 	ret = vmf_error(err); */
+		/* 	goto out; */
+		/* } */
 
 		__SetPageUptodate(page);
 		err = add_to_page_cache_lru(page, mapping, offset, gfp);
@@ -88,7 +88,7 @@ retry:
 			 * already happened when we marked the page invalid
 			 * which guarantees that this call won't fail
 			 */
-			set_direct_map_default_noflush(page);
+			/* set_direct_map_default_noflush(page); */
 			if (err == -EEXIST)
 				goto retry;
 
@@ -96,8 +96,8 @@ retry:
 			goto out;
 		}
 
-		addr = (unsigned long)page_address(page);
-		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
+		/* addr = (unsigned long)page_address(page); */
+		/* flush_tlb_kernel_range(addr, addr + PAGE_SIZE); */
 	}
 
 	vmf->page = page;
@@ -152,8 +152,8 @@ static int secretmem_migrate_folio(struct address_space *mapping,
 
 static void secretmem_free_folio(struct folio *folio)
 {
-	set_direct_map_default_noflush(&folio->page);
-	folio_zero_segment(folio, 0, folio_size(folio));
+	/* set_direct_map_default_noflush(&folio->page); */
+	/* folio_zero_segment(folio, 0, folio_size(folio)); */
 }
 
 const struct address_space_operations secretmem_aops = {
