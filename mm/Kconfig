@@ -1202,6 +1202,10 @@ config LRU_GEN_STATS
 	  This option has a per-memcg and per-node memory overhead.
 # }
 
+config UNMAPPED_ALLOC
+	def_bool y
+	depends on ARCH_WANTS_GFP_UNMAPPED
+
 source "mm/damon/Kconfig"
 
 endmenu

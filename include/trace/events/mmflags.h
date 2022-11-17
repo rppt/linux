@@ -61,9 +61,17 @@
 #define __def_gfpflag_names_kasan
 #endif
 
+#ifdef CONFIG_UNMAPPED_ALLOC
+#define __def_gfpflag_names_unmapped			\
+	, gfpflag_string(__GFP_UNMAPPED)
+#else
+#define __def_gfpflag_names_unmapped
+#endif
+
 #define show_gfp_flags(flags)						\
 	(flags) ? __print_flags(flags, "|",				\
-	__def_gfpflag_names __def_gfpflag_names_kasan			\
+	__def_gfpflag_names __def_gfpflag_names_kasan 			\
+	__def_gfpflag_names_unmapped					\
 	) : "none"
 
 #ifdef CONFIG_MMU
