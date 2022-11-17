@@ -67,7 +67,7 @@ static unsigned long int get_module_load_offset(void)
 
 void *module_alloc(unsigned long size)
 {
-	gfp_t gfp_mask = GFP_KERNEL;
+	gfp_t gfp_mask = GFP_KERNEL | __GFP_UNMAPPED;
 	void *p;
 
 	if (PAGE_ALIGN(size) > MODULES_LEN)
