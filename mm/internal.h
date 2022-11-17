@@ -1099,4 +1099,17 @@ struct vma_prepare {
 	struct vm_area_struct *remove;
 	struct vm_area_struct *remove2;
 };
+
+/*
+ * mm/unmapped-alloc.c
+ */
+#ifdef CONFIG_UNMAPPED_ALLOC
+int unmapped_alloc_init(void);
+#else
+static inline int unmapped_alloc_init(void)
+{
+	return 0;
+}
+#endif
+
 #endif	/* __MM_INTERNAL_H */

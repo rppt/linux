@@ -1206,6 +1206,10 @@ config PER_VMA_LOCK
 	  This feature allows locking each virtual memory area separately when
 	  handling page faults instead of taking mmap_lock.
 
+config UNMAPPED_ALLOC
+	def_bool y
+	depends on ARCH_WANTS_GFP_UNMAPPED
+
 source "mm/damon/Kconfig"
 
 endmenu

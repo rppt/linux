@@ -1888,6 +1888,8 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 
 	/* disable hash distribution for systems with a single node */
 	fixup_hashdist();
+
+	unmapped_alloc_init();
 }
 
 /**

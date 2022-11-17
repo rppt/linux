@@ -36,6 +36,9 @@ config X86_64
 	select ARCH_HAS_ELFCORE_COMPAT
 	select ZONE_DMA32
 
+config ARCH_WANTS_GFP_UNMAPPED
+	def_bool y if X86_64
+
 config FORCE_DYNAMIC_FTRACE
 	def_bool y
 	depends on X86_32
