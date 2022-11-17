@@ -21,6 +21,9 @@ enum pageblock_bits {
 			/* 3 bits required for migrate types */
 	PB_migrate_skip,/* If set the block is skipped by compaction */
 
+	PB_unmapped = 7,/* if set the block has pages unmapped in the direct
+			   map */
+
 	/*
 	 * Assume the bits will always align on a word. If this assumption
 	 * changes then get/set pageblock needs updating.
@@ -94,5 +97,30 @@ static inline void set_pageblock_skip(struct page *page)
 {
 }
 #endif /* CONFIG_COMPACTION */
+
+#ifdef CONFIG_UNMAPPED_ALLOC
+#define get_pageblock_unmapped(page)                         \
+       get_pfnblock_flags_mask(page, page_to_pfn(page),        \
+                       (1 << (PB_unmapped)))
+#define clear_pageblock_unmapped(page) \
+       set_pfnblock_flags_mask(page, 0, page_to_pfn(page),     \
+                       (1 << PB_unmapped))
+#define set_pageblock_unmapped(page) \
+       set_pfnblock_flags_mask(page, (1 << PB_unmapped),     \
+                       page_to_pfn(page),                      \
+                       (1 << PB_unmapped))
+#else /* CONFIG_UNMAPPED_ALLOC */
+static inline bool get_pageblock_unmapped(struct page *page)
+{
+       return false;
+}
+static inline void clear_pageblock_unmapped(struct page *page)
+{
+}
+static inline void set_pageblock_unmapped(struct page *page)
+{
+}
+#endif /* CONFIG_UNMAPPED_ALLOC */
+
 
 #endif	/* PAGEBLOCK_FLAGS_H */

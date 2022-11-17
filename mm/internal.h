@@ -848,4 +848,35 @@ static inline bool vma_soft_dirty_enabled(struct vm_area_struct *vma)
 	return !(vma->vm_flags & VM_SOFTDIRTY);
 }
 
+/*
+ * mm/unmapped-alloc.c
+*/
+#ifdef CONFIG_UNMAPPED_ALLOC
+int unmapped_alloc_init(void);
+struct page *unmapped_pages_alloc(int order);
+void unmapped_pages_free(struct page *page, int order);
+#else
+static inline int unmapped_alloc_init(void)
+{
+	return 0;
+}
+
+static struct page *unmapped_pages_alloc(int order)
+{
+	return NULL;
+}
+
+static inline void unmapped_pages_free(struct page *page, int order) {}
+#endif
+
+static inline struct page *unmapped_page_alloc(void)
+{
+	return unmapped_pages_alloc(0);
+}
+
+static inline void unmapped_page_free(struct page *page)
+{
+	return unmapped_pages_free(page, 0);
+}
+
 #endif	/* __MM_INTERNAL_H */

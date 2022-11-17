@@ -587,7 +587,7 @@ void set_pfnblock_flags_mask(struct page *page, unsigned long flags,
 	unsigned long bitidx, word_bitidx;
 	unsigned long word;
 
-	BUILD_BUG_ON(NR_PAGEBLOCK_BITS != 4);
+	BUILD_BUG_ON(NR_PAGEBLOCK_BITS != 8);
 	BUILD_BUG_ON(MIGRATE_TYPES > (1 << PB_migratetype_bits));
 
 	bitmap = get_pageblock_bitmap(page, pfn);
@@ -742,6 +742,13 @@ static inline bool pcp_allowed_order(unsigned int order)
 		return true;
 #endif
 	return false;
+}
+
+static inline bool pcp_allowed(unsigned int order, gfp_t gfp)
+{
+	if (unlikely(gfp & __GFP_UNMAPPED))
+		return false;
+	return pcp_allowed_order(order);
 }
 
 static inline void free_the_page(struct page *page, unsigned int order)
@@ -1451,6 +1458,11 @@ static __always_inline bool free_pages_prepare(struct page *page,
 					   PAGE_SIZE << order);
 		debug_check_no_obj_freed(page_address(page),
 					   PAGE_SIZE << order);
+	}
+
+	if (get_pageblock_unmapped(page)) {
+		unmapped_pages_free(page, order);
+		return false;
 	}
 
 	kernel_poison_pages(page, 1 << order);
@@ -3507,6 +3519,13 @@ void free_unref_page_list(struct list_head *list)
 	/* Prepare pages for freeing */
 	list_for_each_entry_safe(page, next, list, lru) {
 		unsigned long pfn = page_to_pfn(page);
+
+		if (get_pageblock_unmapped(page)) {
+			list_del(&page->lru);
+			unmapped_page_free(page);
+			continue;
+		}
+
 		if (!free_unref_page_prepare(page, pfn, 0)) {
 			list_del(&page->lru);
 			continue;
@@ -3828,7 +3847,7 @@ struct page *rmqueue(struct zone *preferred_zone,
 	 */
 	WARN_ON_ONCE((gfp_flags & __GFP_NOFAIL) && (order > 1));
 
-	if (likely(pcp_allowed_order(order))) {
+	if (likely(pcp_allowed(order, gfp_flags))) {
 		/*
 		 * MIGRATE_MOVABLE pcplist could have the pages on CMA area and
 		 * we need to skip it when CMA area isn't allowed.
@@ -5538,6 +5557,11 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
 	if (!prepare_alloc_pages(gfp, order, preferred_nid, nodemask, &ac,
 			&alloc_gfp, &alloc_flags))
 		return NULL;
+
+	if (alloc_gfp & __GFP_UNMAPPED) {
+		page = unmapped_pages_alloc(order);
+		goto out;
+	}
 
 	/*
 	 * Forbid the first pass from falling back to types that fragment
@@ -8391,6 +8415,8 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 	}
 
 	memmap_init();
+	unmapped_alloc_init();
+	pr_info("===> %s: gfp_allowed_mask: %pGg\n", __func__, &gfp_allowed_mask);
 }
 
 static int __init cmdline_parse_core(char *p, unsigned long *core,
