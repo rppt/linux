@@ -152,6 +152,11 @@ extern void *__vmalloc_node_range(unsigned long size, unsigned long align,
 void *__vmalloc_node(unsigned long size, unsigned long align, gfp_t gfp_mask,
 		int node, const void *caller) __alloc_size(1);
 void *vmalloc_huge(unsigned long size, gfp_t gfp_mask) __alloc_size(1);
+void *vmalloc_execmem(unsigned long size, unsigned long align) __alloc_size(1);
+void *execmem_fill(void *dst, void *src, size_t len);
+void vfree_execmem(void *addr);
+void *arch_fill_execmem(void *dst, void *src, size_t len);
+int arch_invalidate_execmem(void *ptr, size_t len);
 
 extern void *__vmalloc_array(size_t n, size_t size, gfp_t flags) __alloc_size(1, 2);
 extern void *vmalloc_array(size_t n, size_t size) __alloc_size(1, 2);
