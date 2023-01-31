@@ -3,6 +3,7 @@
 #include <linux/gfp.h>
 #include <linux/mmzone.h>
 #include <linux/printk.h>
+#include <linux/debugfs.h>
 #include <linux/spinlock.h>
 #include <linux/set_memory.h>
 
@@ -210,3 +211,37 @@ int unmapped_alloc_init(void)
 
 	return 0;
 }
+
+static int unmapped_alloc_debug_show(struct seq_file *m, void *private)
+{
+	int order;
+
+	seq_printf(m, "MAX_ORDER: %d\n", MAX_ORDER);
+	seq_putc(m, '\n');
+
+	seq_printf(m, "%-10s", "Order:");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%5d ", order);
+	seq_putc(m, '\n');
+
+	seq_printf(m, "%-10s", "Free:");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%5lu ", free_area[order].nr_free);
+	seq_putc(m, '\n');
+
+	seq_printf(m, "%-10s", "Cached:");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%5lu ", free_area[order].nr_cached);
+	seq_putc(m, '\n');
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(unmapped_alloc_debug);
+
+static int __init unmapped_alloc_init_late(void)
+{
+	debugfs_create_file("unmapped_alloc", 0444, NULL,
+			    NULL, &unmapped_alloc_debug_fops);
+	return 0;
+}
+late_initcall(unmapped_alloc_init_late);
