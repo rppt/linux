@@ -123,6 +123,11 @@ typedef int __bitwise fpi_t;
  */
 #define FPI_SKIP_KASAN_POISON	((__force fpi_t)BIT(2))
 
+/*
+ * Free pages from the unmapped cache
+ */
+#define FPI_UNMAPPED		((__force fpi_t)BIT(3))
+
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_HIGH_FRACTION (8)
@@ -1468,7 +1473,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 					   PAGE_SIZE << order);
 	}
 
-	if (get_pageblock_unmapped(page)) {
+	if (!(fpi_flags & FPI_UNMAPPED) && get_pageblock_unmapped(page)) {
 		unmapped_pages_free(page, order);
 		return false;
 	}
@@ -1635,6 +1640,11 @@ static void free_one_page(struct zone *zone,
 	}
 	__free_one_page(page, pfn, zone, order, migratetype, fpi_flags);
 	spin_unlock_irqrestore(&zone->lock, flags);
+}
+
+void __free_unmapped_page(struct page *page, unsigned int order)
+{
+	__free_pages_ok(page, order, FPI_UNMAPPED | FPI_TO_TAIL);
 }
 
 static void __meminit __init_single_page(struct page *page, unsigned long pfn,

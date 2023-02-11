@@ -1064,4 +1064,6 @@ static inline struct page *unmapped_pages_alloc(gfp_t gfp, int order)
 static inline void unmapped_pages_free(struct page *page, int order) {}
 #endif
 
+void __free_unmapped_page(struct page *page, unsigned int order);
+
 #endif	/* __MM_INTERNAL_H */
