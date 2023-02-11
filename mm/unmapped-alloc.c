@@ -4,6 +4,7 @@
 #include <linux/mmzone.h>
 #include <linux/printk.h>
 #include <linux/debugfs.h>
+#include <linux/shrinker.h>
 #include <linux/spinlock.h>
 #include <linux/set_memory.h>
 
@@ -195,6 +196,75 @@ void unmapped_pages_free(struct page *page, int order)
 	__free_one_page(page, order);
 }
 
+static unsigned long unmapped_alloc_count_objects(struct shrinker *,
+						  struct shrink_control *sc)
+{
+	unsigned long pages_to_free = 0;
+
+	for (int order = 0; order < MAX_ORDER; order++)
+		pages_to_free += (free_area[order].nr_free << order);
+
+	return pages_to_free;
+}
+
+static unsigned long scan_free_area(struct shrink_control *sc, int order)
+{
+	struct unmapped_free_area *area = &free_area[order];
+	unsigned long nr_pages = (1 << order);
+	unsigned long pages_freed = 0;
+	unsigned long flags;
+	struct page *page;
+
+	spin_lock(&area->lock);
+
+	while (pages_freed < sc->nr_to_scan) {
+		page = list_first_entry_or_null(&area->free_list, struct page,
+						lru);
+		if (!page)
+			break;
+
+		del_page_from_free_list(page, order);
+		expand(page, order, order);
+
+		for (int i = 0; i < nr_pages; i++)
+			set_direct_map_default_noflush(page + i);
+
+		clear_pageblock_unmapped(page);
+		set_page_refcounted(page);
+		__free_pages(page, order);
+		set_pageblock_unmapped(page);
+
+		pages_freed += nr_pages;
+	}
+
+	spin_unlock(&area->lock);
+
+	return pages_freed;
+}
+
+static unsigned long unmapped_alloc_scan_objects(struct shrinker *shrinker,
+						 struct shrink_control *sc)
+{
+	sc->nr_scanned = 0;
+
+	for (int order = 0; order < MAX_ORDER; order++) {
+		sc->nr_scanned += scan_free_area(sc, order);
+
+		if (sc->nr_scanned >= sc->nr_to_scan)
+			break;
+
+		sc->nr_to_scan -= sc->nr_scanned;
+	}
+
+	return sc->nr_scanned ? sc->nr_scanned : SHRINK_STOP;
+}
+
+static struct shrinker shrinker = {
+	.count_objects	= unmapped_alloc_count_objects,
+	.scan_objects	= unmapped_alloc_scan_objects,
+	.seeks		= DEFAULT_SEEKS,
+};
+
 int unmapped_alloc_init(void)
 {
 	for (int order = 0; order < MAX_ORDER; order++) {
@@ -229,8 +299,15 @@ DEFINE_SHOW_ATTRIBUTE(unmapped_alloc_debug);
 
 static int __init unmapped_alloc_init_late(void)
 {
+	int ret;
+
 	debugfs_create_file("unmapped_alloc", 0444, NULL,
 			    NULL, &unmapped_alloc_debug_fops);
-	return 0;
+
+	ret = register_shrinker(&shrinker, "mm-unmapped-alloc");
+	if (ret)
+		pr_err("===> %s: register_shrinker: %d\n", __func__, ret);
+
+	return ret;
 }
 late_initcall(unmapped_alloc_init_late);
