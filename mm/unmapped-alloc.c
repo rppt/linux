@@ -4,6 +4,7 @@
 #include <linux/mmzone.h>
 #include <linux/printk.h>
 #include <linux/debugfs.h>
+#include <linux/shrinker.h>
 #include <linux/spinlock.h>
 #include <linux/set_memory.h>
 
@@ -16,6 +17,7 @@ struct unmapped_free_area {
 	spinlock_t		lock;
 	unsigned long		nr_free;
 	unsigned long		nr_cached;
+	unsigned long		nr_released;
 };
 
 static struct unmapped_free_area free_area[MAX_ORDER];
@@ -201,6 +203,79 @@ void unmapped_pages_free(struct page *page, int order)
 	__free_one_page(page, order, false);
 }
 
+static unsigned long unmapped_alloc_count_objects(struct shrinker *sh,
+						  struct shrink_control *sc)
+{
+	unsigned long pages_to_free = 0;
+
+	for (int order = 0; order < MAX_ORDER; order++)
+		pages_to_free += (free_area[order].nr_free << order);
+
+	return pages_to_free;
+}
+
+static unsigned long scan_free_area(struct shrink_control *sc, int order)
+{
+	struct unmapped_free_area *area = &free_area[order];
+	unsigned long nr_pages = (1 << order);
+	unsigned long pages_freed = 0;
+	unsigned long flags;
+	struct page *page;
+
+	spin_lock_irqsave(&area->lock, flags);
+	while (pages_freed < sc->nr_to_scan) {
+
+		page = list_first_entry_or_null(&area->free_list, struct page,
+						lru);
+		if (!page)
+			break;
+
+		del_page_from_free_list(page, order);
+		expand(page, order, order);
+
+		area->nr_released++;
+
+		spin_unlock_irqrestore(&area->lock, flags);
+
+		for (int i = 0; i < nr_pages; i++)
+			set_direct_map_default_noflush(page + i);
+
+		__free_pages(page, order);
+
+		pages_freed += nr_pages;
+
+		cond_resched();
+		spin_lock_irqsave(&area->lock, flags);
+	}
+
+	spin_unlock_irqrestore(&area->lock, flags);
+
+	return pages_freed;
+}
+
+static unsigned long unmapped_alloc_scan_objects(struct shrinker *shrinker,
+						 struct shrink_control *sc)
+{
+	sc->nr_scanned = 0;
+
+	for (int order = 0; order < MAX_ORDER; order++) {
+		sc->nr_scanned += scan_free_area(sc, order);
+
+		if (sc->nr_scanned >= sc->nr_to_scan)
+			break;
+
+		sc->nr_to_scan -= sc->nr_scanned;
+	}
+
+	return sc->nr_scanned ? sc->nr_scanned : SHRINK_STOP;
+}
+
+static struct shrinker shrinker = {
+	.count_objects	= unmapped_alloc_count_objects,
+	.scan_objects	= unmapped_alloc_scan_objects,
+	.seeks		= DEFAULT_SEEKS,
+};
+
 int unmapped_alloc_init(void)
 {
 	for (int order = 0; order < MAX_ORDER; order++) {
@@ -234,6 +309,11 @@ static int unmapped_alloc_debug_show(struct seq_file *m, void *private)
 		seq_printf(m, "%5lu ", free_area[order].nr_cached);
 	seq_putc(m, '\n');
 
+	seq_printf(m, "%-10s", "Released:");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%5lu ", free_area[order].nr_released);
+	seq_putc(m, '\n');
+
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(unmapped_alloc_debug);
@@ -242,6 +322,7 @@ static int __init unmapped_alloc_init_late(void)
 {
 	debugfs_create_file("unmapped_alloc", 0444, NULL,
 			    NULL, &unmapped_alloc_debug_fops);
-	return 0;
+
+	return register_shrinker(&shrinker, "mm-unmapped-alloc");
 }
 late_initcall(unmapped_alloc_init_late);

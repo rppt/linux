@@ -1112,4 +1112,6 @@ static inline int unmapped_alloc_init(void)
 }
 #endif
 
+void __free_unmapped_page(struct page *page, unsigned int order);
+
 #endif	/* __MM_INTERNAL_H */
