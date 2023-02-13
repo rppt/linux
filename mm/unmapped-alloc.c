@@ -143,7 +143,7 @@ static struct page *__rmqueue_smallest(unsigned int order)
 /* FIXME: have PMD_ORDER at last available in include/linux */
 #define PMD_ORDER	(PMD_SHIFT - PAGE_SHIFT)
 
-struct page *unmapped_pages_alloc(int order)
+struct page *unmapped_pages_alloc(gfp_t gfp, int order)
 {
 
 	int cache_order = PMD_ORDER;
@@ -153,8 +153,9 @@ struct page *unmapped_pages_alloc(int order)
 	if (page)
 		goto out;
 
+	gfp &= ~__GFP_UNMAPPED;
 	while (cache_order >= order) {
-		page = alloc_pages(GFP_KERNEL | __GFP_ZERO, cache_order);
+		page = alloc_pages(gfp | __GFP_ZERO, cache_order);
 		if (page)
 			break;
 		cache_order--;

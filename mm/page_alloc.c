@@ -3522,7 +3522,7 @@ void free_unref_page_list(struct list_head *list)
 
 		if (get_pageblock_unmapped(page)) {
 			list_del(&page->lru);
-			unmapped_page_free(page);
+			unmapped_pages_free(page, 0);
 			continue;
 		}
 
@@ -5559,7 +5559,7 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
 		return NULL;
 
 	if (alloc_gfp & __GFP_UNMAPPED) {
-		page = unmapped_pages_alloc(order);
+		page = unmapped_pages_alloc(gfp, order);
 		goto out;
 	}
 
