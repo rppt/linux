@@ -269,11 +269,12 @@ static struct shrinker shrinker = {
 int unmapped_alloc_init(void)
 {
 	for (int order = 0; order < MAX_ORDER; order++) {
-		INIT_LIST_HEAD(&free_area[order].free_list);
-		free_area[order].nr_free = 0;
+		struct unmapped_free_area *area = &free_area[order];
+		INIT_LIST_HEAD(&area->free_list);
+		spin_lock_init(&area->lock);
+		area->nr_free = 0;
 	}
 
-	spin_lock_init(&free_area->lock);
 	return 0;
 }
 
