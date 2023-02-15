@@ -216,9 +216,9 @@ static unsigned long scan_free_area(struct shrink_control *sc, int order)
 	unsigned long flags;
 	struct page *page;
 
-	spin_lock(&area->lock);
-
+	spin_lock_irqsave(&area->lock, flags);
 	while (pages_freed < sc->nr_to_scan) {
+
 		page = list_first_entry_or_null(&area->free_list, struct page,
 						lru);
 		if (!page)
@@ -227,18 +227,23 @@ static unsigned long scan_free_area(struct shrink_control *sc, int order)
 		del_page_from_free_list(page, order);
 		expand(page, order, order);
 
+		spin_unlock_irqrestore(&area->lock, flags);
+
 		for (int i = 0; i < nr_pages; i++)
 			set_direct_map_default_noflush(page + i);
 
 		clear_pageblock_unmapped(page);
 		set_page_refcounted(page);
-		__free_pages(page, order);
+		__free_pages(page, order); /* race */
 		set_pageblock_unmapped(page);
 
 		pages_freed += nr_pages;
+
+		cond_resched();
+		spin_lock_irqsave(&area->lock, flags);
 	}
 
-	spin_unlock(&area->lock);
+	spin_unlock_irqrestore(&area->lock, flags);
 
 	return pages_freed;
 }
