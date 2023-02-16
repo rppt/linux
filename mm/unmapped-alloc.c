@@ -14,8 +14,9 @@
 
 struct unmapped_free_area {
 	struct list_head	free_list;
-	unsigned long		nr_free;
 	spinlock_t		lock;
+	unsigned long		nr_free;
+	unsigned long		nr_cached;
 };
 
 static struct unmapped_free_area free_area[MAX_ORDER];
@@ -72,7 +73,8 @@ static struct page *find_unmapped_buddy_page_pfn(struct page *page,
 	return NULL;
 }
 
-static inline void __free_one_page(struct page *page, unsigned int order)
+static inline void __free_one_page(struct page *page, unsigned int order,
+				   bool cache_refill)
 {
 	unsigned long pfn = page_to_pfn(page);
 	unsigned long buddy_pfn;
@@ -81,6 +83,10 @@ static inline void __free_one_page(struct page *page, unsigned int order)
 	unsigned long flags;
 
 	spin_lock_irqsave(&free_area->lock, flags);
+
+	if (cache_refill)
+		free_area[order].nr_cached++;
+
 	while (order < MAX_ORDER - 1) {
 		buddy = find_unmapped_buddy_page_pfn(page, pfn, order,
 						     &buddy_pfn);
@@ -177,7 +183,7 @@ struct page *unmapped_pages_alloc(gfp_t gfp, int order)
 		 * in parallel won't steal all pages from the newly cached
 		 * ones
 		 */
-		__free_one_page(page, cache_order);
+		__free_one_page(page, cache_order, true);
 		page = __rmqueue_smallest(order);
 
 	}
@@ -194,7 +200,7 @@ out:
 
 void unmapped_pages_free(struct page *page, int order)
 {
-	__free_one_page(page, order);
+	__free_one_page(page, order, false);
 }
 
 static unsigned long unmapped_alloc_count_objects(struct shrinker *,
@@ -226,6 +232,8 @@ static unsigned long scan_free_area(struct shrink_control *sc, int order)
 
 		del_page_from_free_list(page, order);
 		expand(page, order, order);
+
+		area->nr_cached--;
 
 		spin_unlock_irqrestore(&area->lock, flags);
 
@@ -295,9 +303,14 @@ static int unmapped_alloc_debug_show(struct seq_file *m, void *private)
 		seq_printf(m, "%5d ", order);
 	seq_putc(m, '\n');
 
-	seq_printf(m, "%-8s", "Pages:");
+	seq_printf(m, "%-8s", "Free:");
 	for (order = 0; order < MAX_ORDER; ++order)
 		seq_printf(m, "%5lu ", free_area[order].nr_free);
+	seq_putc(m, '\n');
+
+	seq_printf(m, "%-8s", "Cached:");
+	for (order = 0; order < MAX_ORDER; ++order)
+		seq_printf(m, "%5lu ", free_area[order].nr_cached);
 	seq_putc(m, '\n');
 
 	return 0;
