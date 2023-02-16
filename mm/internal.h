@@ -854,7 +854,7 @@ static inline bool vma_soft_dirty_enabled(struct vm_area_struct *vma)
 #ifdef CONFIG_UNMAPPED_ALLOC
 int unmapped_alloc_init(void);
 struct page *unmapped_pages_alloc(gfp_t gfp, int order);
-void unmapped_pages_free(struct page *page, int order);
+bool unmapped_pages_free(struct page *page, int order);
 #else
 static inline int unmapped_alloc_init(void)
 {
@@ -866,7 +866,10 @@ static inline struct page *unmapped_pages_alloc(gfp_t gfp, int order)
 	return NULL;
 }
 
-static inline void unmapped_pages_free(struct page *page, int order) {}
+static inline bool unmapped_pages_free(struct page *page, int order)
+{
+	return false;
+}
 #endif
 
 #endif	/* __MM_INTERNAL_H */

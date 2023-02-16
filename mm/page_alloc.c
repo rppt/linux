@@ -1461,8 +1461,8 @@ static __always_inline bool free_pages_prepare(struct page *page,
 	}
 
 	if (get_pageblock_unmapped(page)) {
-		unmapped_pages_free(page, order);
-		return false;
+		if (unmapped_pages_free(page, order))
+			return false;
 	}
 
 	kernel_poison_pages(page, 1 << order);

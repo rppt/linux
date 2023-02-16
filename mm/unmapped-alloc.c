@@ -198,9 +198,15 @@ out:
 	return page;
 }
 
-void unmapped_pages_free(struct page *page, int order)
+bool unmapped_pages_free(struct page *page, int order)
 {
+	if (PageUnmapped(page)) {
+		__ClearPageUnmapped(page);
+		return false;
+	}
+
 	__free_one_page(page, order, false);
+	return true;
 }
 
 static unsigned long unmapped_alloc_count_objects(struct shrinker *,
@@ -240,10 +246,9 @@ static unsigned long scan_free_area(struct shrink_control *sc, int order)
 		for (int i = 0; i < nr_pages; i++)
 			set_direct_map_default_noflush(page + i);
 
-		clear_pageblock_unmapped(page);
 		set_page_refcounted(page);
-		__free_pages(page, order); /* race */
-		set_pageblock_unmapped(page);
+		__SetPageUnmapped(page);
+		__free_pages(page, order);
 
 		pages_freed += nr_pages;
 
