@@ -253,6 +253,16 @@ struct pkru_state {
 } __packed;
 
 /*
+ * State component 11 is Control-flow Enforcement user states
+ */
+struct cet_user_state {
+	/* user control-flow settings */
+	u64 user_cet;
+	/* user shadow stack pointer */
+	u64 user_ssp;
+};
+
+/*
  * State component 15: Architectural LBR configuration state.
  * The size of Arch LBR state depends on the number of LBRs (lbr_depth).
  */
