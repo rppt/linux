@@ -655,27 +655,20 @@ static inline bool nested_vmx_prepare_msr_bitmap(struct kvm_vcpu *vcpu,
 					 MSR_IA32_PRED_CMD, MSR_TYPE_W);
 
 	/* Pass CET MSRs to nested VM if L0 and L1 are set to pass-through. */
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_U_CET,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL3_SSP,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_S_CET,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL0_SSP,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL1_SSP,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_PL2_SSP,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
-	nested_vmx_cond_disable_intercept_for_msr(vcpu, MSR_IA32_INT_SSP_TAB,
-						  msr_bitmap_l1, msr_bitmap_l0,
-						  MSR_TYPE_RW);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_U_CET, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_S_CET, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_PL3_SSP, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_PL2_SSP, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_PL1_SSP, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_PL0_SSP, MSR_TYPE_W);
+	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
+					 MSR_IA32_INT_SSP_TAB, MSR_TYPE_W);
 
 	kvm_vcpu_unmap(vcpu, &vmx->nested.msr_bitmap_map, false);
 
