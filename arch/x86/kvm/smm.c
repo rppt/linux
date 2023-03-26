@@ -578,10 +578,9 @@ static int rsm_load_state_64(struct x86_emulate_ctxt *ctxt,
 	if (kvm_cet_supported()) {
 		struct msr_data msr;
 
-		val = smstate->ssp;
 		msr.index = MSR_KVM_GUEST_SSP;
 		msr.host_initiated = true;
-		msr.data = val;
+		msr.data = smstate->ssp;;
 		/* Mimic host_initiated access to bypass ssp access check. */
 		kvm_x86_ops.set_msr(ctxt->vcpu, &msr);
 	}
