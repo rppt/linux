@@ -330,7 +330,7 @@ static inline bool kvm_mpx_supported(void)
 
 static inline bool kvm_cet_supported(void)
 {
-	return supported_xss & XFEATURE_MASK_CET_USER;
+	return kvm_caps.supported_xss & XFEATURE_MASK_CET_USER;
 }
 
 extern unsigned int min_timer_period_us;
