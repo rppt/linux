@@ -8007,8 +8007,8 @@ static __init void vmx_set_cpu_caps(void)
 		kvm_cpu_cap_clear(X86_FEATURE_IBT);
 	} else if (kvm_cpu_cap_has(X86_FEATURE_SHSTK) ||
 		   kvm_cpu_cap_has(X86_FEATURE_IBT)) {
-		supported_xss |= XFEATURE_MASK_CET_USER |
-				 XFEATURE_MASK_CET_KERNEL;
+		kvm_caps.supported_xss |= XFEATURE_MASK_CET_USER |
+			XFEATURE_MASK_CET_KERNEL;
 	}
 }
 
@@ -8535,7 +8535,7 @@ static __init int hardware_setup(void)
 	if (boot_cpu_has(X86_FEATURE_NX))
 		kvm_enable_efer_bits(EFER_NX);
 
-	accessible = (supported_xss & XFEATURE_MASK_CET_KERNEL) &&
+	accessible = (kvm_caps.supported_xss & XFEATURE_MASK_CET_KERNEL) &&
 		     (boot_cpu_has(X86_FEATURE_IBT) ||
 		      boot_cpu_has(X86_FEATURE_SHSTK));
 	if (accessible) {
@@ -8543,7 +8543,7 @@ static __init int hardware_setup(void)
 		WARN_ONCE(cet_msr, "KVM: CET S_CET in host will be lost!\n");
 	}
 
-	accessible = (supported_xss & XFEATURE_MASK_CET_KERNEL) &&
+	accessible = (kvm_caps.supported_xss & XFEATURE_MASK_CET_KERNEL) &&
 		     boot_cpu_has(X86_FEATURE_SHSTK);
 	if (accessible) {
 		rdmsrl(MSR_IA32_PL0_SSP, cet_msr);
