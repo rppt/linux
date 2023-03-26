@@ -4307,7 +4307,7 @@ static int __msr_io(struct kvm_vcpu *vcpu, struct kvm_msrs *msrs,
 	int i;
 
 	for (i = 0; i < msrs->nmsrs; ++i) {
-		if (vcpu && !fpu_loaded && supported_xss &&
+		if (vcpu && !fpu_loaded && kvm_caps.supported_xss &&
 		    is_xsaves_msr(entries[i].index)) {
 			kvm_load_guest_fpu(vcpu);
 			fpu_loaded = true;
