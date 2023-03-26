@@ -7119,7 +7119,7 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 		if (!kvm_cpu_cap_has(X86_FEATURE_XFD))
 			return;
 	case MSR_IA32_XSS:
-		if (!supported_xss)
+		if (!kvm_caps.supported_xss)
 			return;
 		break;
 	case MSR_KVM_GUEST_SSP:
