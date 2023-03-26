@@ -649,6 +649,7 @@ static inline bool nested_vmx_prepare_msr_bitmap(struct kvm_vcpu *vcpu,
 	 * Always check vmcs01's bitmap to honor userspace MSR filters and any
 	 * other runtime changes to vmcs01's bitmap, e.g. dynamic pass-through.
 	 */
+#ifdef CONFIG_X86_64
 	nested_vmx_set_intercept_for_msr(vmx, msr_bitmap_l1, msr_bitmap_l0,
 					 MSR_FS_BASE, MSR_TYPE_RW);
 
