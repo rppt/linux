@@ -295,7 +295,7 @@ static void __kvm_update_cpuid_runtime(struct kvm_vcpu *vcpu, struct kvm_cpuid_e
 			best->edx = 0;
 		}
 		vcpu->arch.guest_supported_xss =
-			(((u64)best->edx << 32) | best->ecx) & supported_xss;
+			(((u64)best->edx << 32) | best->ecx) & kvm_caps.supported_xss;
 
 	} else {
 		vcpu->arch.guest_supported_xss = 0;
