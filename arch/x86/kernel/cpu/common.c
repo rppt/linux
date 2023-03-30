@@ -606,13 +606,12 @@ static __always_inline void setup_cet(struct cpuinfo_x86 *c)
 		return;
 
 	kernel_ibt = HAS_KERNEL_IBT && cpu_feature_enabled(X86_FEATURE_IBT);
-	user_shstk = cpu_feature_enabled(X86_FEATURE_SHSTK) &&
-		     IS_ENABLED(CONFIG_X86_USER_SHADOW_STACK);
+	user_shstk = cpu_feature_enabled(X86_FEATURE_SHSTK);
 
 	if (!kernel_ibt && !user_shstk)
 		return;
 
-	if (user_shstk)
+	if (user_shstk && IS_ENABLED(CONFIG_X86_USER_SHADOW_STACK))
 		set_cpu_cap(c, X86_FEATURE_USER_SHSTK);
 
 	if (kernel_ibt)
