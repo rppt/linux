@@ -44,10 +44,12 @@ enum execmem_module_flags {
  *				  space
  * @flags:	options for module memory allocations
  * @text:	address range for text allocations
+ * @data:	address range for data allocations
  */
 struct execmem_modules_range {
 	enum execmem_module_flags flags;
 	struct execmem_range text;
+	struct execmem_range data;
 };
 
 /**
@@ -61,6 +63,7 @@ struct execmem_params {
 struct execmem_params *execmem_arch_params(void);
 
 void *execmem_text_alloc(size_t size);
+void *execmem_data_alloc(size_t size);
 void execmem_free(void *ptr);
 
 #ifdef CONFIG_EXECMEM
