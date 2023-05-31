@@ -23,6 +23,7 @@
 #ifdef CONFIG_RELOCATABLE
 #include <linux/elf.h>
 #endif
+#include <linux/execmem.h>
 
 #include <asm/fixmap.h>
 #include <asm/tlbflush.h>
@@ -1361,5 +1362,43 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 			       struct vmem_altmap *altmap)
 {
 	return vmemmap_populate_basepages(start, end, node, NULL);
+}
+#endif
+
+#if defined(CONFIG_MMU) && defined(CONFIG_EXECMEM)
+static struct execmem_params execmem_params __ro_after_init = {
+	.ranges = {
+		[EXECMEM_MODULE_TEXT] = {
+			.pgprot = PAGE_KERNEL,
+			.alignment = 1,
+		},
+		[EXECMEM_KPROBES] = {
+			.pgprot = PAGE_KERNEL_READ_EXEC,
+			.alignment = 1,
+		},
+		[EXECMEM_BPF] = {
+			.pgprot = PAGE_KERNEL,
+			.alignment = 1,
+		},
+	},
+};
+
+struct execmem_params __init *execmem_arch_params(void)
+{
+#ifdef CONFIG_64BIT
+	execmem_params.ranges[EXECMEM_MODULE_TEXT].start = MODULES_VADDR;
+	execmem_params.ranges[EXECMEM_MODULE_TEXT].end = MODULES_END;
+#else
+	execmem_params.ranges[EXECMEM_MODULE_TEXT].start = VMALLOC_START;
+	execmem_params.ranges[EXECMEM_MODULE_TEXT].end = VMALLOC_END;
+#endif
+
+	execmem_params.ranges[EXECMEM_KPROBES].start = VMALLOC_START;
+	execmem_params.ranges[EXECMEM_KPROBES].end = VMALLOC_END;
+
+	execmem_params.ranges[EXECMEM_BPF].start = BPF_JIT_REGION_START;
+	execmem_params.ranges[EXECMEM_BPF].end = BPF_JIT_REGION_END;
+
+	return &execmem_params;
 }
 #endif
