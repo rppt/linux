@@ -22,6 +22,7 @@
 #include <linux/sizes.h>
 #include <linux/stop_machine.h>
 #include <linux/swiotlb.h>
+#include <linux/execmem.h>
 
 #include <asm/cp15.h>
 #include <asm/mach-types.h>
@@ -484,5 +485,40 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 
 	poison_init_mem((void *)start, PAGE_ALIGN(end) - start);
 	free_reserved_area((void *)start, (void *)end, -1, "initrd");
+}
+#endif
+
+#ifdef CONFIG_XIP_KERNEL
+/*
+ * The XIP kernel text is mapped in the module area for modules and
+ * some other stuff to work without any indirect relocations.
+ * MODULES_VADDR is redefined here and not in asm/memory.h to avoid
+ * recompiling the whole kernel when CONFIG_XIP_KERNEL is turned on/off.
+ */
+#undef MODULES_VADDR
+#define MODULES_VADDR	(((unsigned long)_exiprom + ~PMD_MASK) & PMD_MASK)
+#endif
+
+#ifdef CONFIG_MMU
+static struct execmem_range execmem_ranges[] __ro_after_init = {
+	[EXECMEM_DEFAULT] = {
+		.alignment = 1,
+	},
+};
+
+void __init execmem_arch_params(struct execmem_params *p)
+{
+	struct execmem_range *r = &execmem_ranges[EXECMEM_DEFAULT];
+
+	r->start = MODULES_VADDR;
+	r->end = MODULES_END;
+	r->pgprot = PAGE_KERNEL_EXEC;
+
+	if (IS_ENABLED(CONFIG_ARM_MODULE_PLTS)) {
+		r->fallback_start = VMALLOC_START;
+		r->fallback_end = VMALLOC_END;
+	}
+
+	p->ranges = execmem_ranges;
 }
 #endif

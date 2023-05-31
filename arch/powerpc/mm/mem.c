@@ -16,6 +16,7 @@
 #include <linux/highmem.h>
 #include <linux/suspend.h>
 #include <linux/dma-direct.h>
+#include <linux/execmem.h>
 
 #include <asm/swiotlb.h>
 #include <asm/machdep.h>
@@ -406,3 +407,65 @@ int devmem_is_allowed(unsigned long pfn)
  * the EHEA driver. Drop this when drivers/net/ethernet/ibm/ehea is removed.
  */
 EXPORT_SYMBOL_GPL(walk_system_ram_range);
+
+#ifdef CONFIG_EXECMEM
+static struct execmem_range execmem_ranges[] __ro_after_init = {
+	[EXECMEM_DEFAULT] = {
+		.alignment = 1,
+	},
+	[1] = {
+		.alignment = 1,
+	},
+	[2] = {
+		.alignment = 1,
+	},
+};
+
+void __init execmem_arch_params(struct execmem_params *p)
+{
+	pgprot_t prot = strict_module_rwx_enabled() ? PAGE_KERNEL : PAGE_KERNEL_EXEC;
+	struct execmem_range *range = &execmem_ranges[EXECMEM_DEFAULT];
+
+	/*
+	 * BOOK3S_32 and 8xx define MODULES_VADDR for text allocations and
+	 * allow allocating data in the entire vmalloc space
+	 */
+#ifdef MODULES_VADDR
+	struct execmem_range *data = &execmem_ranges[1];
+	unsigned long limit = (unsigned long)_etext - SZ_32M;
+
+	/* First try within 32M limit from _etext to avoid branch trampolines */
+	if (MODULES_VADDR < PAGE_OFFSET && MODULES_END > limit) {
+		range->start = limit;
+		range->end = MODULES_END;
+		range->fallback_start = MODULES_VADDR;
+		range->fallback_end = MODULES_END;
+	} else {
+		range->start = MODULES_VADDR;
+		range->end = MODULES_END;
+	}
+	data->start = VMALLOC_START;
+	data->end = VMALLOC_END;
+	data->pgprot = PAGE_KERNEL;
+	data->alignment = 1;
+#else
+	range->start = VMALLOC_START;
+	range->end = VMALLOC_END;
+#endif
+
+	range->pgprot = prot;
+
+	/* kprobes */
+	p->areas[EXECMEM_KPROBES] = 2;
+	execmem_ranges[2].start = range->start;
+	execmem_ranges[2].end = range->end;
+
+	if (strict_module_rwx_enabled())
+		execmem_ranges[2].pgprot = PAGE_KERNEL_ROX;
+	else
+		execmem_ranges[2].pgprot = PAGE_KERNEL_EXEC;
+
+	p->areas[EXECMEM_MODULE_DATA] = 1;
+	p->ranges = execmem_ranges;
+}
+#endif

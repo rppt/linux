@@ -18,7 +18,6 @@
 #include <linux/ftrace.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
-#include <linux/execmem.h>
 #include <asm/alternative.h>
 #include <asm/inst.h>
 
@@ -488,18 +487,6 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 	}
 
 	return 0;
-}
-
-static struct execmem_range execmem_ranges[] __ro_after_init = {
-	[EXECMEM_DEFAULT] = {
-		.pgprot = PAGE_KERNEL,
-		.alignment = 1,
-	},
-};
-
-void __init execmem_arch_params(struct execmem_params *p)
-{
-	p->ranges = execmem_ranges;
 }
 
 static void module_init_ftrace_plt(const Elf_Ehdr *hdr,

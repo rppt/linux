@@ -19,7 +19,6 @@
 #include <linux/jump_label.h>
 #include <linux/random.h>
 #include <linux/memory.h>
-#include <linux/execmem.h>
 
 #include <asm/text-patching.h>
 #include <asm/page.h>
@@ -36,30 +35,6 @@ do {							\
 		printk(KERN_DEBUG fmt, ##__VA_ARGS__);	\
 } while (0)
 #endif
-
-static struct execmem_range execmem_ranges[] __ro_after_init = {
-	[EXECMEM_DEFAULT] = {
-		.flags = EXECMEM_KASAN_SHADOW,
-		.alignment = MODULE_ALIGN,
-	},
-};
-
-void __init execmem_arch_params(struct execmem_params *p)
-{
-	unsigned long module_load_offset = 0;
-	unsigned long start;
-
-	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE) && kaslr_enabled())
-		module_load_offset =
-			get_random_u32_inclusive(1, 1024) * PAGE_SIZE;
-
-	start = MODULES_VADDR + module_load_offset;
-	execmem_ranges[EXECMEM_DEFAULT].start = start;
-	execmem_ranges[EXECMEM_DEFAULT].end = MODULES_END;
-	execmem_ranges[EXECMEM_DEFAULT].pgprot = PAGE_KERNEL;
-
-	p->ranges = execmem_ranges;
-}
 
 #ifdef CONFIG_X86_32
 int apply_relocate(Elf32_Shdr *sechdrs,

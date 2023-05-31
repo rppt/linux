@@ -34,6 +34,7 @@
 #include <linux/percpu.h>
 #include <asm/processor.h>
 #include <linux/uaccess.h>
+#include <linux/execmem.h>
 #include <asm/pgalloc.h>
 #include <asm/kfence.h>
 #include <asm/ptdump.h>
@@ -311,3 +312,28 @@ void arch_remove_memory(u64 start, u64 size, struct vmem_altmap *altmap)
 	vmem_remove_mapping(start, size);
 }
 #endif /* CONFIG_MEMORY_HOTPLUG */
+
+#ifdef CONFIG_EXECMEM
+static struct execmem_range execmem_ranges[] __ro_after_init = {
+	[EXECMEM_DEFAULT] = {
+		.flags = EXECMEM_KASAN_SHADOW,
+		.alignment = MODULE_ALIGN,
+		.pgprot = PAGE_KERNEL,
+	},
+};
+
+void __init execmem_arch_params(struct execmem_params *p)
+{
+	unsigned long module_load_offset = 0;
+	unsigned long start;
+
+	if (kaslr_enabled())
+		module_load_offset = get_random_u32_inclusive(1, 1024) * PAGE_SIZE;
+
+	start = MODULES_VADDR + module_load_offset;
+	execmem_ranges[EXECMEM_DEFAULT].start = start;
+	execmem_ranges[EXECMEM_DEFAULT].end = MODULES_END;
+
+	p->ranges = execmem_ranges;
+}
+#endif

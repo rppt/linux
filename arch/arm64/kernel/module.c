@@ -20,13 +20,13 @@
 #include <linux/random.h>
 #include <linux/scs.h>
 #include <linux/vmalloc.h>
-#include <linux/execmem.h>
 
 #include <asm/alternative.h>
 #include <asm/insn.h>
 #include <asm/scs.h>
 #include <asm/sections.h>
 
+<<<<<<< HEAD
 static u64 module_direct_base __ro_after_init = 0;
 static u64 module_plt_base __ro_after_init = 0;
 
@@ -165,6 +165,8 @@ void __init execmem_arch_params(struct execmem_params *p)
 	p->ranges = execmem_ranges;
 }
 
+=======
+>>>>>>> 5d6c6a65619a (arch: make execmem setup available regardless of CONFIG_MODULES)
 enum aarch64_reloc_op {
 	RELOC_OP_NONE,
 	RELOC_OP_ABS,
