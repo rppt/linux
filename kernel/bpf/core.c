@@ -1084,7 +1084,7 @@ bpf_jit_binary_pack_alloc(unsigned int proglen, u8 **image_ptr,
 		return NULL;
 	}
 
-	*rw_header = kvmalloc(size, GFP_KERNEL);
+	*rw_header = kvzalloc(size, GFP_KERNEL);
 	if (!*rw_header) {
 		bpf_arch_text_copy(&ro_header->size, &size, sizeof(size));
 		bpf_prog_pack_free(ro_header);
@@ -1092,8 +1092,6 @@ bpf_jit_binary_pack_alloc(unsigned int proglen, u8 **image_ptr,
 		return NULL;
 	}
 
-	/* Fill space with illegal/arch-dep instructions. */
-	bpf_fill_ill_insns(*rw_header, size);
 	(*rw_header)->size = size;
 
 	hole = min_t(unsigned int, size - (proglen + sizeof(*ro_header)),
