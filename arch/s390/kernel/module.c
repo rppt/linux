@@ -18,7 +18,6 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/kasan.h>
-#include <linux/moduleloader.h>
 #include <linux/bug.h>
 #include <linux/memory.h>
 #include <linux/execmem.h>

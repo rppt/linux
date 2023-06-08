@@ -14,7 +14,6 @@
 #include <linux/kasan.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/moduleloader.h>
 #include <linux/scs.h>
 #include <linux/vmalloc.h>
 #include <linux/execmem.h>
