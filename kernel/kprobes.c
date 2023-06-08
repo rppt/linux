@@ -118,12 +118,12 @@ void __weak *alloc_insn_page(void)
 	 * for most of the architectures.
 	 * (e.g. x86-64 needs this to handle the %rip-relative fixups.)
 	 */
-	return execmem_text_alloc(PAGE_SIZE);
+	return jit_text_alloc(PAGE_SIZE);
 }
 
 static void free_insn_page(void *page)
 {
-	execmem_free(page);
+	jit_free(page);
 }
 
 struct kprobe_insn_cache kprobe_insn_slots = {

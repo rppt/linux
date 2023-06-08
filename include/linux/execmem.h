@@ -53,11 +53,22 @@ struct execmem_modules_range {
 };
 
 /**
+ * struct execmem_jit_range - architecure parameters for address space
+ *			      suitable for JIT code allocations
+ * @text:	address range for text allocations
+ */
+struct execmem_jit_range {
+	struct execmem_range text;
+};
+
+/**
  * struct execmem_params -	architecure parameters for code allocations
  * @modules:	parameters for modules address space
+ * @jit:	parameters for jit memory address space
  */
 struct execmem_params {
 	struct execmem_modules_range	modules;
+	struct execmem_jit_range	jit;
 };
 
 struct execmem_params *execmem_arch_params(void);
@@ -65,6 +76,9 @@ struct execmem_params *execmem_arch_params(void);
 void *execmem_text_alloc(size_t size);
 void *execmem_data_alloc(size_t size);
 void execmem_free(void *ptr);
+
+void *jit_text_alloc(size_t size);
+void jit_free(void *ptr);
 
 #ifdef CONFIG_EXECMEM
 void execmem_init(void);

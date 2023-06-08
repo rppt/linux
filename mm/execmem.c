@@ -87,6 +87,21 @@ void execmem_free(void *ptr)
 	vfree(ptr);
 }
 
+void *jit_text_alloc(size_t size)
+{
+	unsigned long start = execmem_params.jit.text.start;
+	unsigned long end = execmem_params.jit.text.end;
+	pgprot_t pgprot = execmem_params.jit.text.pgprot;
+	unsigned int align = execmem_params.jit.text.alignment;
+
+	return execmem_alloc(size, start, end, align, pgprot, 0, 0, false);
+}
+
+void jit_free(void *ptr)
+{
+	execmem_free(ptr);
+}
+
 struct execmem_params * __weak execmem_arch_params(void)
 {
 	return NULL;
@@ -121,6 +136,13 @@ static void execmem_init_missing(struct execmem_params *p)
 	    execmem_params.modules.text.fallback_start) {
 		execmem_params.modules.data.fallback_start = m->text.fallback_start;
 		execmem_params.modules.data.fallback_end = m->text.fallback_end;
+	}
+
+	if (!execmem_params.jit.text.start) {
+		execmem_params.jit.text.start = m->text.start;
+		execmem_params.jit.text.end = m->text.end;
+		execmem_params.jit.text.alignment = m->text.alignment;
+		execmem_params.jit.text.pgprot = m->text.pgprot;
 	}
 }
 
