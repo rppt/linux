@@ -29,6 +29,13 @@ static struct execmem_params execmem_params = {
 			.alignment = MODULE_ALIGN,
 		},
 	},
+	.jit = {
+		.text = {
+			.start = VMALLOC_START,
+			.end = VMALLOC_END,
+			.alignment = 1,
+		},
+	},
 };
 
 struct execmem_params *execmem_arch_params(void)
@@ -38,6 +45,8 @@ struct execmem_params *execmem_arch_params(void)
 	execmem_params.modules.text.pgprot = PAGE_KERNEL;
 	execmem_params.modules.text.start = module_alloc_base;
 	execmem_params.modules.text.end = module_alloc_end;
+
+	execmem_params.jit.text.pgprot = PAGE_KERNEL;
 
 	/*
 	 * KASAN without KASAN_VMALLOC can only deal with module
