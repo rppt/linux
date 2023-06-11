@@ -1234,6 +1234,9 @@ static void free_mod_mem(struct module *mod)
 	/* MOD_DATA hosts mod, so free it at last */
 	lockdep_free_key_range(mod->mem[MOD_DATA].base, mod->mem[MOD_DATA].size);
 	module_memory_free(mod->mem[MOD_DATA].base, MOD_DATA);
+
+	if (mod->mem[MOD_DATA].cpy_base)
+		vfree(mod->mem[MOD_DATA].cpy_base);
 }
 
 /* Free a module, remove from lists, etc. */
@@ -2213,6 +2216,7 @@ static int move_module(struct module *mod, struct load_info *info)
 	for_each_mod_mem_type(type) {
 		if (!mod->mem[type].size) {
 			mod->mem[type].base = NULL;
+			mod->mem[type].cpy_base = NULL;
 			continue;
 		}
 		mod->mem[type].size = PAGE_ALIGN(mod->mem[type].size);
@@ -2234,19 +2238,33 @@ static int move_module(struct module *mod, struct load_info *info)
 			goto out_enomem;
 		}
 		mod->mem[type].base = ptr;
+
+		if (mod_mem_type_is_text(type)) {
+			ptr = vmalloc(mod->mem[type].size);
+			if (!ptr) {
+				t = type;
+				goto out_enomem;
+			}
+			mod->mem[type].cpy_base = ptr;
+		}
 	}
 
 	/* Transfer each section which specifies SHF_ALLOC */
 	pr_debug("Final section addresses for %s:\n", mod->name);
 	for (i = 0; i < info->hdr->e_shnum; i++) {
-		void *dest;
+		void *dest, *cpy_dest;
 		Elf_Shdr *shdr = &info->sechdrs[i];
 		enum mod_mem_type type = shdr->sh_entsize >> SH_ENTSIZE_TYPE_SHIFT;
 
 		if (!(shdr->sh_flags & SHF_ALLOC))
 			continue;
 
-		dest = mod->mem[type].base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		if (mod_mem_type_is_text(type)) {
+			dest = mod->mem[type].base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+			cpy_dest = mod->mem[type].cpy_base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		} else {
+			cpy_dest = dest = mod->mem[type].base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		}
 
 		if (shdr->sh_type != SHT_NOBITS) {
 			/*
@@ -2260,7 +2278,7 @@ static int move_module(struct module *mod, struct load_info *info)
 				ret = -ENOEXEC;
 				goto out_enomem;
 			}
-			jit_update_copy(dest, (void *)shdr->sh_addr, shdr->sh_size);
+			memcpy(cpy_dest, (void *)shdr->sh_addr, shdr->sh_size);
 		}
 		/*
 		 * Update the userspace copy's ELF section address to point to
@@ -2275,8 +2293,10 @@ static int move_module(struct module *mod, struct load_info *info)
 
 	return 0;
 out_enomem:
-	for (t--; t >= 0; t--)
+	for (t--; t >= 0; t--) {
 		module_memory_free(mod->mem[t].base, t);
+		module_memory_free(mod->mem[t].cpy_base, t);
+	}
 	return ret;
 }
 
@@ -2418,6 +2438,8 @@ int __weak module_finalize(const Elf_Ehdr *hdr,
 
 static int post_relocation(struct module *mod, const struct load_info *info)
 {
+	int ret;
+
 	/* Sort exception table now relocations are done. */
 	sort_extable(mod->extable, mod->extable + mod->num_exentries);
 
@@ -2429,7 +2451,17 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 	add_kallsyms(mod, info);
 
 	/* Arch-specific module finalizing. */
-	return module_finalize(info->hdr, info->sechdrs, mod);
+	ret = module_finalize(info->hdr, info->sechdrs, mod);
+
+	if (ret)
+		return ret;
+
+	for_class_mod_mem_type(type, text) {
+		jit_update_copy(mod->mem[type].base, mod->mem[type].cpy_base,
+				mod->mem[type].size);
+	}
+
+	return 0;
 }
 
 /* Call module constructors. */

@@ -36,6 +36,31 @@ do {							\
 } while (0)
 #endif
 
+static unsigned long __writable_offset(struct module *mod, void *loc)
+{
+	if (!mod)
+		return 0;
+
+	for_class_mod_mem_type(type, text) {
+		struct module_memory *mem = &mod->mem[type];
+
+		if (loc >= mem->base && loc < mem->base + mem->size)
+			return (unsigned long)(mem->cpy_base - mem->base);
+	}
+
+	return 0;
+}
+
+unsigned long module_writable_offset(struct module *mod, void *loc)
+{
+	return __writable_offset(mod, loc);
+}
+
+static void *writable_loc(struct module *mod, void *loc)
+{
+	return loc + __writable_offset(mod, loc);
+}
+
 #ifdef CONFIG_X86_32
 int apply_relocate(Elf32_Shdr *sechdrs,
 		   const char *strtab,
@@ -83,12 +108,13 @@ static int __write_relocate_add(Elf64_Shdr *sechdrs,
 		   unsigned int symindex,
 		   unsigned int relsec,
 		   struct module *me,
+		   void *(*write)(void *dest, const void *src, size_t len),
 		   bool apply)
 {
 	unsigned int i;
 	Elf64_Rela *rel = (void *)sechdrs[relsec].sh_addr;
 	Elf64_Sym *sym;
-	void *loc;
+	void *loc, *wr_loc;
 	u64 val;
 	u64 zero = 0ULL;
 
@@ -102,14 +128,16 @@ static int __write_relocate_add(Elf64_Shdr *sechdrs,
 		loc = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
 
+		wr_loc = writable_loc(me, loc);
+
 		/* This is the symbol it is referring to.  Note that all
 		   undefined symbols have been resolved.  */
 		sym = (Elf64_Sym *)sechdrs[symindex].sh_addr
 			+ ELF64_R_SYM(rel[i].r_info);
 
-		DEBUGP("type %d st_value %Lx r_addend %Lx loc %Lx\n",
+		DEBUGP("type %d st_value %Lx r_addend %Lx loc %Lx wloc %Lx\n",
 		       (int)ELF64_R_TYPE(rel[i].r_info),
-		       sym->st_value, rel[i].r_addend, (u64)loc);
+		       sym->st_value, rel[i].r_addend, (u64)loc, (u64)wr_loc);
 
 		val = sym->st_value + rel[i].r_addend;
 
@@ -150,14 +178,14 @@ static int __write_relocate_add(Elf64_Shdr *sechdrs,
 				       (int)ELF64_R_TYPE(rel[i].r_info), loc, val);
 				return -ENOEXEC;
 			}
-			text_poke(loc, &val, size);
+			write(wr_loc, &val, size);
 		} else {
 			if (memcmp(loc, &val, size)) {
 				pr_warn("x86/modules: Invalid relocation target, existing value does not match expected value for type %d, loc %p, val %Lx\n",
 					(int)ELF64_R_TYPE(rel[i].r_info), loc, val);
 				return -ENOEXEC;
 			}
-			text_poke(loc, &zero, size);
+			write(loc, &zero, size);
 		}
 	}
 	return 0;
@@ -179,10 +207,22 @@ static int write_relocate_add(Elf64_Shdr *sechdrs,
 {
 	int ret;
 
-	mutex_lock(&text_mutex);
-	ret = __write_relocate_add(sechdrs, strtab, symindex, relsec, me, apply);
-	text_poke_sync();
-	mutex_unlock(&text_mutex);
+	bool early = me->state == MODULE_STATE_UNFORMED;
+	void *(*write)(void *, const void *, size_t) = memcpy;
+
+	if (!early) {
+		write = text_poke;
+		mutex_lock(&text_mutex);
+	}
+
+	ret = __write_relocate_add(sechdrs, strtab, symindex, relsec, me,
+				   write, apply);
+
+	if (!early) {
+		text_poke_sync();
+		mutex_unlock(&text_mutex);
+	}
+
 	return ret;
 }
 
@@ -271,7 +311,7 @@ int module_finalize(const Elf_Ehdr *hdr,
 	}
 	if (returns) {
 		void *rseg = (void *)returns->sh_addr;
-		apply_returns(rseg, rseg + returns->sh_size);
+		apply_returns(rseg, rseg + returns->sh_size, me);
 	}
 	if (alt) {
 		/* patch .altinstructions */

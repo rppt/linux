@@ -618,18 +618,20 @@ static int patch_return(void *addr, struct insn *insn, u8 *bytes)
 	return i;
 }
 
-void __init_or_module noinline apply_returns(s32 *start, s32 *end)
+void __init_or_module noinline apply_returns(s32 *start, s32 *end,
+					     struct module *mod)
 {
 	s32 *s;
 
 	for (s = start; s < end; s++) {
 		void *dest = NULL, *addr = (void *)s + *s;
+		void *wr_addr = addr + module_writable_offset(mod, addr);
 		struct insn insn;
 		int len, ret;
 		u8 bytes[16];
 		u8 op;
 
-		ret = insn_decode_kernel(&insn, addr);
+		ret = insn_decode_kernel(&insn, wr_addr);
 		if (WARN_ON_ONCE(ret < 0))
 			continue;
 
@@ -637,10 +639,10 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end)
 		if (op == JMP32_INSN_OPCODE)
 			dest = addr + insn.length + insn.immediate.value;
 
-		if (__static_call_fixup(addr, op, dest) ||
+		if (__static_call_fixup(wr_addr, op, dest) ||
 		    WARN_ONCE(dest != &__x86_return_thunk,
-			      "missing return thunk: %pS-%pS: %*ph",
-			      addr, dest, 5, addr))
+			      "missing return thunk: %pS-%pS: %*ph %px",
+			      addr, dest, 5, addr, wr_addr))
 			continue;
 
 		DPRINTK("return thunk at: %pS (%px) len: %d to: %pS",
@@ -649,20 +651,22 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end)
 
 		len = patch_return(addr, &insn, bytes);
 		if (len == insn.length) {
-			DUMP_BYTES(((u8*)addr),  len, "%px: orig: ", addr);
+			DUMP_BYTES(((u8*)wr_addr),  len, "%px: orig: ", addr);
 			DUMP_BYTES(((u8*)bytes), len, "%px: repl: ", addr);
-			do_text_poke(addr, bytes, len);
+			text_poke_early(wr_addr, bytes, len);
 		}
 	}
 }
 #else
-void __init_or_module noinline apply_returns(s32 *start, s32 *end) { }
+void __init_or_module noinline apply_returns(s32 *start, s32 *end,
+					     struct module *mod) { }
 #endif /* CONFIG_RETHUNK */
 
 #else /* !CONFIG_RETPOLINE || !CONFIG_OBJTOOL */
 
 void __init_or_module noinline apply_retpolines(s32 *start, s32 *end) { }
-void __init_or_module noinline apply_returns(s32 *start, s32 *end) { }
+void __init_or_module noinline apply_returns(s32 *start, s32 *end,
+					     struct module *mod) { }
 
 #endif /* CONFIG_RETPOLINE && CONFIG_OBJTOOL */
 
@@ -1398,7 +1402,7 @@ void __init alternative_instructions(void)
 	 * those can rewrite the retpoline thunks.
 	 */
 	apply_retpolines(__retpoline_sites, __retpoline_sites_end);
-	apply_returns(__return_sites, __return_sites_end);
+	apply_returns(__return_sites, __return_sites_end, NULL);
 
 	/*
 	 * Then patch alternatives, such that those paravirt calls that are in

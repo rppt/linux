@@ -361,6 +361,7 @@ enum mod_mem_type {
 
 struct module_memory {
 	void *base;
+	void *cpy_base;
 	unsigned int size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
