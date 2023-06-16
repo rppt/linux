@@ -1188,12 +1188,6 @@ void __weak module_arch_freeing_init(struct module *mod)
 {
 }
 
-static bool mod_mem_use_vmalloc(enum mod_mem_type type)
-{
-	return IS_ENABLED(CONFIG_ARCH_WANTS_MODULES_DATA_IN_VMALLOC) &&
-		mod_mem_type_is_core_data(type);
-}
-
 static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 {
 	unsigned int size = PAGE_ALIGN(mod->mem[type].size);
@@ -1201,8 +1195,8 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 
 	mod->mem[type].size = size;
 
-	if (mod_mem_use_vmalloc(type))
-		ptr = vmalloc(size);
+	if (mod_mem_type_is_data(type))
+		ptr = execmem_data_alloc(EXECMEM_MODULE_DATA, size);
 	else
 		ptr = execmem_text_alloc(EXECMEM_MODULE_TEXT, size);
 
@@ -1232,10 +1226,7 @@ static void module_memory_free(struct module *mod, enum mod_mem_type type)
 {
 	void *ptr = mod->mem[type].base;
 
-	if (mod_mem_use_vmalloc(type))
-		vfree(ptr);
-	else
-		execmem_free(ptr);
+	execmem_free(ptr);
 }
 
 static void free_mod_mem(struct module *mod)

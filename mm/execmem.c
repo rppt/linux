@@ -58,6 +58,20 @@ void *execmem_text_alloc(enum execmem_type type, size_t size)
 	return execmem_alloc(range, size);
 }
 
+static inline bool execmem_range_is_data(enum execmem_type type)
+{
+	return type == EXECMEM_MODULE_DATA;
+}
+
+void *execmem_data_alloc(enum execmem_type type, size_t size)
+{
+	struct execmem_range *range = &execmem_info.ranges[type];
+
+	WARN_ON_ONCE(!execmem_range_is_data(type));
+
+	return execmem_alloc(range, size);
+}
+
 void execmem_free(void *ptr)
 {
 	/*
@@ -87,7 +101,10 @@ static void execmem_init_missing(struct execmem_info *info)
 	for (int i = EXECMEM_DEFAULT + 1; i < EXECMEM_TYPE_MAX; i++) {
 		struct execmem_range *r = &info->ranges[i];
 		if (!r->start) {
-			r->pgprot = default_range->pgprot;
+			if (execmem_range_is_data(i))
+				r->pgprot = PAGE_KERNEL;
+			else
+				r->pgprot = default_range->pgprot;
 			r->alignment = default_range->alignment;
 			r->start = default_range->start;
 			r->end = default_range->end;
