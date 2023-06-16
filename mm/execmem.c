@@ -58,9 +58,6 @@ void *execmem_text_alloc(enum execmem_type type, size_t size)
 {
 	unsigned int area = execmem_params.areas[type];
 
-	if (!execmem_params.ranges[area].start)
-		return module_alloc(size);
-
 	return execmem_alloc(&execmem_params.ranges[area], size);
 }
 
