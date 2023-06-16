@@ -33,6 +33,48 @@ enum execmem_type {
 };
 
 /**
+ * struct execmem_range - definition of a memory range suitable for code and
+ *			  related data allocations
+ * @start:	address space start
+ * @end:	address space end (inclusive)
+ * @pgprot:	permissions for memory in this address space
+ * @alignment:	alignment required for text allocations
+ */
+struct execmem_range {
+	unsigned long   start;
+	unsigned long   end;
+	pgprot_t        pgprot;
+	unsigned int	alignment;
+};
+
+/**
+ * struct execmem_params - architecture parameters for code allocations
+ * @ranges: array of ranges defining architecture specific parameters for
+ * executable memory allocations. A range can be shared between several
+ * subsystems
+ * @areas: array of indexes into the @regions array. Entries in this array
+ * define what range should be used for each type of executable memory
+ */
+struct execmem_params {
+	unsigned int		areas[EXECMEM_TYPE_MAX];
+	struct execmem_range	*ranges;
+};
+
+/**
+ * execmem_arch_params - supply parameters for allocations of executable memory
+ * @params: structure defining architecture parameters and restrictions for
+ * allocations of executable memory
+ *
+ * A hook for architectures to define parameters for allocations of
+ * executable memory. These parameters should be filled into the
+ * @execmem_params structure.
+ *
+ * For architectures that do not implement this method a default set of
+ * parameters will be used
+ */
+void execmem_arch_params(struct execmem_params *params);
+
+/**
  * execmem_text_alloc - allocate executable memory
  * @type: type of the allocation
  * @size: how many bytes of memory are required

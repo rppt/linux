@@ -20,6 +20,7 @@
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/jump_label.h>
+#include <linux/execmem.h>
 
 extern void jump_label_apply_nops(struct module *mod);
 
@@ -33,11 +34,17 @@ static LIST_HEAD(dbe_list);
 static DEFINE_SPINLOCK(dbe_lock);
 
 #ifdef MODULE_START
-void *module_alloc(unsigned long size)
+static struct execmem_range execmem_ranges[] __ro_after_init = {
+	[EXECMEM_DEFAULT] = {
+		.start = MODULE_START,
+		.end = MODULE_END,
+		.alignment = 1,
+	},
+};
+
+void __init execmem_arch_params(struct execmem_params *p)
 {
-	return __vmalloc_node_range(size, 1, MODULE_START, MODULE_END,
-				GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE,
-				__builtin_return_address(0));
+	p->ranges = execmem_ranges;
 }
 #endif
 

@@ -14,6 +14,10 @@
 #include <linux/string.h>
 #include <linux/ctype.h>
 #include <linux/mm.h>
+#include <linux/execmem.h>
+#ifdef CONFIG_SPARC64
+#include <linux/jump_label.h>
+#endif
 
 #include <asm/processor.h>
 #include <asm/spitfire.h>
@@ -21,34 +25,22 @@
 
 #include "entry.h"
 
+static struct execmem_range execmem_ranges[] __ro_after_init = {
+	[EXECMEM_DEFAULT] = {
 #ifdef CONFIG_SPARC64
-
-#include <linux/jump_label.h>
-
-static void *module_map(unsigned long size)
-{
-	if (PAGE_ALIGN(size) > MODULES_LEN)
-		return NULL;
-	return __vmalloc_node_range(size, 1, MODULES_VADDR, MODULES_END,
-				GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE,
-				__builtin_return_address(0));
-}
+		.start = MODULES_VADDR,
+		.end = MODULES_END,
 #else
-static void *module_map(unsigned long size)
+		.start = VMALLOC_START,
+		.end = VMALLOC_END,
+#endif
+		.alignment = 1,
+	},
+};
+
+void __init execmem_arch_params(struct execmem_params *p)
 {
-	return vmalloc(size);
-}
-#endif /* CONFIG_SPARC64 */
-
-void *module_alloc(unsigned long size)
-{
-	void *ret;
-
-	ret = module_map(size);
-	if (ret)
-		memset(ret, 0, size);
-
-	return ret;
+	p->ranges = execmem_ranges;
 }
 
 /* Make generic code ignore STT_REGISTER dummy undefined symbols.  */
