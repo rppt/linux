@@ -94,6 +94,9 @@ static struct execmem_range execmem_ranges[] __ro_after_init = {
 	[EXECMEM_DEFAULT] = {
 		.alignment = 1,
 	},
+	[1] = {
+		.alignment = 1,
+	},
 };
 
 void __init execmem_arch_params(struct execmem_params *p)
@@ -101,7 +104,12 @@ void __init execmem_arch_params(struct execmem_params *p)
 	pgprot_t prot = strict_module_rwx_enabled() ? PAGE_KERNEL : PAGE_KERNEL_EXEC;
 	struct execmem_range *range = &execmem_ranges[EXECMEM_DEFAULT];
 
+	/*
+	 * BOOK3S_32 and 8xx define MODULES_VADDR for text allocations and
+	 * allow allocating data in the entire vmalloc space
+	 */
 #ifdef MODULES_VADDR
+	struct execmem_range *data = &execmem_ranges[1];
 	unsigned long limit = (unsigned long)_etext - SZ_32M;
 
 	/* First try within 32M limit from _etext to avoid branch trampolines */
@@ -114,6 +122,10 @@ void __init execmem_arch_params(struct execmem_params *p)
 		range->start = MODULES_VADDR;
 		range->end = MODULES_END;
 	}
+	data->start = VMALLOC_START;
+	data->end = VMALLOC_END;
+	data->pgprot = PAGE_KERNEL;
+	data->alignment = 1;
 #else
 	range->start = VMALLOC_START;
 	range->end = VMALLOC_END;
@@ -121,5 +133,6 @@ void __init execmem_arch_params(struct execmem_params *p)
 
 	range->pgprot = prot;
 
+	p->areas[EXECMEM_MODULE_DATA] = 1;
 	p->ranges = execmem_ranges;
 }

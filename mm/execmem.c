@@ -8,14 +8,14 @@
 static struct execmem_params execmem_params;
 static struct execmem_range default_range;
 
-static void *execmem_alloc(struct execmem_range *range, size_t size)
+static void *execmem_alloc(struct execmem_range *range, size_t size,
+			   pgprot_t pgprot)
 {
 	unsigned long start = range->start;
 	unsigned long end = range->end;
 	unsigned long fallback_start = range->fallback_start;
 	unsigned long fallback_end = range->fallback_end;
 	unsigned int align = range->alignment;
-	pgprot_t pgprot = range->pgprot;
 	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
 	unsigned long vm_flags  = VM_FLUSH_RESET_PERMS;
 	bool fallback  = !!fallback_start;
@@ -54,11 +54,26 @@ static void *execmem_alloc(struct execmem_range *range, size_t size)
 	return kasan_reset_tag(p);
 }
 
+static inline bool execmem_range_is_data(enum execmem_type type)
+{
+	return type == EXECMEM_MODULE_DATA;
+}
+
 void *execmem_text_alloc(enum execmem_type type, size_t size)
 {
 	unsigned int area = execmem_params.areas[type];
+	struct execmem_range *range = &execmem_params.ranges[area];
 
-	return execmem_alloc(&execmem_params.ranges[area], size);
+	return execmem_alloc(range, size, range->pgprot);
+}
+
+void *execmem_data_alloc(enum execmem_type type, size_t size)
+{
+	unsigned int area = execmem_params.areas[type];
+
+	WARN_ON_ONCE(!execmem_range_is_data(type));
+
+	return execmem_alloc(&execmem_params.ranges[area], size, PAGE_KERNEL);
 }
 
 void execmem_free(void *ptr)
