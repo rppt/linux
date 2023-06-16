@@ -37,29 +37,6 @@
 
 #define PLT_ENTRY_SIZE 22
 
-static struct execmem_params execmem_params __ro_after_init = {
-	.modules = {
-		.text = {
-			.flags = EXECMEM_KASAN_SHADOW,
-			.alignment = MODULE_ALIGN,
-			.pgprot = PAGE_KERNEL,
-		},
-	},
-};
-
-struct execmem_params __init *execmem_arch_params(void)
-{
-	unsigned long module_load_offset = 0;
-
-	if (kaslr_enabled())
-		module_load_offset = get_random_u32_inclusive(1, 1024) * PAGE_SIZE;
-
-	execmem_params.modules.text.start = MODULES_VADDR + module_load_offset;
-	execmem_params.modules.text.end = MODULES_END;
-
-	return &execmem_params;
-}
-
 #ifdef CONFIG_FUNCTION_TRACER
 void module_arch_cleanup(struct module *mod)
 {

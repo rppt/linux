@@ -11,7 +11,6 @@
 #include <linux/vmalloc.h>
 #include <linux/sizes.h>
 #include <linux/pgtable.h>
-#include <linux/execmem.h>
 #include <asm/alternative.h>
 #include <asm/sections.h>
 
@@ -435,37 +434,6 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 
 	return 0;
 }
-
-#ifdef CONFIG_MMU
-static struct execmem_params execmem_params __ro_after_init = {
-	.modules = {
-		.text = {
-			.pgprot = PAGE_KERNEL,
-			.alignment = 1,
-		},
-	},
-	.jit = {
-		.pgprot = PAGE_KERNEL_READ_EXEC,
-		.alignment = 1,
-	},
-};
-
-struct execmem_params __init *execmem_arch_params(void)
-{
-#ifdef CONFIG_64BIT
-	execmem_params.modules.text.start = MODULES_VADDR;
-	execmem_params.modules.text.end = MODULES_END;
-#else
-	execmem_params.modules.text.start = VMALLOC_START;
-	execmem_params.modules.text.end = VMALLOC_END;
-#endif
-
-	execmem_params.jit.start = VMALLOC_START;
-	execmem_params.jit.end = VMALLOC_END;
-
-	return &execmem_params;
-}
-#endif
 
 int module_finalize(const Elf_Ehdr *hdr,
 		    const Elf_Shdr *sechdrs,
