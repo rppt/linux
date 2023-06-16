@@ -58,6 +58,11 @@ void *execmem_text_alloc(size_t size)
 	return execmem_alloc(size, &execmem_params.modules.text);
 }
 
+void *execmem_data_alloc(size_t size)
+{
+	return execmem_alloc(size, &execmem_params.modules.data);
+}
+
 void execmem_free(void *ptr)
 {
 	/*
@@ -96,6 +101,21 @@ static bool execmem_validate_params(struct execmem_params *p)
 	return true;
 }
 
+static void execmem_init_missing(struct execmem_params *p)
+{
+	struct execmem_range *text = &p->modules.text;
+	struct execmem_range *data = &p->modules.data;
+
+	if (!data->start) {
+		data->pgprot = PAGE_KERNEL;
+		data->alignment = text->alignment;
+		data->start = text->start;
+		data->end = text->end;
+		data->fallback_start = text->fallback_start;
+		data->fallback_end = text->fallback_end;
+	}
+}
+
 void __init execmem_init(void)
 {
 	struct execmem_params *p = execmem_arch_params();
@@ -107,6 +127,11 @@ void __init execmem_init(void)
 		p->modules.text.pgprot = PAGE_KERNEL_EXEC;
 		p->modules.text.alignment = 1;
 
+		p->modules.data.start = VMALLOC_START;
+		p->modules.data.end = VMALLOC_END;
+		p->modules.data.pgprot = PAGE_KERNEL;
+		p->modules.data.alignment = 1;
+
 		return;
 	}
 
@@ -114,4 +139,6 @@ void __init execmem_init(void)
 		return;
 
 	execmem_params = *p;
+
+	execmem_init_missing(&execmem_params);
 }
