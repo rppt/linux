@@ -55,9 +55,6 @@ void *execmem_text_alloc(enum execmem_type type, size_t size)
 {
 	struct execmem_range *range = &execmem_info.ranges[type];
 
-	if (!range->start)
-		return module_alloc(size);
-
 	return execmem_alloc(range, size);
 }
 
@@ -110,8 +107,14 @@ static int __init __execmem_init(void)
 {
 	struct execmem_info *info = execmem_arch_setup();
 
-	if (!info)
+	if (!info) {
+		info = &execmem_info;
+		info->ranges[EXECMEM_DEFAULT].start = VMALLOC_START;
+		info->ranges[EXECMEM_DEFAULT].end = VMALLOC_END;
+		info->ranges[EXECMEM_DEFAULT].pgprot = PAGE_KERNEL_EXEC;
+		info->ranges[EXECMEM_DEFAULT].alignment = 1;
 		return 0;
+	}
 
 	if (!execmem_validate(info))
 		return -EINVAL;
