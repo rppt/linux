@@ -75,7 +75,7 @@ void execmem_free(void *ptr)
 
 void *jit_text_alloc(size_t size)
 {
-	return execmem_text_alloc(size);
+	return execmem_alloc(size, &execmem_params.jit);
 }
 
 void jit_free(void *ptr)
@@ -105,6 +105,7 @@ static void execmem_init_missing(struct execmem_params *p)
 {
 	struct execmem_range *text = &p->modules.text;
 	struct execmem_range *data = &p->modules.data;
+	struct execmem_range *jit = &p->jit;
 
 	if (!data->start) {
 		data->pgprot = PAGE_KERNEL;
@@ -113,6 +114,13 @@ static void execmem_init_missing(struct execmem_params *p)
 		data->end = text->end;
 		data->fallback_start = text->fallback_start;
 		data->fallback_end = text->fallback_end;
+	}
+
+	if (!execmem_params.jit.start) {
+		jit->start = text->start;
+		jit->end = text->end;
+		jit->alignment = text->alignment;
+		jit->pgprot = text->pgprot;
 	}
 }
 
