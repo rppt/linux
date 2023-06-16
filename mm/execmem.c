@@ -58,6 +58,13 @@ void *execmem_text_alloc(enum execmem_type type, size_t size)
 	return execmem_alloc(size, &execmem_params.ranges[type]);
 }
 
+void *execmem_data_alloc(enum execmem_type type, size_t size)
+{
+	WARN_ON_ONCE(type != EXECMEM_MODULE_DATA);
+
+	return execmem_alloc(size, &execmem_params.ranges[type]);
+}
+
 void execmem_free(void *ptr)
 {
 	/*
@@ -85,6 +92,32 @@ static bool execmem_validate_params(struct execmem_params *p)
 	return true;
 }
 
+static inline bool execmem_range_is_data(enum execmem_type type)
+{
+	return type == EXECMEM_MODULE_DATA;
+}
+
+static void execmem_init_missing(struct execmem_params *p)
+{
+	struct execmem_range *default_range = &p->ranges[EXECMEM_DEFAULT];
+
+	for (int i = EXECMEM_DEFAULT + 1; i < EXECMEM_TYPE_MAX; i++) {
+		struct execmem_range *r = &p->ranges[i];
+
+		if (!r->start) {
+			if (execmem_range_is_data(i))
+				r->pgprot = PAGE_KERNEL;
+			else
+				r->pgprot = default_range->pgprot;
+			r->alignment = default_range->alignment;
+			r->start = default_range->start;
+			r->end = default_range->end;
+			r->fallback_start = default_range->fallback_start;
+			r->fallback_end = default_range->fallback_end;
+		}
+	}
+}
+
 void __init execmem_init(void)
 {
 	struct execmem_params *p = execmem_arch_params();
@@ -96,6 +129,11 @@ void __init execmem_init(void)
 		p->ranges[EXECMEM_MODULE_TEXT].pgprot = PAGE_KERNEL_EXEC;
 		p->ranges[EXECMEM_MODULE_TEXT].alignment = 1;
 
+		p->ranges[EXECMEM_MODULE_DATA].start = VMALLOC_START;
+		p->ranges[EXECMEM_MODULE_DATA].end = VMALLOC_END;
+		p->ranges[EXECMEM_MODULE_DATA].pgprot = PAGE_KERNEL;
+		p->ranges[EXECMEM_MODULE_DATA].alignment = 1;
+
 		return;
 	}
 
@@ -103,4 +141,6 @@ void __init execmem_init(void)
 		return;
 
 	execmem_params = *p;
+
+	execmem_init_missing(&execmem_params);
 }
