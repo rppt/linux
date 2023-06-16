@@ -97,6 +97,9 @@ static struct execmem_range execmem_ranges[] __ro_after_init = {
 	[1] = {
 		.alignment = 1,
 	},
+	[2] = {
+		.alignment = 1,
+	},
 };
 
 void __init execmem_arch_params(struct execmem_params *p)
@@ -132,6 +135,16 @@ void __init execmem_arch_params(struct execmem_params *p)
 #endif
 
 	range->pgprot = prot;
+
+	/* kprobes */
+	p->areas[EXECMEM_KPROBES] = 2;
+	execmem_ranges[2].start = range->start;
+	execmem_ranges[2].end = range->end;
+
+	if (strict_module_rwx_enabled())
+		execmem_ranges[2].pgprot = PAGE_KERNEL_ROX;
+	else
+		execmem_ranges[2].pgprot = PAGE_KERNEL_EXEC;
 
 	p->areas[EXECMEM_MODULE_DATA] = 1;
 	p->ranges = execmem_ranges;
