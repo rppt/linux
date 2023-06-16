@@ -116,6 +116,16 @@ static struct execmem_params execmem_params __ro_after_init = {
 			.flags = EXECMEM_KASAN_SHADOW,
 			.alignment = MODULE_ALIGN,
 		},
+		[EXECMEM_KPROBES] = {
+			.start = VMALLOC_START,
+			.end = VMALLOC_END,
+			.alignment = 1,
+		},
+		[EXECMEM_BPF] = {
+			.start = VMALLOC_START,
+			.end = VMALLOC_END,
+			.alignment = 1,
+		},
 	},
 };
 
@@ -126,6 +136,8 @@ struct execmem_params __init *execmem_arch_params(void)
 	module_init_limits();
 
 	r->pgprot = PAGE_KERNEL;
+	execmem_params.ranges[EXECMEM_KPROBES].pgprot = PAGE_KERNEL_ROX;
+	execmem_params.ranges[EXECMEM_BPF].pgprot = PAGE_KERNEL;
 
 	if (module_direct_base) {
 		r->start = module_direct_base;
