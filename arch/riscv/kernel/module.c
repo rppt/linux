@@ -436,9 +436,17 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 	return 0;
 }
 
-#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
-static struct execmem_range execmem_ranges[] __ro_after_init = {
+#ifdef CONFIG_MMU
+static struct execmem_params execmem_params __ro_after_init = {
 	[EXECMEM_DEFAULT] = {
+		.pgprot = PAGE_KERNEL,
+		.alignment = 1,
+	},
+	[1] = {
+		.pgprot = PAGE_KERNEL_READ_EXEC,
+		.alignment = 1,
+	},
+	[2] = {
 		.pgprot = PAGE_KERNEL,
 		.alignment = 1,
 	},
@@ -446,6 +454,28 @@ static struct execmem_range execmem_ranges[] __ro_after_init = {
 
 void __init execmem_arch_params(struct execmem_params *p)
 {
+	struct execmem_range *r = &execmem_ranges[0];
+
+#ifdef CONFIG_64BIT
+	r->start = MODULES_VADDR;
+	r->end = MODULES_END;
+#else
+	r->start = VMALLOC_START;
+	r->end = VMALLOC_END;
+#endif
+
+	/* kprobes */
+	p->areas[EXECMEM_KPROBES] = 1;
+	r = &execmem_ranges[1];
+	r->start = VMALLOC_START;
+	r->end = VMALLOC_END;
+
+	/* BPF */
+	p->areas[EXECMEM_BPF] = 2;
+	r = &execmem_ranges[2];
+	r->start = BPF_JIT_REGION_START;
+	r->end = BPF_JIT_REGION_END;
+
 	p->ranges = execmem_ranges;
 }
 #endif
