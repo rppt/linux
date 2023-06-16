@@ -5,14 +5,26 @@
 #include <linux/execmem.h>
 #include <linux/moduleloader.h>
 
-static void *execmem_alloc(size_t size)
+static struct execmem_params execmem_params;
+
+static void *execmem_alloc(size_t size, struct execmem_range *range)
 {
-	return module_alloc(size);
+	unsigned long start = range->start;
+	unsigned long end = range->end;
+	unsigned int align = range->alignment;
+	pgprot_t pgprot = range->pgprot;
+
+	return __vmalloc_node_range(size, align, start, end,
+				   GFP_KERNEL, pgprot, VM_FLUSH_RESET_PERMS,
+				   NUMA_NO_NODE, __builtin_return_address(0));
 }
 
 void *execmem_text_alloc(enum execmem_type type, size_t size)
 {
-	return execmem_alloc(size);
+	if (!execmem_params.ranges[type].start)
+		return module_alloc(size);
+
+	return execmem_alloc(size, &execmem_params.ranges[type]);
 }
 
 void execmem_free(void *ptr)
@@ -23,4 +35,34 @@ void execmem_free(void *ptr)
 	 */
 	WARN_ON(in_interrupt());
 	vfree(ptr);
+}
+
+struct execmem_params * __weak execmem_arch_params(void)
+{
+	return NULL;
+}
+
+static bool execmem_validate_params(struct execmem_params *p)
+{
+	struct execmem_range *r = &p->ranges[EXECMEM_DEFAULT];
+
+	if (!r->alignment || !r->start || !r->end || !pgprot_val(r->pgprot)) {
+		pr_crit("Invalid parameters for execmem allocator, module loading will fail");
+		return false;
+	}
+
+	return true;
+}
+
+void __init execmem_init(void)
+{
+	struct execmem_params *p = execmem_arch_params();
+
+	if (!p)
+		return;
+
+	if (!execmem_validate_params(p))
+		return;
+
+	execmem_params = *p;
 }
