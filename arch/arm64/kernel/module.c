@@ -115,6 +115,16 @@ static struct execmem_ranges execmem_ranges[] __ro_after_init = {
 		.flags = EXECMEM_KASAN_SHADOW,
 		.alignment = MODULE_ALIGN,
 	},
+	[1] = {
+		.start = VMALLOC_START,
+		.end = VMALLOC_END,
+		.alignment = 1,
+	},
+	[2] = {
+		.start = VMALLOC_START,
+		.end = VMALLOC_END,
+		.alignment = 1,
+	},
 };
 
 void __init execmem_arch_params(struct execmem_params *p)
@@ -141,6 +151,16 @@ void __init execmem_arch_params(struct execmem_params *p)
 		r->start = module_plt_base;
 		r->end = module_plt_base + SZ_2G;
 	}
+
+	/* kprobes */
+	r = &execmem_ranges[1];
+	r->pgprot = PAGE_KERNEL_ROX;
+	p->areas[EXECMEM_KPROBES] = 1;
+
+	/* BPF */
+	r = &execmem_ranges[2];
+	r->pgprot = PAGE_KERNEL;
+	p->areas[EXECMEM_BPF] = 2;
 
 	p->ranges = execmem_ranges;
 }
