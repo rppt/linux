@@ -122,7 +122,7 @@ static void __init_or_module add_nops(void *insns, unsigned int len)
 		unsigned int noplen = len;
 		if (noplen > ASM_NOP_MAX)
 			noplen = ASM_NOP_MAX;
-		do_text_poke(insns, x86_nops[noplen], noplen);
+		memcpy(insns, x86_nops[noplen], noplen);
 		insns += noplen;
 		len -= noplen;
 	}
@@ -281,7 +281,7 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 						  struct module *mod)
 {
 	struct alt_instr *a;
-	u8 *instr, *replacement;
+	u8 *instr, *replacement, *wr_instr;
 	u8 insn_buff[MAX_PATCH_LEN];
 
 	DPRINTK("alt table %px, -> %px", start, end);
@@ -298,7 +298,9 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		int insn_buff_sz = 0;
 
 		instr = (u8 *)&a->instr_offset + a->instr_offset;
+		wr_instr = instr + module_writable_offset(mod, instr);
 		replacement = (u8 *)&a->repl_offset + a->repl_offset;
+		replacement += module_writable_offset(mod, replacement);
 		BUG_ON(a->instrlen > sizeof(insn_buff));
 		BUG_ON(a->cpuid >= (NCAPINTS + NBUGINTS) * 32);
 
@@ -311,14 +313,14 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		if (!boot_cpu_has(a->cpuid) == !(a->flags & ALT_FLAG_NOT))
 			goto next;
 
-		DPRINTK("feat: %s%d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d)",
+		DPRINTK("feat: %s%d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d) wr: %px",
 			(a->flags & ALT_FLAG_NOT) ? "!" : "",
 			a->cpuid >> 5,
 			a->cpuid & 0x1f,
 			instr, instr, a->instrlen,
-			replacement, a->replacementlen);
+			replacement, a->replacementlen, wr_instr);
 
-		DUMP_BYTES(instr, a->instrlen, "%px:   old_insn: ", instr);
+		DUMP_BYTES(wr_instr, a->instrlen, "%px:   old_insn: ", instr);
 		DUMP_BYTES(replacement, a->replacementlen, "%px:   rpl_insn: ", replacement);
 
 		memcpy(insn_buff, replacement, a->replacementlen);
@@ -345,10 +347,10 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 
 		DUMP_BYTES(insn_buff, insn_buff_sz, "%px: final_insn: ", instr);
 
-		text_poke_early(instr, insn_buff, insn_buff_sz);
+		text_poke_early(wr_instr, insn_buff, insn_buff_sz);
 
 next:
-		optimize_nops(instr, a->instrlen);
+		optimize_nops(wr_instr, a->instrlen);
 	}
 }
 
