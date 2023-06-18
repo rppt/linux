@@ -627,6 +627,7 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end,
 					     struct module *mod)
 {
 	s32 *s;
+	bool mod_init = (mod != NULL);
 
 	for (s = start; s < end; s++) {
 		void *dest = NULL, *addr = (void *)s + *s;
@@ -644,7 +645,7 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end,
 		if (op == JMP32_INSN_OPCODE)
 			dest = addr + insn.length + insn.immediate.value;
 
-		if (__static_call_fixup(wr_addr, op, dest) ||
+		if (__static_call_fixup(wr_addr, op, dest, mod_init) ||
 		    WARN_ONCE(dest != &__x86_return_thunk,
 			      "missing return thunk: %pS-%pS: %*ph %px",
 			      addr, dest, 5, addr, wr_addr))
