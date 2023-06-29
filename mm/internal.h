@@ -1099,4 +1099,26 @@ struct vma_prepare {
 	struct vm_area_struct *remove;
 	struct vm_area_struct *remove2;
 };
+
+/*
+ * mm/unmapped-alloc.c
+ */
+#ifdef CONFIG_UNMAPPED_ALLOC
+int unmapped_alloc_init(void);
+struct page *unmapped_pages_alloc(gfp_t gfp, int order);
+void unmapped_pages_free(struct page *page, int order);
+#else
+static inline int unmapped_alloc_init(void)
+{
+	return 0;
+}
+
+static inline struct page *unmapped_pages_alloc(gfp_t gfp, int order)
+{
+	return NULL;
+}
+
+static inline void unmapped_pages_free(struct page *page, int order) {}
+#endif
+
 #endif	/* __MM_INTERNAL_H */

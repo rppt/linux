@@ -37,6 +37,9 @@ config X86_64
 	select ZONE_DMA32
 	select EXECMEM if DYNAMIC_FTRACE
 
+config ARCH_WANTS_UNMAPPED_ALLOC
+	def_bool y if X86_64
+
 config FORCE_DYNAMIC_FTRACE
 	def_bool y
 	depends on X86_32

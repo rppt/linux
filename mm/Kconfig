@@ -1209,6 +1209,10 @@ config PER_VMA_LOCK
 config EXECMEM
 	bool
 
+config UNMAPPED_ALLOC
+	def_bool y
+	depends on ARCH_WANTS_UNMAPPED_ALLOC
+
 source "mm/damon/Kconfig"
 
 endmenu

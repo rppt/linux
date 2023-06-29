@@ -2748,5 +2748,6 @@ void __init mm_core_init(void)
 	pti_init();
 	kmsan_init_runtime();
 	mm_cache_init();
+	unmapped_alloc_init();
 	execmem_init();
 }
