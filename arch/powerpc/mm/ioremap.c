@@ -82,7 +82,7 @@ void __iomem *do_ioremap(phys_addr_t pa, phys_addr_t offset, unsigned long size,
 	int ret;
 	unsigned long va;
 
-	area = __get_vm_area_caller(size, VM_IOREMAP, IOREMAP_START, IOREMAP_END, caller);
+	area = __get_vm_area_caller(size, 1, VM_IOREMAP, IOREMAP_START, IOREMAP_END, caller);
 	if (area == NULL)
 		return NULL;
 

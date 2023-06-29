@@ -2571,7 +2571,8 @@ static struct vm_struct *__get_vm_area_node(unsigned long size,
 	return area;
 }
 
-struct vm_struct *__get_vm_area_caller(unsigned long size, unsigned long flags,
+struct vm_struct *__get_vm_area_caller(unsigned long size,
+				       unsigned long align, unsigned long flags,
 				       unsigned long start, unsigned long end,
 				       const void *caller)
 {

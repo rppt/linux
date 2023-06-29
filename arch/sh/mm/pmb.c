@@ -443,7 +443,7 @@ void __iomem *pmb_remap_caller(phys_addr_t phys, unsigned long size,
 	 * causes the MMU to reset, so for now we restrict it to the
 	 * 0xb000...0xc000 range.
 	 */
-	area = __get_vm_area_caller(aligned, VM_IOREMAP, 0xb0000000,
+	area = __get_vm_area_caller(aligned, 1, VM_IOREMAP, 0xb0000000,
 				    P3SEG, caller);
 	if (!area)
 		return NULL;

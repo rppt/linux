@@ -207,6 +207,7 @@ extern struct vm_struct *get_vm_area(unsigned long size, unsigned long flags);
 extern struct vm_struct *get_vm_area_caller(unsigned long size,
 					unsigned long flags, const void *caller);
 extern struct vm_struct *__get_vm_area_caller(unsigned long size,
+					unsigned long align,
 					unsigned long flags,
 					unsigned long start, unsigned long end,
 					const void *caller);
