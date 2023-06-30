@@ -114,6 +114,7 @@ static void execmem_init_missing(struct execmem_params *p)
 			r->end = default_range->end;
 			r->fallback_start = default_range->fallback_start;
 			r->fallback_end = default_range->fallback_end;
+			r->flags = default_range->flags;
 		}
 	}
 }
