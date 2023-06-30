@@ -5,7 +5,86 @@
 #include <linux/execmem.h>
 #include <linux/moduleloader.h>
 
+#include "internal.h"
+
 static struct execmem_params execmem_params;
+
+static void *execmem_alloc_unmapped(size_t size, struct execmem_range *range,
+				    gfp_t gfp_flags)
+{
+	unsigned long start = range->start;
+	unsigned long end = range->end;
+	unsigned long align = range->alignment;
+	pgprot_t pgprot = range->pgprot;
+	struct vm_struct *area;
+	int order, nr_pages;
+	struct page *page, **pages;
+
+	align = max(align, PAGE_SIZE);
+	size = PAGE_ALIGN(size);
+	order = get_order(size);
+	nr_pages = size >> PAGE_SHIFT;
+
+	page = unmapped_pages_alloc(gfp_flags, order);
+	if (!page)
+		return NULL;
+
+	pages = kmalloc_array(nr_pages, sizeof(*pages), GFP_KERNEL);
+	if (!pages)
+		goto err_free_unmapped_page;
+
+	area = __get_vm_area_caller(size, 0, start, end, align,
+				    __builtin_return_address(0));
+	if (!area)
+		goto err_free_pages_array;
+
+	for (int i = 0; i < (1U << order); i++)
+		pages[i] = page + i;
+
+	start = (unsigned long)area->addr;
+	end = start + size;
+	if (vmap_pages_range_noflush(start, end, pgprot, pages, PAGE_SHIFT))
+		goto err_free_area;
+
+	flush_cache_vmap(start, end);
+	area->pages = pages;
+	area->nr_pages = nr_pages;
+
+	return area->addr;
+
+err_free_area:
+	free_vm_area(area);
+err_free_pages_array:
+	kfree(area->pages);
+err_free_unmapped_page:
+	unmapped_pages_free(page, order);
+	return NULL;
+}
+
+static void execmem_free_unmapped(void *ptr)
+{
+	struct vm_struct *area = find_vm_area(ptr);
+	int order = get_order(area->nr_pages << PAGE_SHIFT);
+
+	unmapped_pages_free(area->pages[0], order);
+	free_vm_area(area);
+}
+
+static void *__execmem_alloc(size_t size, struct execmem_range *range,
+			     gfp_t gfp_flags, unsigned long vm_flags)
+{
+	unsigned long start = range->start;
+	unsigned long end = range->end;
+	unsigned int align = range->alignment;
+	pgprot_t pgprot = range->pgprot;
+
+	if (range->flags & EXECMEM_UNMAPPED)
+		return execmem_alloc_unmapped(size, range, gfp_flags);
+
+	return __vmalloc_node_range(size, align, start, end, gfp_flags,
+				    pgprot, vm_flags, NUMA_NO_NODE,
+				    __builtin_return_address(0));
+}
 
 static void *execmem_alloc(size_t size, struct execmem_range *range)
 {
@@ -13,8 +92,6 @@ static void *execmem_alloc(size_t size, struct execmem_range *range)
 	unsigned long end = range->end;
 	unsigned long fallback_start = range->fallback_start;
 	unsigned long fallback_end = range->fallback_end;
-	unsigned int align = range->alignment;
-	pgprot_t pgprot = range->pgprot;
 	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
 	unsigned long vm_flags  = VM_FLUSH_RESET_PERMS;
 	bool fallback  = !!fallback_start;
@@ -30,18 +107,13 @@ static void *execmem_alloc(size_t size, struct execmem_range *range)
 	if (fallback)
 		gfp_flags |= __GFP_NOWARN;
 
-	p = __vmalloc_node_range(size, align, start, end, gfp_flags,
-				 pgprot, vm_flags, NUMA_NO_NODE,
-				 __builtin_return_address(0));
-
+	p = __execmem_alloc(size, range, gfp_flags, vm_flags);
 	if (!p && fallback) {
 		start = fallback_start;
 		end = fallback_end;
 		gfp_flags = GFP_KERNEL;
 
-		p = __vmalloc_node_range(size, align, start, end, gfp_flags,
-					 pgprot, vm_flags, NUMA_NO_NODE,
-					 __builtin_return_address(0));
+		p = __execmem_alloc(size, range, gfp_flags, vm_flags);
 	}
 
 	if (p && kasan &&
@@ -67,11 +139,24 @@ void *execmem_data_alloc(enum execmem_type type, size_t size)
 
 void execmem_free(void *ptr)
 {
+	unsigned long addr = (unsigned long)ptr;
+
 	/*
 	 * This memory may be RO, and freeing RO memory in an interrupt is not
 	 * supported by vmalloc.
 	 */
 	WARN_ON(in_interrupt());
+
+	for (int i = 0; i < ARRAY_SIZE(execmem_params.ranges); i++) {
+		struct execmem_range *range = &execmem_params.ranges[i];
+
+		if ((addr >= range->start && addr < range->end) &&
+		    range->flags & EXECMEM_UNMAPPED) {
+			execmem_free_unmapped(ptr);
+			return;
+		}
+	}
+
 	vfree(ptr);
 }
 

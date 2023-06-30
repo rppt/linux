@@ -1090,7 +1090,7 @@ unsigned long arch_max_swapfile_size(void)
 static struct execmem_params execmem_params __ro_after_init = {
 	.ranges = {
 		[EXECMEM_MODULE_TEXT] = {
-			.flags = EXECMEM_KASAN_SHADOW,
+			.flags = EXECMEM_KASAN_SHADOW | EXECMEM_UNMAPPED,
 			.alignment = MODULE_ALIGN,
 		},
 	},
