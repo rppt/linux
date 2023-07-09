@@ -2576,7 +2576,7 @@ struct vm_struct *__get_vm_area_caller(unsigned long size,
 				       unsigned long start, unsigned long end,
 				       const void *caller)
 {
-	return __get_vm_area_node(size, 1, PAGE_SHIFT, flags, start, end,
+	return __get_vm_area_node(size, align, PAGE_SHIFT, flags, start, end,
 				  NUMA_NO_NODE, GFP_KERNEL, caller);
 }
 
