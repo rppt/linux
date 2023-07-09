@@ -33,7 +33,7 @@ static void *execmem_alloc_unmapped(size_t size, struct execmem_range *range,
 	if (!pages)
 		goto err_free_unmapped_page;
 
-	area = __get_vm_area_caller(size, 0, start, end, align,
+	area = __get_vm_area_caller(size, align, VM_NO_GUARD, start, end,
 				    __builtin_return_address(0));
 	if (!area)
 		goto err_free_pages_array;
