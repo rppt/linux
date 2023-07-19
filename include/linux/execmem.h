@@ -49,6 +49,7 @@ enum execmem_type {
 enum execmem_range_flags {
 	EXECMEM_KASAN_SHADOW	= (1 << 0),
 	EXECMEM_UNMAPPED	= (1 << 1),
+	EXECMEM_CACHED		= (1 << 2),
 };
 
 /**
