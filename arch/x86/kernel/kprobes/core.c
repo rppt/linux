@@ -445,7 +445,7 @@ static int prepare_singlestep(kprobe_opcode_t *buf, struct kprobe *p,
 }
 
 /* Make page to RO mode when allocate it */
-void *alloc_insn_page(void)
+void *kprobes_alloc_insn_page(void)
 {
 	void *page;
 

@@ -110,7 +110,7 @@ enum kprobe_slot_state {
 	SLOT_USED = 2,
 };
 
-void __weak *alloc_insn_page(void)
+void __weak *kprobes_alloc_insn_page(void)
 {
 	/*
 	 * Use module_alloc() so this page is within +/- 2GB of where the
@@ -128,7 +128,7 @@ static void free_insn_page(void *page)
 
 struct kprobe_insn_cache kprobe_insn_slots = {
 	.mutex = __MUTEX_INITIALIZER(kprobe_insn_slots.mutex),
-	.alloc = alloc_insn_page,
+	.alloc = kprobes_alloc_insn_page,
 	.free = free_insn_page,
 	.sym = KPROBE_INSN_PAGE_SYM,
 	.pages = LIST_HEAD_INIT(kprobe_insn_slots.pages),
@@ -335,7 +335,7 @@ int kprobe_cache_get_kallsym(struct kprobe_insn_cache *c, unsigned int *symnum,
 #ifdef CONFIG_OPTPROBES
 void __weak *alloc_optinsn_page(void)
 {
-	return alloc_insn_page();
+	return kprobes_alloc_insn_page();
 }
 
 void __weak free_optinsn_page(void *page)

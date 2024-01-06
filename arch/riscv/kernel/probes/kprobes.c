@@ -105,7 +105,7 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 }
 
 #ifdef CONFIG_MMU
-void *alloc_insn_page(void)
+void *kprobes_alloc_insn_page(void)
 {
 	return  __vmalloc_node_range(PAGE_SIZE, 1, VMALLOC_START, VMALLOC_END,
 				     GFP_KERNEL, PAGE_KERNEL_READ_EXEC,

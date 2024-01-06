@@ -126,7 +126,7 @@ kprobe_opcode_t *arch_adjust_kprobe_addr(unsigned long addr, unsigned long offse
 	return (kprobe_opcode_t *)(addr + offset);
 }
 
-void *alloc_insn_page(void)
+void *kprobes_alloc_insn_page(void)
 {
 	void *page;
 

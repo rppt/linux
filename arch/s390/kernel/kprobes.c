@@ -35,7 +35,7 @@ struct kretprobe_blackpoint kretprobe_blacklist[] = { };
 
 static int insn_page_in_use;
 
-void *alloc_insn_page(void)
+void *kprobes_alloc_insn_page(void)
 {
 	void *page;
 
