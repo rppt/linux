@@ -8,5 +8,6 @@ obj-y				+= init.o cache.o tlb.o tlbex.o extable.o \
 
 obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
 obj-$(CONFIG_KASAN)		+= kasan_init.o
+obj-$(CONFIG_EXECMEM)		+= execmem.o
 
 KASAN_SANITIZE_kasan_init.o     := n
