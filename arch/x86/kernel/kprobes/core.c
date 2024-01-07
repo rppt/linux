@@ -46,6 +46,7 @@
 #include <linux/pgtable.h>
 #include <linux/set_memory.h>
 #include <linux/cfi.h>
+#include <linux/execmem.h>
 
 #include <asm/text-patching.h>
 #include <asm/cacheflush.h>
@@ -299,7 +300,7 @@ static int can_probe(unsigned long paddr)
 		 * The compiler generates the following instruction sequence
 		 * for indirect call checks and cfi.c decodes this;
 		 *
-		 *   movl    -<id>, %r10d       ; 6 bytes
+		 *Â   movl    -<id>, %r10d       ; 6 bytes
 		 *   addl    -4(%reg), %r10d    ; 4 bytes
 		 *   je      .Ltmp1             ; 2 bytes
 		 *   ud2                        ; <- regs->ip
@@ -448,7 +449,7 @@ void *alloc_insn_page(void)
 {
 	void *page;
 
-	page = module_alloc(PAGE_SIZE);
+	page = execmem_alloc(PAGE_SIZE);
 	if (!page)
 		return NULL;
 
