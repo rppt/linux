@@ -119,7 +119,7 @@ void *module_alloc(unsigned long size)
 	 * kernel such that no PLTs are necessary.
 	 */
 	if (module_direct_base) {
-		p = __vmalloc_node_range(size, MODULE_ALIGN,
+		p = __vmalloc_node_range(size, PAGE_SIZE,
 					 module_direct_base,
 					 module_direct_base + SZ_128M,
 					 GFP_KERNEL | __GFP_NOWARN,
@@ -128,7 +128,7 @@ void *module_alloc(unsigned long size)
 	}
 
 	if (!p && module_plt_base) {
-		p = __vmalloc_node_range(size, MODULE_ALIGN,
+		p = __vmalloc_node_range(size, PAGE_SIZE,
 					 module_plt_base,
 					 module_plt_base + SZ_2G,
 					 GFP_KERNEL | __GFP_NOWARN,
@@ -139,11 +139,6 @@ void *module_alloc(unsigned long size)
 	if (!p) {
 		pr_warn_ratelimited("%s: unable to allocate memory\n",
 				    __func__);
-	}
-
-	if (p && (kasan_alloc_module_shadow(p, size, GFP_KERNEL) < 0)) {
-		vfree(p);
-		return NULL;
 	}
 
 	/* Memory is intended to be executable, reset the pointer tag. */
