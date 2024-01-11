@@ -4,6 +4,9 @@
 #include <linux/vmalloc.h>
 #include <linux/execmem.h>
 #include <linux/moduleloader.h>
+#include <linux/set_memory.h>
+
+#include <asm/text-patching.h>
 
 void __weak *execmem_alloc(size_t size)
 {
@@ -20,4 +23,9 @@ void execmem_free(void *ptr)
 	 */
 	WARN_ON(in_interrupt());
 	vfree(ptr);
+}
+
+void execmem_update_copy(void *dst, void *src, size_t size)
+{
+	text_poke_copy(dst, src, size);
 }

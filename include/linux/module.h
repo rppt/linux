@@ -345,6 +345,8 @@ enum mod_mem_type {
 	 ((type) == MOD_TEXT ||		\
 	  (type) == MOD_INIT_TEXT)
 
+#define mod_mem_type_is_rox mod_mem_type_is_text
+
 #define mod_mem_type_is_data(type) (!mod_mem_type_is_text(type))
 
 #define mod_mem_type_is_core_data(type)	\
@@ -361,6 +363,7 @@ enum mod_mem_type {
 
 struct module_memory {
 	void *base;
+	void *wr_base;
 	unsigned int size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP

@@ -15,10 +15,14 @@
  */
 void *execmem_alloc(size_t size);
 
+void *execmem_text_alloc(size_t size);
+
 /**
  * execmem_free - free executable memory
  * @ptr: pointer to the memory that should be freed
  */
 void execmem_free(void *ptr);
+
+void execmem_update_copy(void *dst, void *src, size_t size);
 
 #endif /* _LINUX_EXECMEM_ALLOC_H */

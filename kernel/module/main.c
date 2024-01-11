@@ -89,6 +89,33 @@ struct symsearch {
 	enum mod_license license;
 };
 
+void dump_section(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
+		     const char *msg, const char *secname)
+{
+	const Elf_Shdr *s, *ptrs = NULL;
+	char *secstrings = (void *)hdr + sechdrs[hdr->e_shstrndx].sh_offset;
+
+	for (s = sechdrs; s < sechdrs + hdr->e_shnum; s++) {
+		if (!strcmp(secname, secstrings + s->sh_name))
+			ptrs = s;
+	}
+
+	if (ptrs) {
+		void *rseg = (void *)ptrs->sh_addr;
+		unsigned int rsize = ptrs->sh_size;
+		s32 *start, *end;
+		s32 *s;
+
+		pr_info("===> %s: %s: %px - %px (%x)\n", msg, secname, rseg, rseg + rsize, rsize);
+
+		start = rseg;
+		end = rseg + rsize;
+
+		for (s = start; s < end; s++)
+			pr_info("===>\t%px: %x\n", s, s ? *s : 0);
+	}
+}
+
 /*
  * Bounds of module memory, for speeding up __module_address.
  * Protected by module_mutex.
@@ -1204,13 +1231,26 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	unsigned int size = mod->mem[type].size;
 	void *ptr;
 
-	if (mod_mem_use_vmalloc(type))
+	if (mod_mem_type_is_rox(type))
+		ptr = execmem_text_alloc(size);
+	else if (mod_mem_use_vmalloc(type))
 		ptr = vmalloc(size);
 	else
 		ptr = module_alloc(size);
 
 	if (!ptr)
 		return -ENOMEM;
+
+	if (mod_mem_type_is_rox(type)) {
+		void *tmp = vzalloc(size);
+
+		if (!tmp) {
+			vfree(ptr);
+			return -ENOMEM;
+		}
+
+		mod->mem[type].wr_base = tmp;
+	}
 
 	/*
 	 * The pointer to these blocks of memory are stored on the module
@@ -1225,7 +1265,7 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	 */
 	kmemleak_not_leak(ptr);
 
-	memset(ptr, 0, size);
+	/* memset(ptr, 0, size); */
 	mod->mem[type].base = ptr;
 
 	return 0;
@@ -1239,6 +1279,9 @@ static void module_memory_free(struct module *mod, enum mod_mem_type type)
 		vfree(ptr);
 	else
 		module_memfree(ptr);
+
+	if (mod_mem_type_is_rox(type))
+		vfree(mod->mem[type].wr_base);
 }
 
 static void free_mod_mem(struct module *mod)
@@ -1474,6 +1517,15 @@ static int apply_relocations(struct module *mod, const struct load_info *info)
 		/* Don't bother with non-allocated sections */
 		if (!(info->sechdrs[infosec].sh_flags & SHF_ALLOC))
 			continue;
+
+		/* if (!strcmp(".retpoline_sites", */
+		/* 	    info->secstrings + shdr->sh_name)) */
+		{
+			int idx = info->sechdrs[i].sh_info;
+			pr_info("===> %s: i: %d %s idx: %d %s \n", __func__, i,
+				info->secstrings + info->sechdrs[i].sh_name,
+				idx, info->secstrings + info->sechdrs[idx].sh_name);
+		}
 
 		if (info->sechdrs[i].sh_flags & SHF_RELA_LIVEPATCH)
 			err = klp_apply_section_relocs(mod, info->sechdrs,
@@ -2261,9 +2313,9 @@ static int move_module(struct module *mod, struct load_info *info)
 	}
 
 	/* Transfer each section which specifies SHF_ALLOC */
-	pr_debug("Final section addresses for %s:\n", mod->name);
+	pr_info("Final section addresses for %s:\n", mod->name);
 	for (i = 0; i < info->hdr->e_shnum; i++) {
-		void *dest;
+		void *dest, *wr_dest;
 		Elf_Shdr *shdr = &info->sechdrs[i];
 		enum mod_mem_type type = shdr->sh_entsize >> SH_ENTSIZE_TYPE_SHIFT;
 
@@ -2271,6 +2323,11 @@ static int move_module(struct module *mod, struct load_info *info)
 			continue;
 
 		dest = mod->mem[type].base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		if (mod_mem_type_is_rox(type)) {
+			wr_dest = mod->mem[type].wr_base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		} else {
+			wr_dest = dest;
+		}
 
 		if (shdr->sh_type != SHT_NOBITS) {
 			/*
@@ -2284,7 +2341,9 @@ static int move_module(struct module *mod, struct load_info *info)
 				ret = -ENOEXEC;
 				goto out_enomem;
 			}
-			memcpy(dest, (void *)shdr->sh_addr, shdr->sh_size);
+			memcpy(wr_dest, (void *)shdr->sh_addr, shdr->sh_size);
+			if (dest != wr_dest)
+				execmem_update_copy(dest, wr_dest, shdr->sh_size);
 		}
 		/*
 		 * Update the userspace copy's ELF section address to point to
@@ -2293,7 +2352,7 @@ static int move_module(struct module *mod, struct load_info *info)
 		 * minted official memory area.
 		 */
 		shdr->sh_addr = (unsigned long)dest;
-		pr_debug("\t0x%lx 0x%.8lx %s\n", (long)shdr->sh_addr,
+		pr_info("\t0x%lx 0x%.8lx %s\n", (long)shdr->sh_addr,
 			 (long)shdr->sh_size, info->secstrings + shdr->sh_name);
 	}
 
@@ -2442,6 +2501,8 @@ int __weak module_finalize(const Elf_Ehdr *hdr,
 
 static int post_relocation(struct module *mod, const struct load_info *info)
 {
+	int ret;
+
 	/* Sort exception table now relocations are done. */
 	sort_extable(mod->extable, mod->extable + mod->num_exentries);
 
@@ -2452,8 +2513,34 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 	/* Setup kallsyms-specific fields. */
 	add_kallsyms(mod, info);
 
+	dump_section(info->hdr, info->sechdrs, __func__, ".retpoline_sites");
+	dump_section(info->hdr, info->sechdrs, __func__, ".return_sites");
+	dump_section(info->hdr, info->sechdrs, __func__, ".call_sites");
+
+	for_each_mod_mem_type(type) {
+		if (mod_mem_type_is_rox(type)) {
+			void *dst = mod->mem[type].base;
+			void *src = mod->mem[type].wr_base;
+			int size = mod->mem[type].size;
+
+			execmem_update_copy(dst, src, size);
+		}
+	}
+
 	/* Arch-specific module finalizing. */
-	return module_finalize(info->hdr, info->sechdrs, mod);
+	ret = module_finalize(info->hdr, info->sechdrs, mod);
+
+	for_each_mod_mem_type(type) {
+		if (mod_mem_type_is_rox(type)) {
+			void *dst = mod->mem[type].base;
+			void *src = mod->mem[type].wr_base;
+			int size = mod->mem[type].size;
+
+			execmem_update_copy(dst, src, size);
+		}
+	}
+
+	return ret;
 }
 
 /* Call module constructors. */
@@ -2580,6 +2667,7 @@ static noinline int do_init_module(struct module *mod)
 	module_arch_freeing_init(mod);
 	for_class_mod_mem_type(type, init) {
 		mod->mem[type].base = NULL;
+		mod->mem[type].wr_base = NULL;
 		mod->mem[type].size = 0;
 	}
 
