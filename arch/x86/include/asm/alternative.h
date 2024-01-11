@@ -92,15 +92,19 @@ struct alt_instr {
  */
 extern int alternatives_patched;
 
-extern void alternative_instructions(void);
-extern void apply_alternatives(struct alt_instr *start, struct alt_instr *end);
-extern void apply_retpolines(s32 *start, s32 *end);
-extern void apply_returns(s32 *start, s32 *end);
-extern void apply_seal_endbr(s32 *start, s32 *end);
-extern void apply_fineibt(s32 *start_retpoline, s32 *end_retpoine,
-			  s32 *start_cfi, s32 *end_cfi);
-
 struct module;
+extern void alternative_instructions(void);
+extern void apply_alternatives(struct alt_instr *start, struct alt_instr *end,
+			       struct module *mod);
+extern void apply_retpolines(s32 *start, s32 *end, struct module *mod);
+extern void apply_returns(s32 *start, s32 *end, struct module *mod);
+extern void apply_seal_endbr(s32 *start, s32 *end, struct module *mod);
+extern void apply_fineibt(s32 *start_retpoline, s32 *end_retpoine,
+			  s32 *start_cfi, s32 *end_cfi, struct module *mod);
+
+/* FIXME: should go to include/linux */
+unsigned long module_writable_offset(struct module *mod, void *loc)
+
 struct paravirt_patch_site;
 
 struct callthunk_sites {

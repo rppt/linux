@@ -7,12 +7,15 @@
 #include <asm/ptrace.h>
 
 struct paravirt_patch_site;
+struct module;
 #ifdef CONFIG_PARAVIRT
 void apply_paravirt(struct paravirt_patch_site *start,
-		    struct paravirt_patch_site *end);
+		    struct paravirt_patch_site *end,
+		    struct module *mod);
 #else
 static inline void apply_paravirt(struct paravirt_patch_site *start,
-				  struct paravirt_patch_site *end)
+				  struct paravirt_patch_site *end,
+				  struct module *mod)
 {}
 #define __parainstructions	NULL
 #define __parainstructions_end	NULL

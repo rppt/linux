@@ -36,6 +36,31 @@ do {							\
 } while (0)
 #endif
 
+static unsigned long __writable_offset(struct module *mod, void *loc)
+{
+	if (!mod)
+		return 0;
+
+	for_class_mod_mem_type(type, text) {
+		struct module_memory *mem = &mod->mem[type];
+
+		if (loc >= mem->base && loc < mem->base + mem->size)
+			return (unsigned long)(mem->wr_base - mem->base);
+	}
+
+	return 0;
+}
+
+unsigned long module_writable_offset(struct module *mod, void *loc)
+{
+	return __writable_offset(mod, loc);
+}
+
+static void *writable_loc(struct module *mod, void *loc)
+{
+	return loc + __writable_offset(mod, loc);
+}
+
 #ifdef CONFIG_X86_32
 int apply_relocate(Elf32_Shdr *sechdrs,
 		   const char *strtab,
@@ -146,12 +171,14 @@ static int __write_relocate_add(Elf64_Shdr *sechdrs,
 		}
 
 		if (apply) {
+			void *wr_loc = writable_loc(me, loc);
+
 			if (memcmp(loc, &zero, size)) {
 				pr_err("x86/modules: Invalid relocation target, existing value is nonzero for type %d, loc %p, val %Lx\n",
 				       (int)ELF64_R_TYPE(rel[i].r_info), loc, val);
 				return -ENOEXEC;
 			}
-			write(loc, &val, size);
+			write(wr_loc, &val, size);
 		} else {
 			if (memcmp(loc, &val, size)) {
 				pr_warn("x86/modules: Invalid relocation target, existing value does not match expected value for type %d, loc %p, val %Lx\n",
@@ -259,7 +286,7 @@ int module_finalize(const Elf_Ehdr *hdr,
 	 */
 	if (para) {
 		void *pseg = (void *)para->sh_addr;
-		apply_paravirt(pseg, pseg + para->sh_size);
+		apply_paravirt(pseg, pseg + para->sh_size, me);
 	}
 	if (retpolines || cfi) {
 		void *rseg = NULL, *cseg = NULL;
@@ -275,20 +302,20 @@ int module_finalize(const Elf_Ehdr *hdr,
 			csize = cfi->sh_size;
 		}
 
-		apply_fineibt(rseg, rseg + rsize, cseg, cseg + csize);
+		apply_fineibt(rseg, rseg + rsize, cseg, cseg + csize, me);
 	}
 	if (retpolines) {
 		void *rseg = (void *)retpolines->sh_addr;
-		apply_retpolines(rseg, rseg + retpolines->sh_size);
+		apply_retpolines(rseg, rseg + retpolines->sh_size, me);
 	}
 	if (returns) {
 		void *rseg = (void *)returns->sh_addr;
-		apply_returns(rseg, rseg + returns->sh_size);
+		apply_returns(rseg, rseg + returns->sh_size, me);
 	}
 	if (alt) {
 		/* patch .altinstructions */
 		void *aseg = (void *)alt->sh_addr;
-		apply_alternatives(aseg, aseg + alt->sh_size);
+		apply_alternatives(aseg, aseg + alt->sh_size, me);
 	}
 	if (calls || para) {
 		struct callthunk_sites cs = {};
@@ -307,7 +334,7 @@ int module_finalize(const Elf_Ehdr *hdr,
 	}
 	if (ibt_endbr) {
 		void *iseg = (void *)ibt_endbr->sh_addr;
-		apply_seal_endbr(iseg, iseg + ibt_endbr->sh_size);
+		apply_seal_endbr(iseg, iseg + ibt_endbr->sh_size, me);
 	}
 	if (locks) {
 		void *lseg = (void *)locks->sh_addr;
