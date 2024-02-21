@@ -3489,6 +3489,30 @@ static void move_vmap_to_free_text_tree(void *addr)
 	spin_unlock(&free_text_area_lock);
 }
 
+static void *__vmalloc_node_range_execmem(unsigned long size)
+{
+	unsigned long alloc_size;
+	void *ptr;
+
+
+	/*
+	 * Not enough continuous space in free_text_area_root, try
+	 * allocate more memory. The memory is first added to
+	 * vmap_area_root, and then moved to free_text_area_root.
+	 */
+	alloc_size = roundup(size, PMD_SIZE * num_online_nodes());
+	ptr = __vmalloc_node_range(alloc_size, PMD_SIZE, EXEC_MEM_START,
+				   EXEC_MEM_END, GFP_KERNEL, PAGE_KERNEL,
+				   VM_ALLOW_HUGE_VMAP | VM_NO_GUARD,
+				   NUMA_NO_NODE, __builtin_return_address(0));
+
+	if (!ptr)
+		return NULL;
+
+	move_vmap_to_free_text_tree(ptr);
+	return ptr;
+}
+
 /**
  * vmalloc_execmem - allocate virtually contiguous RO+X memory
  * @size:    allocation size
@@ -3516,25 +3540,14 @@ again:
 	tmp = find_vmap_lowest_match(&free_text_area_root, size, align, 1, false);
 
 	if (!tmp) {
-		unsigned long alloc_size;
 		void *ptr;
 
 		spin_unlock(&free_text_area_lock);
 
-		/*
-		 * Not enough continuous space in free_text_area_root, try
-		 * allocate more memory. The memory is first added to
-		 * vmap_area_root, and then moved to free_text_area_root.
-		 */
-		alloc_size = roundup(size, PMD_SIZE * num_online_nodes());
-		ptr = __vmalloc_node_range(alloc_size, PMD_SIZE, EXEC_MEM_START,
-					   EXEC_MEM_END, GFP_KERNEL, PAGE_KERNEL,
-					   VM_ALLOW_HUGE_VMAP | VM_NO_GUARD,
-					   NUMA_NO_NODE, __builtin_return_address(0));
+		ptr = __vmalloc_node_range_execmem(size);
 		if (unlikely(!ptr))
 			goto err_out;
 
-		move_vmap_to_free_text_tree(ptr);
 		goto again;
 	}
 
