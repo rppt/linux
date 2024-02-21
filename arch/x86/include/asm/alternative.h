@@ -103,7 +103,7 @@ extern void apply_fineibt(s32 *start_retpoline, s32 *end_retpoine,
 			  s32 *start_cfi, s32 *end_cfi, struct module *mod);
 
 /* FIXME: should go to include/linux */
-unsigned long module_writable_offset(struct module *mod, void *loc)
+unsigned long module_writable_offset(struct module *mod, void *loc);
 
 struct paravirt_patch_site;
 
