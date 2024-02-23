@@ -793,9 +793,10 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end,
 
 #else /* !CONFIG_RETPOLINE || !CONFIG_OBJTOOL */
 
-void __init_or_module noinline apply_retpolines(s32 *start, s32 *end) { }
+void __init_or_module noinline apply_retpolines(s32 *start, s32 *end,
+						struct module *mod) { }
 void __init_or_module noinline apply_returns(s32 *start, s32 *end,
-					     struct *module *mod) { }
+					     struct module *mod) { }
 
 #endif /* CONFIG_RETPOLINE && CONFIG_OBJTOOL */
 
