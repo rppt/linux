@@ -435,12 +435,14 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 	 * order.
 	 */
 	for (a = start; a < end; a++) {
+		unsigned long mod_offs;
 		int insn_buff_sz = 0;
 		u8 *wr_instr;
 
 		instr = (u8 *)&a->instr_offset + a->instr_offset;
-		wr_instr = instr + module_writable_offset(mod, instr);
-		replacement = (u8 *)&a->repl_offset + a->repl_offset;
+		mod_offs =  module_writable_offset(mod, instr);
+		wr_instr = instr + mod_offs;
+		replacement = (u8 *)&a->repl_offset + a->repl_offset + mod_offs;
 		BUG_ON(a->instrlen > sizeof(insn_buff));
 		BUG_ON(a->cpuid >= (NCAPINTS + NBUGINTS) * 32);
 
@@ -451,7 +453,7 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		 *   patch if feature is *NOT* present.
 		 */
 		if (!boot_cpu_has(a->cpuid) == !(a->flags & ALT_FLAG_NOT)) {
-			optimize_nops_inplace(instr, a->instrlen);
+			optimize_nops_inplace(wr_instr, a->instrlen);
 			continue;
 		}
 
