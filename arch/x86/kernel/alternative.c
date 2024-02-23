@@ -680,7 +680,7 @@ void __init_or_module noinline apply_retpolines(s32 *start, s32 *end,
 		u8 bytes[16];
 		u8 op1, op2;
 
-		ret = insn_decode_kernel(&insn, addr);
+		ret = insn_decode_kernel(&insn, wr_addr);
 		if (WARN_ON_ONCE(ret < 0))
 			continue;
 
