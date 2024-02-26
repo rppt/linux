@@ -173,7 +173,7 @@ static int __write_relocate_add(Elf64_Shdr *sechdrs,
 		if (apply) {
 			void *wr_loc = writable_loc(me, loc);
 
-			if (memcmp(loc, &zero, size)) {
+			if (memcmp(wr_loc, &zero, size)) {
 				pr_err("x86/modules: Invalid relocation target, existing value is nonzero for type %d, loc %p, val %Lx\n",
 				       (int)ELF64_R_TYPE(rel[i].r_info), loc, val);
 				return -ENOEXEC;
