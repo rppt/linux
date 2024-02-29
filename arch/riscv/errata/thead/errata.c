@@ -16,7 +16,7 @@
 #include <asm/errata_list.h>
 #include <asm/hwprobe.h>
 #include <asm/io.h>
-#include <asm/patch.h>
+#include <asm/text-patching.h>
 #include <asm/vendorid_list.h>
 
 static bool errata_probe_pbmt(unsigned int stage,
