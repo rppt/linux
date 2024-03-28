@@ -40,6 +40,7 @@
 #include <linux/pgtable.h>
 #include <linux/hugetlb.h>
 #include <linux/sched/mm.h>
+#include <linux/execmem.h>
 #include <asm/tlbflush.h>
 #include <asm/shmparam.h>
 
