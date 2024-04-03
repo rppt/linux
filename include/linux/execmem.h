@@ -34,18 +34,33 @@ enum execmem_type {
 };
 
 /**
+ * enum execmem_range_flags - options for executable memory allocations
+ * @EXECMEM_KASAN_SHADOW:	allocate kasan shadow
+ */
+enum execmem_range_flags {
+	EXECMEM_KASAN_SHADOW	= (1 << 0),
+};
+
+/**
  * struct execmem_range - definition of an address space suitable for code and
  *			  related data allocations
  * @start:	address space start
  * @end:	address space end (inclusive)
+ * @fallback_start: start of the secondary address space range for fallback
+ *                  allocations on architectures that require it
+ * @fallback_end:   start of the secondary address space (inclusive)
  * @pgprot:	permissions for memory in this address space
  * @alignment:	alignment required for text allocations
+ * @flags:	options for memory allocations for this range
  */
 struct execmem_range {
 	unsigned long   start;
 	unsigned long   end;
+	unsigned long   fallback_start;
+	unsigned long   fallback_end;
 	pgprot_t        pgprot;
 	unsigned int	alignment;
+	enum execmem_range_flags flags;
 };
 
 /**
@@ -94,5 +109,11 @@ void *execmem_text_alloc(enum execmem_type type, size_t size);
  * @ptr: pointer to the memory that should be freed
  */
 void execmem_free(void *ptr);
+
+#ifdef CONFIG_ARCH_WANTS_EXECMEM_EARLY
+void execmem_early_init(void);
+#else
+static inline void execmem_early_init(void) {}
+#endif
 
 #endif /* _LINUX_EXECMEM_ALLOC_H */

@@ -11,12 +11,44 @@ static void *execmem_alloc(struct execmem_range *range, size_t size)
 {
 	unsigned long start = range->start;
 	unsigned long end = range->end;
+	unsigned long fallback_start = range->fallback_start;
+	unsigned long fallback_end = range->fallback_end;
 	unsigned int align = range->alignment;
 	pgprot_t pgprot = range->pgprot;
+	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
+	unsigned long vm_flags  = VM_FLUSH_RESET_PERMS;
+	bool fallback  = !!fallback_start;
+	gfp_t gfp_flags = GFP_KERNEL | __GFP_NOWARN;
+	void *p;
 
-	return __vmalloc_node_range(size, align, start, end,
-				    GFP_KERNEL, pgprot, VM_FLUSH_RESET_PERMS,
-				    NUMA_NO_NODE, __builtin_return_address(0));
+	if (PAGE_ALIGN(size) > (end - start))
+		return NULL;
+
+	if (kasan)
+		vm_flags |= VM_DEFER_KMEMLEAK;
+
+	p = __vmalloc_node_range(size, align, start, end, gfp_flags,
+				 pgprot, vm_flags, NUMA_NO_NODE,
+				 __builtin_return_address(0));
+	if (!p && fallback) {
+		start = fallback_start;
+		end = fallback_end;
+		p = __vmalloc_node_range(size, align, start, end, gfp_flags,
+					 pgprot, vm_flags, NUMA_NO_NODE,
+					 __builtin_return_address(0));
+	}
+
+	if (!p) {
+		pr_warn_ratelimited("execmem: unable to allocate memory\n");
+		return NULL;
+	}
+
+	if (kasan && (kasan_alloc_module_shadow(p, size, GFP_KERNEL) < 0)) {
+		vfree(p);
+		return NULL;
+	}
+
+	return kasan_reset_tag(p);
 }
 
 void *execmem_text_alloc(enum execmem_type type, size_t size)
@@ -57,12 +89,14 @@ static void execmem_init_missing(struct execmem_info *info)
 
 	for (int i = EXECMEM_DEFAULT + 1; i < EXECMEM_TYPE_MAX; i++) {
 		struct execmem_range *r = &info->ranges[i];
-
 		if (!r->start) {
 			r->pgprot = default_range->pgprot;
 			r->alignment = default_range->alignment;
 			r->start = default_range->start;
 			r->end = default_range->end;
+			r->flags = default_range->flags;
+			r->fallback_start = default_range->fallback_start;
+			r->fallback_end = default_range->fallback_end;
 		}
 	}
 }
@@ -72,7 +106,7 @@ struct execmem_info * __weak execmem_arch_setup(void)
 	return NULL;
 }
 
-static int __init execmem_init(void)
+static int __init __execmem_init(void)
 {
 	struct execmem_info *info = execmem_arch_setup();
 
@@ -88,4 +122,16 @@ static int __init execmem_init(void)
 
 	return 0;
 }
+
+#ifndef CONFIG_ARCH_WANTS_EXECMEM_EARLY
+static int __init execmem_init(void)
+{
+	return __execmem_init();
+}
 core_initcall(execmem_init);
+#else
+void __init execmem_early_init(void)
+{
+	(void)__execmem_init();
+}
+#endif
