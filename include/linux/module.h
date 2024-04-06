@@ -361,12 +361,23 @@ enum mod_mem_type {
 
 struct module_memory {
 	void *base;
+	void *rw_copy;
+	bool read_only;
 	unsigned int size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 	struct mod_tree_node mtn;
 #endif
 };
+
+#ifdef CONFIG_MODULES
+unsigned long module_writable_offset(struct module *mod, void *loc);
+#else
+static inline unsigned long module_writable_offset(struct module *mod, void *loc)
+{
+	return 0;
+}
+#endif
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 /* Only touch one cacheline for common rbtree-for-core-layout case. */
