@@ -72,26 +72,29 @@ u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
 {
 	struct mod_plt_sec *pltsec = !within_module_init((unsigned long)loc, mod) ?
 						&mod->arch.core : &mod->arch.init;
+	struct mod_plt_sec *rw_pltsec = pltsec + module_writable_offset(mod, pltsec);
 	struct plt_entry *plt = (struct plt_entry *)sechdrs[pltsec->plt_shndx].sh_addr;
-	int i = pltsec->plt_num_entries;
+	struct plt_entry *rw_plt = plt + module_writable_offset(mod, plt);
+
+	int i = rw_pltsec->plt_num_entries;
 	int j = i - 1;
 	u64 val = sym->st_value + rela->r_addend;
 
-	if (is_forbidden_offset_for_adrp(&plt[i].adrp))
+	if (is_forbidden_offset_for_adrp(&rw_plt[i].adrp))
 		i++;
 
-	plt[i] = get_plt_entry(val, &plt[i]);
+	rw_plt[i] = get_plt_entry(val, &plt[i]);
 
 	/*
 	 * Check if the entry we just created is a duplicate. Given that the
 	 * relocations are sorted, this will be the last entry we allocated.
 	 * (if one exists).
 	 */
-	if (j >= 0 && plt_entries_equal(plt + i, plt + j))
+	if (j >= 0 && plt_entries_equal(rw_plt + i, rw_plt + j))
 		return (u64)&plt[j];
 
-	pltsec->plt_num_entries += i - j;
-	if (WARN_ON(pltsec->plt_num_entries > pltsec->plt_max_entries))
+	rw_pltsec->plt_num_entries += i - j;
+	if (WARN_ON(rw_pltsec->plt_num_entries > rw_pltsec->plt_max_entries))
 		return 0;
 
 	return (u64)&plt[i];

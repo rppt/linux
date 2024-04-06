@@ -33,7 +33,8 @@ void __init apply_alternatives_all(void);
 bool alternative_is_applied(u16 cpucap);
 
 #ifdef CONFIG_MODULES
-void apply_alternatives_module(void *start, size_t length);
+struct module;
+void apply_alternatives_module(void *start, size_t length, struct module *mod);
 #else
 static inline void apply_alternatives_module(void *start, size_t length) { }
 #endif
