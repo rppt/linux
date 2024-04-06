@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/cpu.h>
 #include <linux/elf.h>
+#include <linux/module.h>
 #include <asm/cacheflush.h>
 #include <asm/alternative.h>
 #include <asm/cpufeature.h>
@@ -142,11 +143,12 @@ static noinstr void clean_dcache_range_nopatch(u64 start, u64 end)
 }
 
 static void __apply_alternatives(const struct alt_region *region,
-				 bool is_module,
+				 struct module *mod,
 				 unsigned long *cpucap_mask)
 {
 	struct alt_instr_info alt_info;
 	struct alt_instr *alt;
+	unsigned long mod_offs = 0;
 	__le32 *origptr;
 	alternative_cb_t alt_cb;
 
@@ -166,6 +168,11 @@ static void __apply_alternatives(const struct alt_region *region,
 			BUG_ON(alt->alt_len != alt->orig_len);
 
 		origptr = ALT_ORIG_PTR(alt);
+		if (mod) {
+			mod_offs = module_writable_offset(mod, origptr);
+			origptr += mod_offs;
+		}
+
 		alt_info.alt = alt;
 		alt_info.mod_offs = mod_offs;
 		alt_info.origptr = origptr;
@@ -179,7 +186,7 @@ static void __apply_alternatives(const struct alt_region *region,
 
 		alt_cb(&alt_info);
 
-		if (!is_module) {
+		if (!mod) {
 			clean_dcache_range_nopatch((u64)origptr,
 						   (u64)(origptr + nr_inst));
 		}
@@ -189,7 +196,7 @@ static void __apply_alternatives(const struct alt_region *region,
 	 * The core module code takes care of cache maintenance in
 	 * flush_module_icache().
 	 */
-	if (!is_module) {
+	if (!mod) {
 		dsb(ish);
 		icache_inval_all_pou();
 		isb();
@@ -222,7 +229,7 @@ static void __init apply_alternatives_vdso(void)
 		.end	= (void *)hdr + alt->sh_offset + alt->sh_size,
 	};
 
-	__apply_alternatives(&region, false, &all_capabilities[0]);
+	__apply_alternatives(&region, NULL, &all_capabilities[0]);
 }
 
 static const struct alt_region kernel_alternatives __initconst = {
@@ -248,7 +255,7 @@ static int __init __apply_alternatives_multi_stop(void *unused)
 				  ARM64_NCAPS);
 
 		BUG_ON(all_alternatives_applied);
-		__apply_alternatives(&kernel_alternatives, false,
+		__apply_alternatives(&kernel_alternatives, NULL,
 				     remaining_capabilities);
 		/* Barriers provided by the cache flushing */
 		all_alternatives_applied = 1;
@@ -278,12 +285,12 @@ void __init apply_boot_alternatives(void)
 
 	pr_info("applying boot alternatives\n");
 
-	__apply_alternatives(&kernel_alternatives, false,
+	__apply_alternatives(&kernel_alternatives, NULL,
 			     &boot_cpucaps[0]);
 }
 
 #ifdef CONFIG_MODULES
-void apply_alternatives_module(void *start, size_t length)
+void apply_alternatives_module(void *start, size_t length, struct module *mod)
 {
 	struct alt_region region = {
 		.begin	= start,
@@ -293,7 +300,7 @@ void apply_alternatives_module(void *start, size_t length)
 
 	bitmap_fill(all_capabilities, ARM64_NCAPS);
 
-	__apply_alternatives(&region, true, &all_capabilities[0]);
+	__apply_alternatives(&region, mod, &all_capabilities[0]);
 }
 #endif
 
