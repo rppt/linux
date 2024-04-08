@@ -76,6 +76,17 @@ struct execmem_range {
 };
 
 /**
+ * execmem_fill_trapping_insns - set memory to contain instructions that
+ *				 will trap
+ * @ptr:	pointer to memory to fill
+ * @size:	size of the range to fill
+ * @writable:	is the memory writable
+ *
+ * A hook for architecures to fill execmem ranges with invalid instructions.
+ */
+void execmem_fill_trapping_insns(void *ptr, size_t size, bool writable);
+
+/**
  * struct execmem_info - architecture parameters for code allocations
  * @ranges: array of parameter sets defining architecture specific
  * parameters for executable memory allocations. The ranges that are not
