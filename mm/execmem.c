@@ -190,6 +190,8 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	vunmap_range_noflush(start, end);
 	flush_tlb_kernel_range(start, end);
 
+	/* FIXME: handle direct map alias */
+
 	err = vmap_pages_range_noflush(start, end, range->pgprot, vm->pages,
 				       PMD_SHIFT);
 	if (err)
