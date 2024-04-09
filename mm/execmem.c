@@ -330,21 +330,24 @@ static bool execmem_cache_free(void *ptr)
 {
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
 	struct mutex *mutex = &execmem_cache.mutex;
-	void *entry;
+	unsigned long addr = (unsigned long)ptr;
+	MA_STATE(mas, busy_areas, addr, addr);
 	size_t size;
+	void *area;
 
 	mutex_lock(mutex);
 
 	pr_info("%s: ptr: %p\n", __func__, ptr);
-	entry = mtree_load(busy_areas, (unsigned long)ptr);
 
-	if (!entry) {
+	area = mas_walk(&mas);
+	if (!area) {
 		mutex_unlock(mutex);
 		return false;
 	}
 
-	size = xa_to_value(entry);
-	mtree_erase(busy_areas, (unsigned long)ptr);
+	size = xa_to_value(area);
+
+	mas_erase(&mas);
 
 	pr_info("%s: size: %lx\n", __func__, size);
 
