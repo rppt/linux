@@ -20,8 +20,10 @@ struct execmem_cache {
 
 static struct execmem_cache execmem_cache = {
 	.mutex = __MUTEX_INITIALIZER(execmem_cache.mutex),
-	.busy_areas = MTREE_INIT(busy_areas, MT_FLAGS_LOCK_EXTERN),
-	.free_areas = MTREE_INIT(free_areas, MT_FLAGS_LOCK_EXTERN),
+	.busy_areas = MTREE_INIT_EXT(busy_areas, MT_FLAGS_LOCK_EXTERN,
+				     execmem_cache.mutex),
+	.free_areas = MTREE_INIT_EXT(free_areas, MT_FLAGS_LOCK_EXTERN,
+				     execmem_cache.mutex),
 };
 
 static void execmem_invalidate(void *ptr, size_t size, bool writable)
