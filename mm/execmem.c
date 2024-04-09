@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include <linux/mm.h>
+#include <linux/mutex.h>
 #include <linux/vmalloc.h>
 #include <linux/execmem.h>
-#include <linux/spinlock.h>
 #include <linux/maple_tree.h>
 #include <linux/moduleloader.h>
 #include <linux/text-patching.h>
@@ -69,22 +69,21 @@ static void *execmem_vmalloc(struct execmem_range *range, size_t size,
 }
 
 struct execmem_cache {
-	spinlock_t lock;
+	struct mutex mutex;
 	struct maple_tree busy_areas;
 	struct maple_tree free_areas;
 };
 
 static struct execmem_cache execmem_cache = {
-	/* .busy_areas = MTREE_INIT(busy_areas, MT_FLAGS_USE_RCU), */
-	/* .free_areas = MTREE_INIT(free_areas, MT_FLAGS_USE_RCU), */
-	.lock = __SPIN_LOCK_UNLOCKED(lock),
-	.busy_areas = MTREE_INIT(busy_areas, 0),
-	.free_areas = MTREE_INIT(free_areas, 0),
+	.mutex = __MUTEX_INITIALIZER(execmem_cache.mutex),
+	.busy_areas = MTREE_INIT(busy_areas, MT_FLAGS_LOCK_EXTERN),
+	.free_areas = MTREE_INIT(free_areas, MT_FLAGS_LOCK_EXTERN),
 };
 
 static int execmem_cache_add(void *ptr, size_t size)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
+	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, free_areas, 0, addr - 1);
 	unsigned long lower, lower_size = 0;
@@ -98,9 +97,9 @@ static int execmem_cache_add(void *ptr, size_t size)
 	lower = addr;
 	upper = addr + size - 1;
 
-	spin_lock(&execmem_cache.lock);
+	mutex_lock(mutex);
 
-	mas_lock(&mas);
+	/* mas_lock(&mas); */
 	entry = mas_walk(&mas);
 	if (entry && xa_is_value(entry) && mas.last == addr - 1) {
 		lower = mas.index;
@@ -123,9 +122,9 @@ static int execmem_cache_add(void *ptr, size_t size)
 
 	mas_set_range(&mas, lower, upper);
 	err = mas_store_gfp(&mas, xa_mk_value(entry_size), GFP_KERNEL);
-	mas_unlock(&mas);
+	/* mas_unlock(&mas); */
 
-	spin_unlock(&execmem_cache.lock);
+	mutex_unlock(mutex);
 
 	if (err)
 		return -ENOMEM;
@@ -137,22 +136,23 @@ static void *__execmem_cache_alloc(size_t size)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
+	MA_STATE(mas_free, free_areas, 0, ULONG_MAX);
+	MA_STATE(mas_busy, busy_areas, 0, ULONG_MAX);
+	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long area_start, area_size = 0;
-	MA_STATE(mas, free_areas, 0, ULONG_MAX);
-	MA_STATE(mas_f, busy_areas, 0, ULONG_MAX);
-	void *entry;
+	void *area;
 	int err;
 
-	spin_lock(&execmem_cache.lock);
+	mutex_lock(mutex);
 
-	mas_lock(&mas);
-	mas_for_each(&mas, entry, ULONG_MAX) {
-		if (!xa_is_value(entry)) {
-			pr_info("==> not entry at %lx\n", mas.index);
+	/* mas_lock(&mas); */
+	mas_for_each(&mas_free, area, ULONG_MAX) {
+		if (!xa_is_value(area)) {
+			pr_info("==> not area at %lx\n", mas_free.index);
 			continue;
 		}
 
-		area_size = xa_to_value(entry);
+		area_size = xa_to_value(area);
 		/* pr_info("===> %lx at %lx\n", area_size, mas.index); */
 		if (area_size >= size)
 			break;
@@ -164,40 +164,42 @@ static void *__execmem_cache_alloc(size_t size)
 		/* return NULL; */
 	}
 
-	area_start = mas.index;
+	area_start = mas_free.index;
 
-	mas_erase(&mas);
+	mas_set_range(&mas_busy, area_start, area_start + size - 1);
+	err = mas_store_gfp(&mas_busy, xa_mk_value(size), GFP_KERNEL);
+	if (err) {
+		pr_info("===> %s: mtree_store: %d\n", __func__, err);
+		return NULL;
+	}
+
+	mas_erase(&mas_free);
 	if (area_size > size) {
-		unsigned long area_end = area_start + area_size;
-		unsigned long new_size = area_size - size;
+		unsigned long last = area_start + area_size - 1;
+		void *new_size = xa_mk_value(area_size - size);
 
-		mas_set_range(&mas, area_start + size, area_end - 1);
-		err = mas_store_gfp(&mas, xa_mk_value(new_size), GFP_KERNEL);
+		mas_set_range(&mas_free, area_start + size, last);
+		err = mas_store_gfp(&mas_free, new_size, GFP_KERNEL);
 		if (err) {
+			mas_erase(&mas_busy);
 			pr_info("===> %s: mas_store: %d\n", __func__, err);
 			goto out_mas_unlock;
 		}
 	}
 
-	mas_unlock(&mas);
+	/* mas_unlock(&mas); */
 
-	mas_lock(&mas_f);
-	mas_set_range(&mas_f, area_start, area_start + size - 1);
-	err = mas_store_gfp(&mas_f, xa_mk_value(size), GFP_KERNEL);
-	mas_unlock(&mas_f);
-	spin_unlock(&execmem_cache.lock);
-
-	if (err) {
-		/* FIXME: return area to the cache? */
-		pr_info("===> %s: mtree_store: %d\n", __func__, err);
-		return NULL;
-	}
+	/* mas_lock(&mas_busy); */
+	/* mas_set_range(&mas_busy, area_start, area_start + size - 1); */
+	/* err = mas_store_gfp(&mas_busy, xa_mk_value(size), GFP_KERNEL); */
+	/* mas_unlock(&mas_busy); */
+	mutex_unlock(mutex);
 
 	return (void *)area_start;
 
 out_mas_unlock:
-	mas_unlock(&mas);
-	spin_unlock(&execmem_cache.lock);
+	/* mas_unlock(&mas); */
+	mutex_unlock(mutex);
 	return NULL;
 }
 
@@ -327,22 +329,26 @@ dump:
 static bool execmem_cache_free(void *ptr)
 {
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
-	void *entry = mtree_load(busy_areas, (unsigned long)ptr);
+	struct mutex *mutex = &execmem_cache.mutex;
+	void *entry;
 	size_t size;
 
-	if (!entry)
-		return false;
-
-	spin_lock(&execmem_cache.lock);
+	mutex_lock(mutex);
 
 	pr_info("%s: ptr: %p\n", __func__, ptr);
+	entry = mtree_load(busy_areas, (unsigned long)ptr);
+
+	if (!entry) {
+		mutex_unlock(mutex);
+		return false;
+	}
 
 	size = xa_to_value(entry);
 	mtree_erase(busy_areas, (unsigned long)ptr);
 
 	pr_info("%s: size: %lx\n", __func__, size);
 
-	spin_unlock(&execmem_cache.lock);
+	mutex_unlock(mutex);
 
 	/* FIXME: invalidate with poke */
 	dump_pagetable("free", (unsigned long)ptr);
