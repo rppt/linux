@@ -119,8 +119,8 @@ static void *__execmem_cache_alloc(size_t size)
 	MA_STATE(mas_free, free_areas, 0, ULONG_MAX);
 	MA_STATE(mas_busy, busy_areas, 0, ULONG_MAX);
 	struct mutex *mutex = &execmem_cache.mutex;
-	unsigned long area_start, area_size = 0;
-	void *area;
+	unsigned long addr, last, area_size = 0;
+	void *area, *ptr = NULL;
 	int err;
 
 	mutex_lock(mutex);
@@ -133,31 +133,34 @@ static void *__execmem_cache_alloc(size_t size)
 	if (area_size < size)
 		goto out_unlock;
 
-	area_start = mas_free.index;
-	mas_set_range(&mas_busy, area_start, area_start + size - 1);
+	addr = mas_free.index;
+	last = mas_free.last;
+
+	/* insert allocated size to busy_areas at range [addr, addr + size) */
+	mas_set_range(&mas_busy, addr, addr + size - 1);
 	err = mas_store_gfp(&mas_busy, xa_mk_value(size), GFP_KERNEL);
 	if (err)
 		goto out_unlock;
 
 	mas_erase(&mas_free);
 	if (area_size > size) {
-		unsigned long last = area_start + area_size - 1;
-		void *new_size = xa_mk_value(area_size - size);
-
-		mas_set_range(&mas_free, area_start + size, last);
-		err = mas_store_gfp(&mas_free, new_size, GFP_KERNEL);
+		/*
+		 * re-insert remaining free size to free_areas at range
+		 * [addr + size, last]
+		 */
+		mas_set_range(&mas_free, addr + size, last);
+		size = area_size - size;
+		err = mas_store_gfp(&mas_free, xa_mk_value(size), GFP_KERNEL);
 		if (err) {
 			mas_erase(&mas_busy);
 			goto out_unlock;
 		}
 	}
-	mutex_unlock(mutex);
-
-	return (void *)area_start;
+	ptr = (void *)addr;
 
 out_unlock:
 	mutex_unlock(mutex);
-	return NULL;
+	return ptr;
 }
 
 static int execmem_cache_populate(struct execmem_range *range, size_t size)
