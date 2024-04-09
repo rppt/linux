@@ -33,6 +33,7 @@
 #include <linux/acpi_iort.h>
 #include <linux/kmemleak.h>
 #include <linux/execmem.h>
+#include <linux/text-patching.h>
 
 #include <asm/boot.h>
 #include <asm/fixmap.h>
@@ -518,6 +519,15 @@ static int __init module_init_limits(void)
 	return 0;
 }
 
+static void execmem_fill_trapping_insns(void *ptr, size_t size, bool writeable)
+{
+	/* fill memory with BREAK_FAULT instructions */
+	if (writeable)
+		memset32(ptr, AARCH64_BREAK_FAULT, size / 4);
+	else
+		aarch64_insn_set(ptr, AARCH64_BREAK_FAULT, size);
+}
+
 static struct execmem_info execmem_info __ro_after_init;
 
 struct execmem_info __init *execmem_arch_setup(void)
@@ -545,11 +555,13 @@ struct execmem_info __init *execmem_arch_setup(void)
 	}
 
 	execmem_info = (struct execmem_info){
+		.fill_trapping_insns = execmem_fill_trapping_insns,
 		.ranges = {
 			[EXECMEM_DEFAULT] = {
+				.flags	= EXECMEM_ROX_CACHE,
 				.start	= start,
 				.end	= end,
-				.pgprot	= PAGE_KERNEL,
+				.pgprot	= PAGE_KERNEL_ROX,
 				.alignment = 1,
 				.fallback_start	= fallback_start,
 				.fallback_end	= fallback_end,
@@ -565,6 +577,14 @@ struct execmem_info __init *execmem_arch_setup(void)
 				.end	= VMALLOC_END,
 				.pgprot	= PAGE_KERNEL,
 				.alignment = 1,
+			},
+			[EXECMEM_MODULE_DATA] = {
+				.start	= start,
+				.end	= end,
+				.pgprot	= PAGE_KERNEL,
+				.alignment = 1,
+				.fallback_start	= fallback_start,
+				.fallback_end	= fallback_end,
 			},
 		},
 	};

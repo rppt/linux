@@ -168,10 +168,8 @@ static void __apply_alternatives(const struct alt_region *region,
 			BUG_ON(alt->alt_len != alt->orig_len);
 
 		origptr = ALT_ORIG_PTR(alt);
-		if (mod) {
-			mod_offs = module_writable_offset(mod, origptr);
-			origptr += mod_offs;
-		}
+		if (mod)
+			origptr = module_writable_address(mod, origptr);
 
 		alt_info.alt = alt;
 		alt_info.mod_offs = mod_offs;

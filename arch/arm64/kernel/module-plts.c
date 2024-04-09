@@ -72,9 +72,9 @@ u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
 {
 	struct mod_plt_sec *pltsec = !within_module_init((unsigned long)loc, mod) ?
 						&mod->arch.core : &mod->arch.init;
-	struct mod_plt_sec *rw_pltsec = pltsec + module_writable_offset(mod, pltsec);
+	struct mod_plt_sec *rw_pltsec = module_writable_address(mod, pltsec);
 	struct plt_entry *plt = (struct plt_entry *)sechdrs[pltsec->plt_shndx].sh_addr;
-	struct plt_entry *rw_plt = plt + module_writable_offset(mod, plt);
+	struct plt_entry *rw_plt = module_writable_address(mod, plt);
 
 	int i = rw_pltsec->plt_num_entries;
 	int j = i - 1;

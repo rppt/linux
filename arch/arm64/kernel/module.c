@@ -233,7 +233,7 @@ int apply_relocate_add(Elf64_Shdr *sechdrs,
 		/* loc corresponds to P in the AArch64 ELF document. */
 		loc = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
-		wr_loc = loc + module_writable_offset(me, loc);
+		wr_loc = module_writable_address(me, loc);
 
 		/* sym is the ELF symbol we're referring to. */
 		sym = (Elf64_Sym *)sechdrs[symindex].sh_addr
