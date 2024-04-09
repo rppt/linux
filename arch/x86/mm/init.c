@@ -1102,9 +1102,23 @@ unsigned long arch_max_swapfile_size(void)
 #endif
 
 #ifdef CONFIG_EXECMEM
+static void execmem_invalidate(void *ptr, size_t size, bool writeable)
+{
+	/* fill memory with INT3 instructions */
+	if (writeable)
+		memset(ptr, 0xcc, size);
+	else
+		text_poke_set(ptr, 0xcc, size);
+}
+
 static struct execmem_info execmem_info __ro_after_init = {
+	.invalidate = execmem_invalidate,
 	.ranges = {
-		[EXECMEM_DEFAULT] = {
+		[EXECMEM_MODULE_TEXT] = {
+			.flags = EXECMEM_KASAN_SHADOW | EXECMEM_ROX_CACHE,
+			.alignment = MODULE_ALIGN,
+		},
+		[EXECMEM_KPROBES...EXECMEM_MODULE_DATA] = {
 			.flags = EXECMEM_KASAN_SHADOW,
 			.alignment = MODULE_ALIGN,
 		},
@@ -1119,9 +1133,16 @@ struct execmem_info __init *execmem_arch_setup(void)
 		offset = get_random_u32_inclusive(1, 1024) * PAGE_SIZE;
 
 	start = MODULES_VADDR + offset;
-	execmem_info.ranges[EXECMEM_DEFAULT].start = start;
-	execmem_info.ranges[EXECMEM_DEFAULT].end = MODULES_END;
-	execmem_info.ranges[EXECMEM_DEFAULT].pgprot = PAGE_KERNEL;
+
+	for (int i = EXECMEM_MODULE_TEXT; i < EXECMEM_TYPE_MAX; i++) {
+		struct execmem_range *r = &execmem_info.ranges[i];
+
+		r->start = start;
+		r->end = MODULES_END;
+		r->pgprot = PAGE_KERNEL;
+	}
+
+	execmem_info.ranges[EXECMEM_MODULE_TEXT].pgprot = PAGE_KERNEL_ROX;
 
 	return &execmem_info;
 }
