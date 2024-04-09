@@ -20,12 +20,52 @@ static void dump_pagetable(const char *msg, unsigned long address)
 
 static struct execmem_info execmem_info;
 
-static void execmem_invalidate(void *ptr, size_t size)
+static void execmem_invalidate(void *ptr, size_t size, bool writable)
 {
 	if (execmem_info.invalidate)
-		execmem_info.invalidate(ptr, size);
+		execmem_info.invalidate(ptr, size, writable);
 	else
 		memset(ptr, 0, size);
+}
+
+static void *execmem_vmalloc(struct execmem_range *range, size_t size,
+			     pgprot_t pgprot, unsigned long vm_flags)
+{
+	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
+	gfp_t gfp_flags = GFP_KERNEL | __GFP_NOWARN;
+	unsigned int align = range->alignment;
+	unsigned long start = range->start;
+	unsigned long end = range->end;
+	void *p;
+
+	if (kasan)
+		vm_flags |= VM_DEFER_KMEMLEAK;
+
+	if (vm_flags & VM_ALLOW_HUGE_VMAP)
+		align = PMD_SIZE;
+
+	p = __vmalloc_node_range(size, align, start, end, gfp_flags, pgprot,
+				 vm_flags, NUMA_NO_NODE,
+				 __builtin_return_address(0));
+	if (!p && range->fallback_start) {
+		start = range->fallback_start;
+		end = range->fallback_end;
+		p = __vmalloc_node_range(size, align, start, end, gfp_flags,
+					 pgprot, vm_flags, NUMA_NO_NODE,
+					 __builtin_return_address(0));
+	}
+
+	if (!p) {
+		pr_warn_ratelimited("execmem: unable to allocate memory\n");
+		return NULL;
+	}
+
+	if (kasan && (kasan_alloc_module_shadow(p, size, GFP_KERNEL) < 0)) {
+		vfree(p);
+		return NULL;
+	}
+
+	return p;
 }
 
 struct execmem_cache {
@@ -161,18 +201,60 @@ out_mas_unlock:
 	return NULL;
 }
 
-static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
+static int execmem_cache_populate(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_FLUSH_RESET_PERMS | VM_ALLOW_HUGE_VMAP;
 	unsigned long start, end;
 	struct vm_struct *vm;
 	size_t alloc_size;
+	int err = -ENOMEM;
+	void *p;
+
+	alloc_size = round_up(size, PMD_SIZE);
+	p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags);
+	if (!p)
+		return err;
+
+	vm = find_vm_area(p);
+	if (!vm)
+		goto err_free_mem;
+
+	/* fill memory with invalid instructions */
+	execmem_invalidate(p, alloc_size, /* writable = */ true);
+
+	start = (unsigned long)p;
+	end = start + alloc_size;
+
+	vunmap_range_noflush(start, end);
+	flush_tlb_kernel_range(start, end);
+
+	err = vmap_pages_range_noflush(start, end, range->pgprot, vm->pages,
+				       PMD_SHIFT);
+	if (err)
+		goto err_free_mem;
+
+	err = execmem_cache_add(p, alloc_size);
+	if (err)
+		goto err_free_mem;
+
+	return 0;
+
+err_free_mem:
+	vfree(p);
+	return err;
+}
+
+static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
+{
+	/* unsigned long vm_flags = VM_FLUSH_RESET_PERMS | VM_ALLOW_HUGE_VMAP; */
+	/* unsigned long start, end; */
+	/* struct vm_struct *vm; */
+	/* size_t alloc_size; */
 	void *p;
 	int err;
 
 	pr_info("===> %s: size: %lx\n", __func__, size);
 
-retry:
 	p = __execmem_cache_alloc(size);
 	if (p) {
 		pr_info("===> %s: cached ptr: %px\n", __func__, p);
@@ -181,58 +263,54 @@ retry:
 		return p;
 	}
 
-	alloc_size = round_up(size, PMD_SIZE);
-	p = __vmalloc_node_range(alloc_size, PMD_SIZE, range->start, range->end,
-				 GFP_KERNEL | __GFP_NOWARN, PAGE_KERNEL,
-				 vm_flags, NUMA_NO_NODE,
-				 __builtin_return_address(0));
-	if (p && range->fallback_start)
-		p = __vmalloc_node_range(alloc_size, PMD_SIZE,
-					 range->fallback_start,
-					 range->fallback_end,
-					 GFP_KERNEL | __GFP_NOWARN, PAGE_KERNEL,
-					 vm_flags, NUMA_NO_NODE,
-					 __builtin_return_address(0));
-	if (!p)
+	err = execmem_cache_populate(range, size);
+	if (err)
 		return NULL;
 
+	return __execmem_cache_alloc(size);
+
+	/* alloc_size = round_up(size, PMD_SIZE); */
+	/* p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags); */
+	/* if (!p) */
+	/* 	return NULL; */
+
 	/* do invalidation, remapping etc */
-	execmem_invalidate(p, alloc_size);
-	vm = find_vm_area(p);
-	if (!vm)
-		goto err_free_mem;
+/* 	execmem_invalidate(p, alloc_size); */
+/* 	vm = find_vm_area(p); */
+/* 	if (!vm) */
+/* 		goto err_free_mem; */
 
-	start = (unsigned long)p;
-	end = (unsigned long)p + alloc_size;
-	vunmap_range_noflush(start, end);
-	flush_tlb_kernel_range(start, end);
+/* 	start = (unsigned long)p; */
+/* 	end = (unsigned long)p + alloc_size; */
+/* 	vunmap_range_noflush(start, end); */
+/* 	flush_tlb_kernel_range(start, end); */
 
-	err = vmap_pages_range_noflush(start, end, PAGE_KERNEL_EXEC, vm->pages,
-				       PMD_SHIFT);
-	if (err)
-		goto err_free_mem;
+/* 	err = vmap_pages_range_noflush(start, end, PAGE_KERNEL_EXEC, vm->pages, */
+/* 				       PMD_SHIFT); */
+/* 	if (err) */
+/* 		goto err_free_mem; */
 
 
-	dump_pagetable("vmap 2M", start);
+/* 	dump_pagetable("vmap 2M", start); */
 
-	err = execmem_cache_add(p, alloc_size);
-	if (err)
-		goto err_free_mem;
+/* 	err = execmem_cache_add(p, alloc_size); */
+/* 	if (err) */
+/* 		goto err_free_mem; */
 
-	goto retry;
+/* 	goto retry; */
 
-	if (alloc_size > size) {
-		err = execmem_cache_add(p + size, alloc_size - size);
-		if (err)
-			goto err_free_mem;
-	}
+/* 	if (alloc_size > size) { */
+/* 		err = execmem_cache_add(p + size, alloc_size - size); */
+/* 		if (err) */
+/* 			goto err_free_mem; */
+/* 	} */
 
-	pr_info("===> %s: pre-cached ptr: %px\n", __func__, p);
-	return p;
+/* 	pr_info("===> %s: pre-cached ptr: %px\n", __func__, p); */
+/* 	return p; */
 
-err_free_mem:
-	vfree(p);
-	return NULL;
+/* err_free_mem: */
+/* 	vfree(p); */
+/* 	return NULL; */
 
 dump:
 	pr_info("> ---------- %s: BUSY: ----------\n", __func__);
@@ -269,60 +347,24 @@ static bool execmem_cache_free(void *ptr)
 	/* FIXME: invalidate with poke */
 	dump_pagetable("free", (unsigned long)ptr);
 
-	execmem_invalidate(ptr, size);
+	execmem_invalidate(ptr, size, /* writable = */ false);
 
 	execmem_cache_add(ptr, size);
 
 	return true;
 }
 
-static void *__execmem_alloc(struct execmem_range *range, size_t size,
-			     unsigned long start, unsigned long end)
-{
-	unsigned int align = range->alignment;
-	pgprot_t pgprot = range->pgprot;
-	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
-	bool use_cache = range->flags & EXECMEM_CACHED;
-	unsigned long vm_flags  = VM_FLUSH_RESET_PERMS;
-	gfp_t gfp_flags = GFP_KERNEL | __GFP_NOWARN;
-
-	if (use_cache)
-		return execmem_cache_alloc(range, size);
-
-	if (kasan)
-		vm_flags |= VM_DEFER_KMEMLEAK;
-
-	return __vmalloc_node_range(size, align, start, end, gfp_flags,
-				    pgprot, vm_flags, NUMA_NO_NODE,
-				    __builtin_return_address(0));
-}
-
 static void *execmem_alloc(struct execmem_range *range, size_t size)
 {
-	unsigned long start = range->start;
-	unsigned long end = range->end;
-	unsigned long fallback_start = range->fallback_start;
-	unsigned long fallback_end = range->fallback_end;
-	bool kasan = range->flags & EXECMEM_KASAN_SHADOW;
-	bool fallback  = !!fallback_start;
+	bool use_cache = range->flags & EXECMEM_CACHED;
+	unsigned long vm_flags = VM_FLUSH_RESET_PERMS;
+	pgprot_t pgprot = range->pgprot;
 	void *p;
 
-	if (PAGE_ALIGN(size) > (end - start))
-		return NULL;
-
-	p = __execmem_alloc(range, size, start, end);
-	if (!p && fallback)
-		p = __execmem_alloc(range, size, fallback_start, fallback_end);
-
-	if (!p) {
-		pr_warn_ratelimited("execmem: unable to allocate memory\n");
-		return NULL;
-	}
-
-	if (kasan && (kasan_alloc_module_shadow(p, size, GFP_KERNEL) < 0)) {
-		vfree(p);
-		return NULL;
-	}
+	if (use_cache)
+		p = execmem_cache_alloc(range, size);
+	else
+		p = execmem_vmalloc(range, size, pgprot, vm_flags);
 
 	return kasan_reset_tag(p);
 }

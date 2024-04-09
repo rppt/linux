@@ -85,7 +85,7 @@ struct execmem_range {
  * @EXECMEM_DEFAULT.
  */
 struct execmem_info {
-	void (*invalidate)(void *ptr, size_t size);
+	void (*invalidate)(void *ptr, size_t size, bool writable);
 	struct execmem_range	ranges[EXECMEM_TYPE_MAX];
 };
 
