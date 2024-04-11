@@ -628,7 +628,7 @@ static void __init map_mem(pgd_t *pgdp)
 	phys_addr_t kernel_end = __pa_symbol(__init_begin);
 	phys_addr_t start, end;
 	phys_addr_t early_kfence_pool;
-	int flags = NO_EXEC_MAPPINGS;
+	int flags = NO_EXEC_MAPPINGS | NO_CONT_MAPPINGS;
 	u64 i;
 
 	/*
