@@ -10,6 +10,16 @@ bool can_set_direct_map(void);
 
 int set_memory_valid(unsigned long addr, int numpages, int enable);
 
+static inline int set_memory_p(unsigned long addr, int numpages)
+{
+	return set_memory_valid(addr, numpages, 1);
+}
+
+static inline int set_memory_np(unsigned long addr, int numpages)
+{
+	return set_memory_valid(addr, numpages, 0);
+}
+
 int set_direct_map_invalid_noflush(struct page *page);
 int set_direct_map_default_noflush(struct page *page);
 bool kernel_page_present(struct page *page);
