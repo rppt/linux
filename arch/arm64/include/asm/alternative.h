@@ -18,8 +18,15 @@ struct alt_instr {
 	u8  alt_len;		/* size of new instruction(s), <= orig_len */
 };
 
-typedef void (*alternative_cb_t)(struct alt_instr *alt,
-				 __le32 *origptr, __le32 *updptr, int nr_inst);
+struct alt_instr_info {
+	struct alt_instr *alt;
+	unsigned long mod_offs;
+	__le32 *origptr;
+	__le32 *updptr;
+	int nr_inst;
+};
+
+typedef void (*alternative_cb_t)(struct alt_instr_info *alt_info);
 
 void __init apply_boot_alternatives(void);
 void __init apply_alternatives_all(void);
@@ -31,8 +38,7 @@ void apply_alternatives_module(void *start, size_t length);
 static inline void apply_alternatives_module(void *start, size_t length) { }
 #endif
 
-void alt_cb_patch_nops(struct alt_instr *alt, __le32 *origptr,
-		       __le32 *updptr, int nr_inst);
+void alt_cb_patch_nops(struct alt_instr_info *alt);
 
 #endif /* __ASSEMBLY__ */
 #endif /* __ASM_ALTERNATIVE_H */

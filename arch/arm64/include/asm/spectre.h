@@ -101,20 +101,13 @@ u8 spectre_bhb_loop_affected(int scope);
 void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *__unused);
 bool try_emulate_el1_ssbs(struct pt_regs *regs, u32 instr);
 
-void spectre_v4_patch_fw_mitigation_enable(struct alt_instr *alt, __le32 *origptr,
-					   __le32 *updptr, int nr_inst);
-void smccc_patch_fw_mitigation_conduit(struct alt_instr *alt, __le32 *origptr,
-				       __le32 *updptr, int nr_inst);
-void spectre_bhb_patch_loop_mitigation_enable(struct alt_instr *alt, __le32 *origptr,
-					      __le32 *updptr, int nr_inst);
-void spectre_bhb_patch_fw_mitigation_enabled(struct alt_instr *alt, __le32 *origptr,
-					     __le32 *updptr, int nr_inst);
-void spectre_bhb_patch_loop_iter(struct alt_instr *alt,
-				 __le32 *origptr, __le32 *updptr, int nr_inst);
-void spectre_bhb_patch_wa3(struct alt_instr *alt,
-			   __le32 *origptr, __le32 *updptr, int nr_inst);
-void spectre_bhb_patch_clearbhb(struct alt_instr *alt,
-				__le32 *origptr, __le32 *updptr, int nr_inst);
+void spectre_v4_patch_fw_mitigation_enable(struct alt_instr_info *alt);
+void smccc_patch_fw_mitigation_conduit(struct alt_instr_info *alt);
+void spectre_bhb_patch_loop_mitigation_enable(struct alt_instr_info *alt);
+void spectre_bhb_patch_fw_mitigation_enabled(struct alt_instr_info *alt);
+void spectre_bhb_patch_loop_iter(struct alt_instr_info *alt);
+void spectre_bhb_patch_wa3(struct alt_instr_info *alt);
+void spectre_bhb_patch_clearbhb(struct alt_instr_info *alt);
 
 #endif	/* __ASSEMBLY__ */
 #endif	/* __ASM_SPECTRE_H */

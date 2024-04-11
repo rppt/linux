@@ -577,11 +577,9 @@ static enum mitigation_state spectre_v4_enable_hw_mitigation(void)
  * Patch a branch over the Spectre-v4 mitigation code with a NOP so that
  * we fallthrough and check whether firmware needs to be called on this CPU.
  */
-void __init spectre_v4_patch_fw_mitigation_enable(struct alt_instr *alt,
-						  __le32 *origptr,
-						  __le32 *updptr, int nr_inst)
+void __init spectre_v4_patch_fw_mitigation_enable(struct alt_instr_info *alt)
 {
-	BUG_ON(nr_inst != 1); /* Branch -> NOP */
+	BUG_ON(alt->nr_inst != 1); /* Branch -> NOP */
 
 	if (spectre_v4_mitigations_off())
 		return;
@@ -590,20 +588,18 @@ void __init spectre_v4_patch_fw_mitigation_enable(struct alt_instr *alt,
 		return;
 
 	if (spectre_v4_mitigations_dynamic())
-		*updptr = cpu_to_le32(aarch64_insn_gen_nop());
+		*alt->updptr = cpu_to_le32(aarch64_insn_gen_nop());
 }
 
 /*
  * Patch a NOP in the Spectre-v4 mitigation code with an SMC/HVC instruction
  * to call into firmware to adjust the mitigation state.
  */
-void __init smccc_patch_fw_mitigation_conduit(struct alt_instr *alt,
-					       __le32 *origptr,
-					       __le32 *updptr, int nr_inst)
+void __init smccc_patch_fw_mitigation_conduit(struct alt_instr_info *alt)
 {
 	u32 insn;
 
-	BUG_ON(nr_inst != 1); /* NOP -> HVC/SMC */
+	BUG_ON(alt->nr_inst != 1); /* NOP -> HVC/SMC */
 
 	switch (arm_smccc_1_1_get_conduit()) {
 	case SMCCC_CONDUIT_HVC:
@@ -616,7 +612,7 @@ void __init smccc_patch_fw_mitigation_conduit(struct alt_instr *alt,
 		return;
 	}
 
-	*updptr = cpu_to_le32(insn);
+	*alt->updptr = cpu_to_le32(insn);
 }
 
 static enum mitigation_state spectre_v4_enable_fw_mitigation(void)
@@ -1073,62 +1069,56 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 }
 
 /* Patched to NOP when enabled */
-void noinstr spectre_bhb_patch_loop_mitigation_enable(struct alt_instr *alt,
-						     __le32 *origptr,
-						      __le32 *updptr, int nr_inst)
+void noinstr spectre_bhb_patch_loop_mitigation_enable(struct alt_instr_info *alt)
 {
-	BUG_ON(nr_inst != 1);
+	BUG_ON(alt->nr_inst != 1);
 
 	if (test_bit(BHB_LOOP, &system_bhb_mitigations))
-		*updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
+		*alt->updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
 }
 
 /* Patched to NOP when enabled */
-void noinstr spectre_bhb_patch_fw_mitigation_enabled(struct alt_instr *alt,
-						   __le32 *origptr,
-						   __le32 *updptr, int nr_inst)
+void noinstr spectre_bhb_patch_fw_mitigation_enabled(struct alt_instr_info *alt)
 {
-	BUG_ON(nr_inst != 1);
+	BUG_ON(alt->nr_inst != 1);
 
 	if (test_bit(BHB_FW, &system_bhb_mitigations))
-		*updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
+		*alt->updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
 }
 
 /* Patched to correct the immediate */
-void noinstr spectre_bhb_patch_loop_iter(struct alt_instr *alt,
-				   __le32 *origptr, __le32 *updptr, int nr_inst)
+void noinstr spectre_bhb_patch_loop_iter(struct alt_instr_info *alt)
 {
 	u8 rd;
 	u32 insn;
 	u16 loop_count = spectre_bhb_loop_affected(SCOPE_SYSTEM);
 
-	BUG_ON(nr_inst != 1); /* MOV -> MOV */
+	BUG_ON(alt->nr_inst != 1); /* MOV -> MOV */
 
 	if (!IS_ENABLED(CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY))
 		return;
 
-	insn = le32_to_cpu(*origptr);
+	insn = le32_to_cpu(*alt->origptr);
 	rd = aarch64_insn_decode_register(AARCH64_INSN_REGTYPE_RD, insn);
 	insn = aarch64_insn_gen_movewide(rd, loop_count, 0,
 					 AARCH64_INSN_VARIANT_64BIT,
 					 AARCH64_INSN_MOVEWIDE_ZERO);
-	*updptr++ = cpu_to_le32(insn);
+	*alt->updptr++ = cpu_to_le32(insn);
 }
 
 /* Patched to mov WA3 when supported */
-void noinstr spectre_bhb_patch_wa3(struct alt_instr *alt,
-				   __le32 *origptr, __le32 *updptr, int nr_inst)
+void noinstr spectre_bhb_patch_wa3(struct alt_instr_info *alt)
 {
 	u8 rd;
 	u32 insn;
 
-	BUG_ON(nr_inst != 1); /* MOV -> MOV */
+	BUG_ON(alt->nr_inst != 1); /* MOV -> MOV */
 
 	if (!IS_ENABLED(CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY) ||
 	    !test_bit(BHB_FW, &system_bhb_mitigations))
 		return;
 
-	insn = le32_to_cpu(*origptr);
+	insn = le32_to_cpu(*alt->origptr);
 	rd = aarch64_insn_decode_register(AARCH64_INSN_REGTYPE_RD, insn);
 
 	insn = aarch64_insn_gen_logical_immediate(AARCH64_INSN_LOGIC_ORR,
@@ -1138,20 +1128,19 @@ void noinstr spectre_bhb_patch_wa3(struct alt_instr *alt,
 	if (WARN_ON_ONCE(insn == AARCH64_BREAK_FAULT))
 		return;
 
-	*updptr++ = cpu_to_le32(insn);
+	*alt->updptr++ = cpu_to_le32(insn);
 }
 
 /* Patched to NOP when not supported */
-void __init spectre_bhb_patch_clearbhb(struct alt_instr *alt,
-				   __le32 *origptr, __le32 *updptr, int nr_inst)
+void __init spectre_bhb_patch_clearbhb(struct alt_instr_info *alt)
 {
-	BUG_ON(nr_inst != 2);
+	BUG_ON(alt->nr_inst != 2);
 
 	if (test_bit(BHB_INSN, &system_bhb_mitigations))
 		return;
 
-	*updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
-	*updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
+	*alt->updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
+	*alt->updptr++ = cpu_to_le32(aarch64_insn_gen_nop());
 }
 
 #ifdef CONFIG_BPF_SYSCALL
