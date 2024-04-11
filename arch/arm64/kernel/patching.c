@@ -240,3 +240,83 @@ int __kprobes aarch64_insn_patch_text(void *addrs[], u32 insns[], int cnt)
 	return stop_machine_cpuslocked(aarch64_insn_patch_text_cb, &patch,
 				       cpu_online_mask);
 }
+
+struct aarch64_text_patch {
+	void		*dst;
+	void		*src;
+	size_t		len;
+	atomic_t	cpu_count;
+};
+
+static int __kprobes aarch64_text_patch_nosync(struct aarch64_text_patch *pp)
+{
+	unsigned long flags = 0;
+	void *dst = pp->dst;
+	void *src = pp->src;
+	int ret;
+
+	raw_spin_lock_irqsave(&patch_lock, flags);
+
+	while (pp->len) {
+		size_t len = min((pp->len), PAGE_SIZE);
+		void *waddr;
+
+		waddr = patch_map(dst, FIX_TEXT_POKE0);
+
+		ret = copy_to_kernel_nofault(waddr, src, len);
+
+		patch_unmap(FIX_TEXT_POKE0);
+
+		if (ret)
+			break;;
+
+		pp->len -= len;
+		src += len;
+		dst += len;
+	}
+
+	raw_spin_unlock_irqrestore(&patch_lock, flags);
+
+	return ret;
+}
+
+static int __kprobes aarch64_text_patch_cb(void *arg)
+{
+	int ret = 0;
+	struct aarch64_text_patch *pp = arg;
+
+	/* The last CPU becomes master */
+	if (atomic_inc_return(&pp->cpu_count) == num_online_cpus()) {
+		ret = aarch64_text_patch_nosync(pp);
+
+		/* Notify other processors with an additional increment. */
+		atomic_inc(&pp->cpu_count);
+	} else {
+		while (atomic_read(&pp->cpu_count) <= num_online_cpus())
+			cpu_relax();
+		isb();
+	}
+
+	return ret;
+}
+
+void *text_poke_copy(void *dst, const void *src, size_t len)
+{
+	struct aarch64_text_patch patch = {
+		.dst = dst,
+		.src = (void *)src,
+		.len = len,
+		.cpu_count = ATOMIC_INIT(0),
+	};
+	int ret;
+
+	if (WARN_ON_ONCE(len <= 0))
+		return NULL;
+
+	ret = stop_machine_cpuslocked(aarch64_text_patch_cb, &patch,
+				      cpu_online_mask);
+	if (ret)
+		return NULL;
+
+	return dst;
+}

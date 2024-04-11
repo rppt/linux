@@ -14,4 +14,7 @@ void *aarch64_insn_copy(void *dst, void *src, size_t len);
 int aarch64_insn_patch_text_nosync(void *addr, u32 insn);
 int aarch64_insn_patch_text(void *addrs[], u32 insns[], int cnt);
 
+void *text_poke_copy(void *dst, const void *src, size_t len);
+#define text_poke_copy text_poke_copy
+
 #endif	/* __ASM_PATCHING_H */
