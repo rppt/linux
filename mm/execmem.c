@@ -10,6 +10,7 @@
 #include <linux/mutex.h>
 #include <linux/vmalloc.h>
 #include <linux/execmem.h>
+#include <linux/set_memory.h>
 #include <linux/maple_tree.h>
 #include <linux/moduleloader.h>
 #include <linux/text-patching.h>
@@ -36,6 +37,43 @@ static struct execmem_cache execmem_cache = {
 				     execmem_cache.mutex),
 };
 
+static int execmem_set_direct_map(struct vm_struct *vm, bool valid)
+{
+	int nr_pages = vm->nr_pages;
+
+	if (vm->page_order == PMD_ORDER) {
+		unsigned long addr = (unsigned long)page_address(vm->pages[0]);
+		if (valid)
+			return set_memory_p(addr, nr_pages);
+		else
+			return set_memory_np(addr, nr_pages);
+	}
+
+	for (int i = 0; i < vm->nr_pages; i++) {
+		if (valid)
+			set_direct_map_default_noflush(vm->pages[i]);
+		else
+			set_direct_map_invalid_noflush(vm->pages[i]);
+	}
+
+	return 0;
+}
+
+static int execmem_set_direct_map_invalid(struct vm_struct *vm)
+{
+	return execmem_set_direct_map(vm, false);
+}
+
+static int execmem_set_direct_map_valid(void *ptr)
+{
+	struct vm_struct *vm = find_vm_area(ptr);
+
+	if (!vm)
+		return -ENOMEM;
+
+	return execmem_set_direct_map(vm, true);
+}
+
 static void execmem_cache_clean(struct work_struct *work)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
@@ -57,6 +95,7 @@ static void execmem_cache_clean(struct work_struct *work)
 			void *ptr = (void *)mas.index;
 
 			mas_erase(&mas);
+			execmem_set_direct_map_valid(ptr);
 			vfree(ptr);
 		}
 	}
@@ -243,6 +282,12 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	end = start + alloc_size;
 
 	vunmap_range(start, end);
+
+	err = execmem_set_direct_map_invalid(vm);
+	if (err) {
+		pr_err("===> %s: set_direct_map: %d\n", __func__, err);
+		goto err_free_mem;
+	}
 
 	err = vmap_pages_range_noflush(start, end, range->pgprot, vm->pages,
 				       PMD_SHIFT);
