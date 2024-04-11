@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/vmalloc.h>
+#include <linux/pagewalk.h>
 
 #include <asm/cacheflush.h>
 #include <asm/set_memory.h>
@@ -45,6 +46,53 @@ static int change_page_range(pte_t *ptep, unsigned long addr, void *data)
 	return 0;
 }
 
+static int change_pmd(pmd_t *pmdp, unsigned long addr, void *data)
+{
+	struct page_change_data *cdata = data;
+	pmd_t pmd, old_pmd = READ_ONCE(*pmdp);
+
+	pmd = old_pmd;
+	pmd = clear_pmd_bit(pmd, cdata->clear_mask);
+	pmd = set_pmd_bit(pmd, cdata->set_mask);
+
+	if (!pgattr_change_is_safe(pmd_val(old_pmd), pmd_val(pmd))) {
+		pr_err("===> %s: !pgattr_change_is_safe\n", __func__);
+		return -EINVAL;
+	}
+
+	set_pmd(pmdp, pmd);
+	return 0;
+}
+
+static int pageattr_pmd_entry(pmd_t *pmdp, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
+{
+	pmd_t pmd = READ_ONCE(*pmdp);
+
+	if (pmd_present(pmd) && !pmd_leaf(pmd))
+		return 0;
+
+	/* only allow setting entire leaf PMDs */
+	if (((addr | next) & ~PMD_MASK)) {
+		pr_err("===> %s: not aligned: addr: %lx next: %lx\n", __func__, addr, next);
+		return -EINVAL;
+	}
+
+	return change_pmd(pmdp, addr, walk->private);
+}
+
+static int pageattr_pte_entry(pte_t *pte, unsigned long addr,
+			      unsigned long next, struct mm_walk *walk)
+{
+	return change_page_range(pte, addr, walk->private);
+}
+
+static const struct mm_walk_ops pageattr_ops = {
+	.pmd_entry = pageattr_pmd_entry,
+	.pte_entry = pageattr_pte_entry,
+	.walk_lock = PGWALK_RDLOCK,
+};
+
 /*
  * This function assumes that the range is mapped with PAGE_SIZE pages.
  */
@@ -57,8 +105,10 @@ static int __change_memory_common(unsigned long start, unsigned long size,
 	data.set_mask = set_mask;
 	data.clear_mask = clear_mask;
 
-	ret = apply_to_page_range(&init_mm, start, size, change_page_range,
-					&data);
+	mmap_write_lock(&init_mm);
+	ret = walk_page_range_novma(&init_mm,  start, start + size,
+				    &pageattr_ops, NULL, &data);
+	mmap_write_unlock(&init_mm);
 
 	flush_tlb_kernel_range(start, start + size);
 	return ret;
