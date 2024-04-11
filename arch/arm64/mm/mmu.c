@@ -58,6 +58,8 @@ static bool rodata_is_rw __ro_after_init = true;
  */
 long __section(".mmuoff.data.write") __early_cpu_boot_status;
 
+early_param_on_off("gbpages", "nogbpages", direct_gbpages, 1);
+
 /*
  * Empty_zero_page is a special page that is used for zero-initialized data
  * and COW.
@@ -358,7 +360,7 @@ static void alloc_init_pud(p4d_t *p4dp, unsigned long addr, unsigned long end,
 		 */
 		if (pud_sect_supported() &&
 		   ((addr | next | phys) & ~PUD_MASK) == 0 &&
-		    (flags & NO_BLOCK_MAPPINGS) == 0) {
+		    (flags & NO_BLOCK_MAPPINGS) == 0 && direct_gbpages) {
 			pud_set_huge(pudp, phys, prot);
 
 			/*
