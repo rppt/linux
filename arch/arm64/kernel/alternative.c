@@ -54,19 +54,15 @@ static __always_inline bool branch_insn_requires_update(struct alt_instr *alt, u
 	return !(pc >= replptr && pc <= (replptr + alt->alt_len));
 }
 
-#define align_down(x, a)	((unsigned long)(x) & ~(((unsigned long)(a)) - 1))
-
-static __always_inline u32 get_alt_insn(struct alt_instr *alt, __le32 *insnptr, __le32 *altinsnptr)
+static __always_inline u32 get_alt_insn(struct alt_instr *alt, u32 insn,
+					unsigned long insnaddr,
+					unsigned long altinsnaddr)
 {
-	u32 insn;
-
-	insn = le32_to_cpu(*altinsnptr);
-
 	if (aarch64_insn_is_branch_imm(insn)) {
 		s32 offset = aarch64_get_branch_offset(insn);
 		unsigned long target;
 
-		target = (unsigned long)altinsnptr + offset;
+		target = altinsnaddr + offset;
 
 		/*
 		 * If we're branching inside the alternate sequence,
@@ -74,7 +70,7 @@ static __always_inline u32 get_alt_insn(struct alt_instr *alt, __le32 *insnptr, 
 		 * correct. Otherwise, generate the new instruction.
 		 */
 		if (branch_insn_requires_update(alt, target)) {
-			offset = target - (unsigned long)insnptr;
+			offset = target - insnaddr;
 			insn = aarch64_set_branch_offset(insn, offset);
 		}
 	} else if (aarch64_insn_is_adrp(insn)) {
@@ -87,8 +83,8 @@ static __always_inline u32 get_alt_insn(struct alt_instr *alt, __le32 *insnptr, 
 		 * PC. adrp operates on 4K aligned addresses.
 		 */
 		orig_offset  = aarch64_insn_adrp_get_offset(insn);
-		target = align_down(altinsnptr, SZ_4K) + orig_offset;
-		new_offset = target - align_down(insnptr, SZ_4K);
+		target = ALIGN_DOWN(altinsnaddr, SZ_4K) + orig_offset;
+		new_offset = target - ALIGN_DOWN(insnaddr, SZ_4K);
 		insn = aarch64_insn_adrp_set_offset(insn, new_offset);
 	} else if (aarch64_insn_uses_literal(insn)) {
 		/*
@@ -101,17 +97,23 @@ static __always_inline u32 get_alt_insn(struct alt_instr *alt, __le32 *insnptr, 
 	return insn;
 }
 
-static noinstr void patch_alternative(struct alt_instr *alt,
-			      __le32 *origptr, __le32 *updptr, int nr_inst)
+static noinstr void patch_alternative(struct alt_instr_info *alt_info)
 {
+	unsigned long mod_offs = alt_info->mod_offs;
+	struct alt_instr *alt = alt_info->alt;
+	__le32 *origptr = alt_info->origptr;
+	__le32 *updptr = alt_info->updptr;
 	__le32 *replptr;
+	int nr_inst = alt_info->nr_inst;
 	int i;
 
-	replptr = ALT_REPL_PTR(alt);
+	replptr = ALT_REPL_PTR(alt) + mod_offs;
 	for (i = 0; i < nr_inst; i++) {
-		u32 insn;
+		unsigned long insnaddr = (unsigned long)(origptr + i - mod_offs);
+		unsigned long repladdr = (unsigned long)(replptr + i - mod_offs);
+		u32 insn = le32_to_cpu(*(replptr + i));
 
-		insn = get_alt_insn(alt, origptr + i, replptr + i);
+		insn = get_alt_insn(alt, insn, insnaddr, repladdr);
 		updptr[i] = cpu_to_le32(insn);
 	}
 }
@@ -143,8 +145,9 @@ static void __apply_alternatives(const struct alt_region *region,
 				 bool is_module,
 				 unsigned long *cpucap_mask)
 {
+	struct alt_instr_info alt_info;
 	struct alt_instr *alt;
-	__le32 *origptr, *updptr;
+	__le32 *origptr;
 	alternative_cb_t alt_cb;
 
 	for (alt = region->begin; alt < region->end; alt++) {
@@ -163,15 +166,18 @@ static void __apply_alternatives(const struct alt_region *region,
 			BUG_ON(alt->alt_len != alt->orig_len);
 
 		origptr = ALT_ORIG_PTR(alt);
-		updptr = is_module ? origptr : lm_alias(origptr);
-		nr_inst = alt->orig_len / AARCH64_INSN_SIZE;
+		alt_info.alt = alt;
+		alt_info.mod_offs = mod_offs;
+		alt_info.origptr = origptr;
+		alt_info.updptr = mod ? origptr : lm_alias(origptr);
+		alt_info.nr_inst = nr_inst = alt->orig_len / AARCH64_INSN_SIZE;
 
 		if (ALT_HAS_CB(alt))
 			alt_cb  = ALT_REPL_PTR(alt);
 		else
 			alt_cb = patch_alternative;
 
-		alt_cb(alt, origptr, updptr, nr_inst);
+		alt_cb(&alt_info);
 
 		if (!is_module) {
 			clean_dcache_range_nopatch((u64)origptr,
@@ -291,10 +297,9 @@ void apply_alternatives_module(void *start, size_t length)
 }
 #endif
 
-noinstr void alt_cb_patch_nops(struct alt_instr *alt, __le32 *origptr,
-			       __le32 *updptr, int nr_inst)
+noinstr void alt_cb_patch_nops(struct alt_instr_info *alt_info)
 {
-	for (int i = 0; i < nr_inst; i++)
-		updptr[i] = cpu_to_le32(aarch64_insn_gen_nop());
+	for (int i = 0; i < alt_info->nr_inst; i++)
+		alt_info->updptr[i] = cpu_to_le32(aarch64_insn_gen_nop());
 }
 EXPORT_SYMBOL(alt_cb_patch_nops);

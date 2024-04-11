@@ -99,8 +99,7 @@ alternative_cb_end
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_host.h>
 
-void kvm_update_va_mask(struct alt_instr *alt,
-			__le32 *origptr, __le32 *updptr, int nr_inst);
+void kvm_update_va_mask(struct alt_instr_info *alt);
 void kvm_compute_layout(void);
 void kvm_apply_hyp_relocations(void);
 
