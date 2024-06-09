@@ -3,24 +3,7 @@
 #define _LINUX_NUMA_H
 #include <linux/init.h>
 #include <linux/types.h>
-
-#ifdef CONFIG_NODES_SHIFT
-#define NODES_SHIFT     CONFIG_NODES_SHIFT
-#else
-#define NODES_SHIFT     0
-#endif
-
-#define MAX_NUMNODES    (1 << NODES_SHIFT)
-
-#define	NUMA_NO_NODE	(-1)
-#define	NUMA_NO_MEMBLK	(-1)
-
-/* optionally keep NUMA memory info available post init */
-#ifdef CONFIG_NUMA_KEEP_MEMINFO
-#define __initdata_or_meminfo
-#else
-#define __initdata_or_meminfo __initdata
-#endif
+#include <linux/numa_defs.h>
 
 #ifdef CONFIG_NUMA
 #include <asm/sparsemem.h>

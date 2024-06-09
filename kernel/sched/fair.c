@@ -48,6 +48,7 @@
 #include <linux/ratelimit.h>
 #include <linux/task_work.h>
 #include <linux/rbtree_augmented.h>
+#include <linux/numa.h>
 
 #include <asm/switch_to.h>
 

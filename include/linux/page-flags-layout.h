@@ -2,7 +2,7 @@
 #ifndef PAGE_FLAGS_LAYOUT_H
 #define PAGE_FLAGS_LAYOUT_H
 
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 #include <generated/bounds.h>
 
 /*

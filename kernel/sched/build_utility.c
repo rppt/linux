@@ -43,6 +43,7 @@
 #include <linux/utsname.h>
 #include <linux/wait_api.h>
 #include <linux/workqueue_api.h>
+#include <linux/numa.h>
 
 #include <uapi/linux/prctl.h>
 #include <uapi/linux/sched/types.h>

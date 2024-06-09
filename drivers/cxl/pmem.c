@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include <linux/ndctl.h>
 #include <linux/async.h>
+#include <linux/numa.h>
 #include <linux/slab.h>
 #include <linux/nd.h>
 #include "cxlmem.h"

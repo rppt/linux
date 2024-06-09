@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright(c) 2023 Intel Corporation. All rights reserved. */
 #include <linux/module.h>
+#include <linux/numa.h>
 #include <linux/dax.h>
 
 #include "../cxl/cxl.h"

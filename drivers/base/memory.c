@@ -22,6 +22,7 @@
 #include <linux/stat.h>
 #include <linux/slab.h>
 #include <linux/xarray.h>
+#include <linux/numa.h>
 
 #include <linux/atomic.h>
 #include <linux/uaccess.h>

@@ -12,7 +12,7 @@
 #include <linux/percpu.h>
 #include <linux/err.h>
 #include <linux/rbtree_latch.h>
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 #include <linux/mm_types.h>
 #include <linux/wait.h>
 #include <linux/refcount.h>

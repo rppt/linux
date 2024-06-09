@@ -17,7 +17,6 @@
 #include <linux/completion.h>
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
-#include <linux/numa.h>
 
 #define EDAC_DEVICE_NAME_LEN	31
 

@@ -3,7 +3,7 @@
 #define __LINUX_NODEMASK_TYPES_H
 
 #include <linux/bitops.h>
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 
 typedef struct { DECLARE_BITMAP(bits, MAX_NUMNODES); } nodemask_t;
 

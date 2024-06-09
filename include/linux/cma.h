@@ -4,7 +4,7 @@
 
 #include <linux/init.h>
 #include <linux/types.h>
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 
 #ifdef CONFIG_CMA_AREAS
 #define MAX_CMA_AREAS	CONFIG_CMA_AREAS

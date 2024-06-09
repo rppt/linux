@@ -3,6 +3,8 @@
 #define __ASM_GENERIC_NUMA_H
 
 #ifdef CONFIG_NUMA
+#include <linux/cpumask.h>
+#include <linux/nodemask.h>
 
 #define NR_NODE_MEMBLKS		(MAX_NUMNODES * 2)
 

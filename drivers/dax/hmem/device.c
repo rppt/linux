@@ -2,6 +2,7 @@
 #include <linux/platform_device.h>
 #include <linux/memregion.h>
 #include <linux/module.h>
+#include <linux/numa.h>
 #include <linux/dax.h>
 #include <linux/mm.h>
 

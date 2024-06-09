@@ -12,7 +12,7 @@
 #include <linux/bitops.h>
 #include <linux/cache.h>
 #include <linux/threads.h>
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 #include <linux/init.h>
 #include <linux/seqlock.h>
 #include <linux/nodemask.h>

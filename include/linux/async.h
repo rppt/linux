@@ -10,7 +10,7 @@
 
 #include <linux/types.h>
 #include <linux/list.h>
-#include <linux/numa.h>
+#include <linux/numa_defs.h>
 #include <linux/device.h>
 
 typedef u64 async_cookie_t;

@@ -5,6 +5,7 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/memory.h>
+#include <linux/numa.h>
 #include <linux/slab.h>
 #include <linux/uuid.h>
 #include <linux/sort.h>

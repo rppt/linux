@@ -11,6 +11,7 @@
 #include <linux/mutex.h>
 #include <linux/ndctl.h>
 #include <linux/types.h>
+#include <linux/numa.h>
 #include <linux/nd.h>
 #include "label.h"
 

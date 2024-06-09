@@ -25,6 +25,7 @@
 #include <linux/notifier.h>
 #include <linux/percpu_counter.h>
 #include <linux/page_reporting.h>
+#include <linux/numa.h>
 
 #include <linux/hyperv.h>
 #include <asm/hyperv-tlfs.h>
