@@ -10,6 +10,7 @@
 #include <linux/pkeys.h>
 #include <linux/debugfs.h>
 #include <linux/proc_fs.h>
+#include <linux/numa.h>
 #include <misc/cxl-base.h>
 
 #include <asm/pgalloc.h>

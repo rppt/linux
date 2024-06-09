@@ -6,7 +6,7 @@
 #include <linux/numa_defs.h>
 
 #ifdef CONFIG_NUMA
-#include <asm/sparsemem.h>
+#include <asm/numa.h>
 
 /* Generic implementation available */
 int numa_nearest_node(int node, unsigned int state);

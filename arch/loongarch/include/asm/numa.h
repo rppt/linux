@@ -64,4 +64,9 @@ static inline int early_cpu_to_node(int cpu)
 
 #endif	/* CONFIG_NUMA */
 
+#ifdef CONFIG_MEMORY_HOTPLUG
+int memory_add_physaddr_to_nid(u64 addr);
+#define memory_add_physaddr_to_nid memory_add_physaddr_to_nid
+#endif
+
 #endif	/* _ASM_LOONGARCH_NUMA_H */

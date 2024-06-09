@@ -25,8 +25,8 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
+#include <linux/numa.h>
 #include <asm/cputhreads.h>
-#include <asm/sparsemem.h>
 #include <asm/smp.h>
 #include <asm/topology.h>
 #include <asm/firmware.h>

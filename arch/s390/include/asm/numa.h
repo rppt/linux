@@ -12,8 +12,6 @@
 
 #ifdef CONFIG_NUMA
 
-#include <linux/numa.h>
-
 void numa_setup(void);
 
 #else
