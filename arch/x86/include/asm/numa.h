@@ -9,11 +9,6 @@
 #include <asm/apicdef.h>
 
 #ifdef CONFIG_NUMA
-
-#define NR_NODE_MEMBLKS		(MAX_NUMNODES*2)
-
-extern int numa_off;
-
 /*
  * __apicid_to_node[] stores the raw mapping between physical apicid and
  * node and is used to initialize cpu_to_node mapping.
@@ -23,9 +18,7 @@ extern int numa_off;
  * numa_cpu_node().
  */
 extern s16 __apicid_to_node[MAX_LOCAL_APIC];
-extern nodemask_t numa_nodes_parsed __initdata;
 
-extern int __init numa_add_memblk(int nodeid, u64 start, u64 end);
 extern void __init numa_set_distance(int from, int to, int distance);
 
 static inline void set_apicid_to_node(int apicid, s16 node)
@@ -52,17 +45,11 @@ static inline int numa_cpu_node(int cpu)
 
 #ifdef CONFIG_NUMA
 extern void numa_set_node(int cpu, int node);
-extern void numa_clear_node(int cpu);
 extern void __init init_cpu_to_node(void);
-extern void numa_add_cpu(int cpu);
-extern void numa_remove_cpu(int cpu);
 extern void init_gi_nodes(void);
 #else	/* CONFIG_NUMA */
 static inline void numa_set_node(int cpu, int node)	{ }
-static inline void numa_clear_node(int cpu)		{ }
 static inline void init_cpu_to_node(void)		{ }
-static inline void numa_add_cpu(int cpu)		{ }
-static inline void numa_remove_cpu(int cpu)		{ }
 static inline void init_gi_nodes(void)			{ }
 #endif	/* CONFIG_NUMA */
 
@@ -80,5 +67,7 @@ static inline int numa_emu_cmdline(char *str)
 	return -EINVAL;
 }
 #endif /* CONFIG_NUMA_EMU */
+
+#include <asm-generic/numa.h>
 
 #endif	/* _ASM_X86_NUMA_H */

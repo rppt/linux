@@ -57,7 +57,6 @@ static inline int early_cpu_to_node(int cpu)
 {
 	return early_per_cpu(x86_cpu_to_node_map, cpu);
 }
-
 #endif /* !CONFIG_DEBUG_PER_CPU_MAPS */
 
 /* Mappings between node number and cpus on that node. */
@@ -72,6 +71,7 @@ static inline const struct cpumask *cpumask_of_node(int node)
 	return node_to_cpumask_map[node];
 }
 #endif
+#define cpumask_of_node cpumask_of_node
 
 extern void setup_node_to_cpumask_map(void);
 
