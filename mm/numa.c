@@ -331,7 +331,7 @@ void __init numa_reset_distance(void)
 	numa_distance = NULL;	/* enable table creation */
 }
 
-static int __init numa_alloc_distance(void)
+int __init numa_alloc_distance(void)
 {
 	nodemask_t nodes_parsed;
 	size_t size;

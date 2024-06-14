@@ -18,6 +18,7 @@
 #include <linux/efi.h>
 #include <linux/irq.h>
 #include <linux/pci.h>
+#include <linux/numa_memblks.h>
 #include <asm/bootinfo.h>
 #include <asm/loongson.h>
 #include <asm/numa.h>
@@ -28,12 +29,9 @@
 
 int numa_off;
 struct pglist_data *node_data[MAX_NUMNODES];
-unsigned char node_distances[MAX_NUMNODES][MAX_NUMNODES];
 
 EXPORT_SYMBOL(node_data);
-EXPORT_SYMBOL(node_distances);
 
-static struct numa_meminfo numa_meminfo;
 cpumask_t cpus_on_node[MAX_NUMNODES];
 cpumask_t phys_cpus_on_node[MAX_NUMNODES];
 EXPORT_SYMBOL(cpus_on_node);
@@ -45,8 +43,6 @@ s16 __cpuid_to_node[CONFIG_NR_CPUS] = {
 	[0 ... CONFIG_NR_CPUS - 1] = NUMA_NO_NODE
 };
 EXPORT_SYMBOL(__cpuid_to_node);
-
-nodemask_t numa_nodes_parsed __initdata;
 
 #ifdef CONFIG_HAVE_SETUP_PER_CPU_AREA
 unsigned long __per_cpu_offset[NR_CPUS] __read_mostly;
@@ -146,48 +142,6 @@ void numa_remove_cpu(unsigned int cpu)
 {
 	int nid = cpu_to_node(cpu);
 	cpumask_clear_cpu(cpu, &cpus_on_node[nid]);
-}
-
-static int __init numa_add_memblk_to(int nid, u64 start, u64 end,
-				     struct numa_meminfo *mi)
-{
-	/* ignore zero length blks */
-	if (start == end)
-		return 0;
-
-	/* whine about and ignore invalid blks */
-	if (start > end || nid < 0 || nid >= MAX_NUMNODES) {
-		pr_warn("NUMA: Warning: invalid memblk node %d [mem %#010Lx-%#010Lx]\n",
-			   nid, start, end - 1);
-		return 0;
-	}
-
-	if (mi->nr_blks >= NR_NODE_MEMBLKS) {
-		pr_err("NUMA: too many memblk ranges\n");
-		return -EINVAL;
-	}
-
-	mi->blk[mi->nr_blks].start = PFN_ALIGN(start);
-	mi->blk[mi->nr_blks].end = PFN_ALIGN(end - PAGE_SIZE + 1);
-	mi->blk[mi->nr_blks].nid = nid;
-	mi->nr_blks++;
-	return 0;
-}
-
-/**
- * numa_add_memblk - Add one numa_memblk to numa_meminfo
- * @nid: NUMA node ID of the new memblk
- * @start: Start address of the new memblk
- * @end: End address of the new memblk
- *
- * Add a new memblk to the default numa_meminfo.
- *
- * RETURNS:
- * 0 on success, -errno on failure.
- */
-int __init numa_add_memblk(int nid, u64 start, u64 end)
-{
-	return numa_add_memblk_to(nid, start, end, &numa_meminfo);
 }
 
 static void __init alloc_node_data(int nid)
@@ -312,24 +266,6 @@ static void __init init_node_memblock(void)
 	}
 }
 
-static void __init numa_default_distance(void)
-{
-	int row, col;
-
-	for (row = 0; row < MAX_NUMNODES; row++)
-		for (col = 0; col < MAX_NUMNODES; col++) {
-			if (col == row)
-				node_distances[row][col] = LOCAL_DISTANCE;
-			else
-				/* We assume that one node per package here!
-				 *
-				 * A SLIT should be used for multiple nodes
-				 * per package to override default setting.
-				 */
-				node_distances[row][col] = REMOTE_DISTANCE;
-	}
-}
-
 /*
  * fake_numa_init() - For Non-ACPI systems
  * Return: 0 on success, -errno on failure.
@@ -354,7 +290,10 @@ int __init init_numa_memory(void)
 	for (i = 0; i < NR_CPUS; i++)
 		set_cpuid_to_node(i, NUMA_NO_NODE);
 
-	numa_default_distance();
+	ret = numa_alloc_distance();
+	if (ret)
+		return ret;
+
 	nodes_clear(numa_nodes_parsed);
 	nodes_clear(node_possible_map);
 	nodes_clear(node_online_map);
@@ -363,15 +302,19 @@ int __init init_numa_memory(void)
 	/* Parse SRAT and SLIT if provided by firmware. */
 	ret = acpi_disabled ? fake_numa_init() : acpi_numa_init();
 	if (ret < 0)
-		return ret;
+		goto err_free_distance;
 
 	node_possible_map = numa_nodes_parsed;
-	if (WARN_ON(nodes_empty(node_possible_map)))
-		return -EINVAL;
+	if (WARN_ON(nodes_empty(node_possible_map))) {
+		ret = -EINVAL;
+		goto err_free_distance;
+	}
 
 	init_node_memblock();
-	if (!memblock_validate_numa_coverage(SZ_1M))
-		return -EINVAL;
+	if (!memblock_validate_numa_coverage(SZ_1M)) {
+		ret = -EINVAL;
+		goto err_free_distance;
+	}
 
 	for_each_node_mask(node, node_possible_map) {
 		node_mem_init(node);
@@ -384,6 +327,10 @@ int __init init_numa_memory(void)
 	loongson_sysconf.cores_per_node = cpumask_weight(&phys_cpus_on_node[0]);
 
 	return 0;
+
+err_free_distance:
+	numa_reset_distance();
+	return ret;
 }
 
 #endif
