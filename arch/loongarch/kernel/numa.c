@@ -32,9 +32,9 @@ struct pglist_data *node_data[MAX_NUMNODES];
 
 EXPORT_SYMBOL(node_data);
 
-cpumask_t cpus_on_node[MAX_NUMNODES];
+cpumask_t node_to_cpumask_map[MAX_NUMNODES];
 cpumask_t phys_cpus_on_node[MAX_NUMNODES];
-EXPORT_SYMBOL(cpus_on_node);
+EXPORT_SYMBOL(node_to_cpumask_map);
 
 /*
  * apicid, cpu, node mappings
@@ -128,20 +128,20 @@ void __init early_numa_add_cpu(int cpuid, s16 node)
 	if (cpu < 0)
 		return;
 
-	cpumask_set_cpu(cpu, &cpus_on_node[node]);
+	cpumask_set_cpu(cpu, &node_to_cpumask_map[node]);
 	cpumask_set_cpu(cpuid, &phys_cpus_on_node[node]);
 }
 
 void numa_add_cpu(unsigned int cpu)
 {
 	int nid = cpu_to_node(cpu);
-	cpumask_set_cpu(cpu, &cpus_on_node[nid]);
+	cpumask_set_cpu(cpu, &node_to_cpumask_map[nid]);
 }
 
 void numa_remove_cpu(unsigned int cpu)
 {
 	int nid = cpu_to_node(cpu);
-	cpumask_clear_cpu(cpu, &cpus_on_node[nid]);
+	cpumask_clear_cpu(cpu, &node_to_cpumask_map[nid]);
 }
 
 static void __init alloc_node_data(int nid)

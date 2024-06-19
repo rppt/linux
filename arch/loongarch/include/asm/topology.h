@@ -9,9 +9,9 @@
 
 #ifdef CONFIG_NUMA
 
-extern cpumask_t cpus_on_node[];
+extern cpumask_t node_to_cpumask_map[];
 
-#define cpumask_of_node(node)  (&cpus_on_node[node])
+#define cpumask_of_node(node)  (&node_to_cpumask_map[node])
 
 struct pci_bus;
 extern int pcibus_to_node(struct pci_bus *);
