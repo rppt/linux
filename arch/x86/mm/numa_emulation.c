@@ -129,7 +129,7 @@ static int __init split_nodes_interleave(struct numa_meminfo *ei,
 	 */
 	while (!nodes_empty(physnode_mask)) {
 		for_each_node_mask(i, physnode_mask) {
-			u64 dma32_end = PFN_PHYS(MAX_DMA32_PFN);
+			u64 dma_end = numa_emu_dma_end();
 			u64 start, limit, end;
 			int phys_blk;
 
@@ -162,9 +162,9 @@ static int __init split_nodes_interleave(struct numa_meminfo *ei,
 			 * non-reserved memory in ZONE_DMA32 for the next node,
 			 * this one must extend to the boundary.
 			 */
-			if (end < dma32_end && dma32_end - end -
-			    mem_hole_size(end, dma32_end) < FAKE_NODE_MIN_SIZE)
-				end = dma32_end;
+			if (end < dma_end && dma_end - end -
+			    mem_hole_size(end, dma_end) < FAKE_NODE_MIN_SIZE)
+				end = dma_end;
 
 			/*
 			 * If there won't be enough non-reserved memory for the
@@ -276,7 +276,7 @@ static int __init split_nodes_size_interleave_uniform(struct numa_meminfo *ei,
 	 */
 	while (!nodes_empty(physnode_mask)) {
 		for_each_node_mask(i, physnode_mask) {
-			u64 dma32_end = PFN_PHYS(MAX_DMA32_PFN);
+			u64 dma_end = numa_emu_dma_end();;
 			u64 start, limit, end;
 			int phys_blk;
 
@@ -298,9 +298,9 @@ static int __init split_nodes_size_interleave_uniform(struct numa_meminfo *ei,
 			 * non-reserved memory in ZONE_DMA32 for the next node,
 			 * this one must extend to the boundary.
 			 */
-			if (end < dma32_end && dma32_end - end -
-			    mem_hole_size(end, dma32_end) < FAKE_NODE_MIN_SIZE)
-				end = dma32_end;
+			if (end < dma_end && dma_end - end -
+			    mem_hole_size(end, dma_end) < FAKE_NODE_MIN_SIZE)
+				end = dma_end;
 
 			/*
 			 * If there won't be enough non-reserved memory for the
