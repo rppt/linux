@@ -32,6 +32,8 @@ extern int numa_distance_cnt;
 int __init numa_alloc_distance(void);
 void __init numa_reset_distance(void);
 
+void __init alloc_node_data(int nid);
+
 #endif /* CONFIG_NUMA_MEMBLKS */
 
 #endif	/* __NUMA_MEMBLKS_H */
