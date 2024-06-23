@@ -5,7 +5,7 @@
 #ifdef CONFIG_NUMA_MEMBLKS
 #include <linux/types.h>
 
-#define NR_NODE_MEMBLKS		(MAX_NUMNODES*2)
+#define NR_NODE_MEMBLKS		(MAX_NUMNODES * 2)
 
 struct numa_memblk {
 	u64			start;
