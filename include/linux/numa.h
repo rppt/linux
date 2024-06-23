@@ -28,18 +28,11 @@ static inline bool numa_valid_node(int nid)
 #endif
 
 #ifdef CONFIG_NUMA
-#include <asm/sparsemem.h>
-
 /* Generic implementation available */
 int numa_nearest_node(int node, unsigned int state);
 
-#ifndef memory_add_physaddr_to_nid
 int memory_add_physaddr_to_nid(u64 start);
-#endif
-
-#ifndef phys_to_target_node
 int phys_to_target_node(u64 start);
-#endif
 
 int numa_fill_memblks(u64 start, u64 end);
 
