@@ -24,6 +24,8 @@ static __init int numa_parse_early_param(char *opt)
 {
 	if (!opt)
 		return -EINVAL;
+	if (!strncmp(opt, "fake=", 5))
+		return numa_emu_cmdline(opt + 5);
 	if (str_has_prefix(opt, "off"))
 		numa_off = true;
 
@@ -57,6 +59,7 @@ EXPORT_SYMBOL(cpumask_of_node);
 
 #endif
 
+#ifndef CONFIG_NUMA_EMU
 static void numa_update_cpu(unsigned int cpu, bool remove)
 {
 	int nid = cpu_to_node(cpu);
@@ -79,6 +82,36 @@ void numa_remove_cpu(unsigned int cpu)
 {
 	numa_update_cpu(cpu, true);
 }
+
+#else /* CONFIG_NUMA_EMU */
+
+void __init numa_emu_update_cpu_to_node(int *emu_nid_to_phys,
+					unsigned int nr_emu_nids)
+{
+	int i, j;
+
+	/*
+	 * Transform __apicid_to_node table to use emulated nids by
+	 * reverse-mapping phys_nid.  The maps should always exist but fall
+	 * back to zero just in case.
+	 */
+	for (i = 0; i < ARRAY_SIZE(cpu_to_node_map); i++) {
+		if (cpu_to_node_map[i] == NUMA_NO_NODE)
+			continue;
+		for (j = 0; j < nr_emu_nids; j++)
+			if (cpu_to_node_map[i] == emu_nid_to_phys[j])
+				break;
+		cpu_to_node_map[i] = j < nr_emu_nids ? j : 0;
+	}
+}
+
+u64 __init numa_emu_dma_end(void)
+{
+	/* FIXME: do we care about DMA zones for numa emulation? */
+	return PFN_PHYS(memblock_end_of_DRAM());
+}
+
+#endif
 
 void numa_clear_node(unsigned int cpu)
 {
@@ -140,7 +173,7 @@ void __init early_map_cpu_to_node(unsigned int cpu, int nid)
 unsigned long __per_cpu_offset[NR_CPUS] __read_mostly;
 EXPORT_SYMBOL(__per_cpu_offset);
 
-int __init early_cpu_to_node(int cpu)
+int early_cpu_to_node(int cpu)
 {
 	return cpu_to_node_map[cpu];
 }
@@ -263,6 +296,12 @@ static int __init numa_init(int (*init_func)(void))
 		ret = -EINVAL;
 		goto out_free_distance;
 	}
+
+	ret = numa_cleanup_meminfo(&numa_meminfo);
+	if (ret < 0)
+		goto out_free_distance;
+
+	numa_emulation(&numa_meminfo, numa_distance_cnt);
 
 	ret = numa_register_nodes();
 	if (ret < 0)

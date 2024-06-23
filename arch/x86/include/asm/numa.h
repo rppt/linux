@@ -63,10 +63,6 @@ static inline void numa_remove_cpu(unsigned int cpu)	{ }
 static inline void init_gi_nodes(void)			{ }
 #endif	/* CONFIG_NUMA */
 
-#ifdef CONFIG_DEBUG_PER_CPU_MAPS
-void debug_cpumask_set_cpu(unsigned int cpu, int node, bool enable);
-#endif
-
 #ifdef CONFIG_NUMA_EMU
 int numa_emu_cmdline(char *str);
 void __init numa_emu_update_cpu_to_node(int *emu_nid_to_phys,

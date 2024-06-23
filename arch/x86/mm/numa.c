@@ -393,32 +393,6 @@ int early_cpu_to_node(int cpu)
 	return per_cpu(x86_cpu_to_node_map, cpu);
 }
 
-void debug_cpumask_set_cpu(int cpu, int node, bool enable)
-{
-	struct cpumask *mask;
-
-	if (node == NUMA_NO_NODE) {
-		/* early_cpu_to_node() already emits a warning and trace */
-		return;
-	}
-	mask = node_to_cpumask_map[node];
-	if (!cpumask_available(mask)) {
-		pr_err("node_to_cpumask_map[%i] NULL\n", node);
-		dump_stack();
-		return;
-	}
-
-	if (enable)
-		cpumask_set_cpu(cpu, mask);
-	else
-		cpumask_clear_cpu(cpu, mask);
-
-	printk(KERN_DEBUG "%s cpu %d node %d: mask now %*pbl\n",
-		enable ? "numa_add_cpu" : "numa_remove_cpu",
-		cpu, node, cpumask_pr_args(mask));
-	return;
-}
-
 # ifndef CONFIG_NUMA_EMU
 static void numa_set_cpumask(int cpu, bool enable)
 {
