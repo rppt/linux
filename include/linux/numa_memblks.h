@@ -31,6 +31,7 @@ int __init numa_register_meminfo(struct numa_meminfo *mi);
 extern int numa_distance_cnt;
 int __init numa_alloc_distance(void);
 void __init numa_reset_distance(void);
+void __init numa_free_distance(void);
 
 void __init alloc_node_data(int nid);
 

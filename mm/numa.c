@@ -401,6 +401,26 @@ int __init numa_alloc_distance(void)
 	return 0;
 }
 
+/*
+ * numa_free_distance
+ *
+ * The current table is freed.
+ */
+void __init numa_free_distance(void)
+{
+	size_t size;
+
+	if (!numa_distance)
+		return;
+
+	size = numa_distance_cnt * numa_distance_cnt *
+		sizeof(numa_distance[0]);
+
+	memblock_free(numa_distance, size);
+	numa_distance_cnt = 0;
+	numa_distance = NULL;
+}
+
 /**
  * numa_set_distance - Set NUMA distance from one NUMA to another
  * @from: the 'from' node to set distance
