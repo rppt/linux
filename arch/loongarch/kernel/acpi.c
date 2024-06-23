@@ -221,9 +221,22 @@ static __init int setup_node(int pxm)
  * I/O localities since SRAT does not list them.  I/O localities are
  * not supported at this point.
  */
+unsigned int numa_distance_cnt;
+
 static inline unsigned int get_numa_distances_cnt(struct acpi_table_slit *slit)
 {
 	return slit->locality_count;
+}
+
+void __init numa_set_distance(int from, int to, int distance)
+{
+	if ((u8)distance != distance || (from == to && distance != LOCAL_DISTANCE)) {
+		pr_warn_once("Warning: invalid distance parameter, from=%d to=%d distance=%d\n",
+				from, to, distance);
+		return;
+	}
+
+	node_distances[from][to] = distance;
 }
 
 /* Callback for Proximity Domain -> CPUID mapping */
