@@ -28,6 +28,9 @@ static inline bool numa_valid_node(int nid)
 #endif
 
 #ifdef CONFIG_NUMA
+extern struct pglist_data *node_data[];
+#define NODE_DATA(nid)		(node_data[nid])
+
 /* Generic implementation available */
 int numa_nearest_node(int node, unsigned int state);
 
