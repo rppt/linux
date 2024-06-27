@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <linux/array_size.h>
 #include <linux/memblock.h>
-#include <linux/numa.h>
-#include <linux/numa_memblks.h>
 #include <linux/printk.h>
-#include <linux/sort.h>
+#include <linux/numa.h>
 
 /* Allocate NODE_DATA for a node on the local memory */
 void __init alloc_node_data(int nid)
