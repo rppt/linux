@@ -31,8 +31,6 @@ void __init alloc_node_data(int nid)
 
 	node_data[nid] = nd;
 	memset(NODE_DATA(nid), 0, sizeof(pg_data_t));
-
-	node_set_online(nid);
 }
 
 #ifndef CONFIG_NUMA_KEEP_MEMINFO
