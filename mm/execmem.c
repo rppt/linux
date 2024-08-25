@@ -27,8 +27,8 @@ struct execmem_cache {
 };
 
 static struct execmem_cache execmem_cache = {
-	.busy_areas = MTREE_INIT(busy_areas, 0),
-	.free_areas = MTREE_INIT(free_areas, 0),
+	.busy_areas = MTREE_INIT(busy_areas, MT_FLAGS_USE_RCU),
+	.free_areas = MTREE_INIT(free_areas, MT_FLAGS_USE_RCU),
 };
 
 static void execmem_cache_clean(struct work_struct *work)
