@@ -7,7 +7,6 @@
  */
 
 #include <linux/mm.h>
-#include <linux/mutex.h>
 #include <linux/vmalloc.h>
 #include <linux/execmem.h>
 #include <linux/maple_tree.h>
@@ -23,27 +22,22 @@ static struct execmem_info default_execmem_info __ro_after_init;
 
 #ifdef CONFIG_MMU
 struct execmem_cache {
-	struct mutex mutex;
 	struct maple_tree busy_areas;
 	struct maple_tree free_areas;
 };
 
 static struct execmem_cache execmem_cache = {
-	.mutex = __MUTEX_INITIALIZER(execmem_cache.mutex),
-	.busy_areas = MTREE_INIT_EXT(busy_areas, MT_FLAGS_LOCK_EXTERN,
-				     execmem_cache.mutex),
-	.free_areas = MTREE_INIT_EXT(free_areas, MT_FLAGS_LOCK_EXTERN,
-				     execmem_cache.mutex),
+	.busy_areas = MTREE_INIT(busy_areas, 0),
+	.free_areas = MTREE_INIT(free_areas, 0),
 };
 
 static void execmem_cache_clean(struct work_struct *work)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
-	struct mutex *mutex = &execmem_cache.mutex;
 	MA_STATE(mas, free_areas, 0, ULONG_MAX);
 	void *area;
 
-	mutex_lock(mutex);
+	rcu_read_lock();
 	mas_for_each(&mas, area, ULONG_MAX) {
 		size_t size;
 
@@ -60,7 +54,7 @@ static void execmem_cache_clean(struct work_struct *work)
 			vfree(ptr);
 		}
 	}
-	mutex_unlock(mutex);
+	rcu_read_unlock();
 }
 
 static DECLARE_WORK(execmem_cache_clean_work, execmem_cache_clean);
@@ -116,7 +110,6 @@ static void *execmem_vmalloc(struct execmem_range *range, size_t size,
 static int execmem_cache_add(void *ptr, size_t size)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
-	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, free_areas, addr - 1, addr + 1);
 	unsigned long lower, lower_size = 0;
@@ -128,7 +121,7 @@ static int execmem_cache_add(void *ptr, size_t size)
 	lower = addr;
 	upper = addr + size - 1;
 
-	mutex_lock(mutex);
+	rcu_read_lock();
 	area = mas_walk(&mas);
 	if (area && xa_is_value(area) && mas.last == addr - 1) {
 		lower = mas.index;
@@ -144,7 +137,8 @@ static int execmem_cache_add(void *ptr, size_t size)
 	mas_set_range(&mas, lower, upper);
 	area_size = lower_size + upper_size + size;
 	err = mas_store_gfp(&mas, xa_mk_value(area_size), GFP_KERNEL);
-	mutex_unlock(mutex);
+	rcu_read_unlock();
+
 	if (err)
 		return -ENOMEM;
 
@@ -172,12 +166,11 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
 	MA_STATE(mas_free, free_areas, 0, ULONG_MAX);
 	MA_STATE(mas_busy, busy_areas, 0, ULONG_MAX);
-	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr, last, area_size = 0;
 	void *area, *ptr = NULL;
 	int err;
 
-	mutex_lock(mutex);
+	rcu_read_lock();
 	mas_for_each(&mas_free, area, ULONG_MAX) {
 		area_size = xa_to_value(area);
 
@@ -214,7 +207,7 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	ptr = (void *)addr;
 
 out_unlock:
-	mutex_unlock(mutex);
+	rcu_read_unlock();
 	return ptr;
 }
 
@@ -280,21 +273,20 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 static bool execmem_cache_free(void *ptr)
 {
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
-	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, busy_areas, addr, addr);
 	size_t size;
 	void *area;
 
-	mutex_lock(mutex);
+	rcu_read_lock();
 	area = mas_walk(&mas);
 	if (!area) {
-		mutex_unlock(mutex);
+		rcu_read_unlock();
 		return false;
 	}
 	size = xa_to_value(area);
 	mas_erase(&mas);
-	mutex_unlock(mutex);
+	rcu_read_unlock();
 
 	execmem_fill_trapping_insns(ptr, size, /* writable = */ false);
 
