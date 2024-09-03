@@ -240,41 +240,14 @@ out:
 	return ERR_PTR(err);
 }
 
-/**
- * kmem_cache_create_usercopy - Create a cache with a region suitable
- * for copying to userspace
- * @name: A string which is used in /proc/slabinfo to identify this cache.
- * @size: The size of objects to be created in this cache.
- * @align: The required alignment for the objects.
- * @flags: SLAB flags
- * @useroffset: Usercopy region offset
- * @usersize: Usercopy region size
- * @ctor: A constructor for the objects.
- *
- * Cannot be called within a interrupt, but can be interrupted.
- * The @ctor is run when new pages are allocated by the cache.
- *
- * The flags are
- *
- * %SLAB_POISON - Poison the slab with a known test pattern (a5a5a5a5)
- * to catch references to uninitialised memory.
- *
- * %SLAB_RED_ZONE - Insert `Red` zones around the allocated memory to check
- * for buffer overruns.
- *
- * %SLAB_HWCACHE_ALIGN - Align the objects in this cache to a hardware
- * cacheline.  This can be beneficial if you're counting cycles as closely
- * as davem.
- *
- * Return: a pointer to the cache on success, NULL on failure.
- */
 struct kmem_cache *
-kmem_cache_create_usercopy(const char *name,
-		  unsigned int size, unsigned int align,
-		  slab_flags_t flags,
-		  unsigned int useroffset, unsigned int usersize,
-		  void (*ctor)(void *))
+__kmem_cache_create(const char *name, unsigned int size,
+		    struct kmem_cache_args *args, slab_flags_t flags)
 {
+	unsigned int useroffset = args->useroffset;
+	unsigned int usersize = args->usersize;
+	void (*ctor)(void *) = args->ctor;
+	unsigned int align = args->align;
 	struct kmem_cache *s = NULL;
 	const char *cache_name;
 	int err;
@@ -355,10 +328,55 @@ out_unlock:
 	}
 	return s;
 }
+EXPORT_SYMBOL(__kmem_cache_create);
+
+/**
+ * __kmem_cache_create_usercopy - Create a cache with a region suitable
+ * for copying to userspace
+ * @name: A string which is used in /proc/slabinfo to identify this cache.
+ * @size: The size of objects to be created in this cache.
+ * @align: The required alignment for the objects.
+ * @flags: SLAB flags
+ * @useroffset: Usercopy region offset
+ * @usersize: Usercopy region size
+ * @ctor: A constructor for the objects.
+ *
+ * Cannot be called within a interrupt, but can be interrupted.
+ * The @ctor is run when new pages are allocated by the cache.
+ *
+ * The flags are
+ *
+ * %SLAB_POISON - Poison the slab with a known test pattern (a5a5a5a5)
+ * to catch references to uninitialised memory.
+ *
+ * %SLAB_RED_ZONE - Insert `Red` zones around the allocated memory to check
+ * for buffer overruns.
+ *
+ * %SLAB_HWCACHE_ALIGN - Align the objects in this cache to a hardware
+ * cacheline.  This can be beneficial if you're counting cycles as closely
+ * as davem.
+ *
+ * Return: a pointer to the cache on success, NULL on failure.
+ */
+struct kmem_cache *kmem_cache_create_usercopy(const char *name,
+			unsigned int size, unsigned int align,
+			slab_flags_t flags,
+			unsigned int useroffset, unsigned int usersize,
+			void (*ctor)(void *))
+{
+	struct kmem_cache_args args = {
+		.align = align,
+		.useroffset = useroffset,
+		.usersize = usersize,
+		.ctor = ctor,
+	};
+
+	return __kmem_cache_create(name, size, &args, flags);
+}
 EXPORT_SYMBOL(kmem_cache_create_usercopy);
 
 /**
- * kmem_cache_create - Create a cache.
+ * _kmem_cache_create - Create a cache.
  * @name: A string which is used in /proc/slabinfo to identify this cache.
  * @size: The size of objects to be created in this cache.
  * @align: The required alignment for the objects.
@@ -383,13 +401,17 @@ EXPORT_SYMBOL(kmem_cache_create_usercopy);
  * Return: a pointer to the cache on success, NULL on failure.
  */
 struct kmem_cache *
-kmem_cache_create(const char *name, unsigned int size, unsigned int align,
+_kmem_cache_create(const char *name, unsigned int size, unsigned int align,
 		slab_flags_t flags, void (*ctor)(void *))
 {
-	return kmem_cache_create_usercopy(name, size, align, flags, 0, 0,
-					  ctor);
+	struct kmem_cache_args args = {
+		.align = align,
+		.ctor = ctor,
+	};
+
+	return __kmem_cache_create(name, size, &args, flags);
 }
-EXPORT_SYMBOL(kmem_cache_create);
+EXPORT_SYMBOL(_kmem_cache_create);
 
 static struct kmem_cache *kmem_buckets_cache __ro_after_init;
 
@@ -1371,4 +1393,3 @@ EXPORT_TRACEPOINT_SYMBOL(kmalloc);
 EXPORT_TRACEPOINT_SYMBOL(kmem_cache_alloc);
 EXPORT_TRACEPOINT_SYMBOL(kfree);
 EXPORT_TRACEPOINT_SYMBOL(kmem_cache_free);
-

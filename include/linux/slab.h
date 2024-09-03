@@ -234,7 +234,26 @@ struct mem_cgroup;
  */
 bool slab_is_available(void);
 
-struct kmem_cache *kmem_cache_create(const char *name, unsigned int size,
+/**
+ * @align: The required alignment for the objects.
+ * @useroffset: Usercopy region offset
+ * @usersize: Usercopy region size
+ * @freeptr_offset: Custom offset for the free pointer in RCU caches
+ * @use_freeptr_offset: Whether a @freeptr_offset is used
+ * @ctor: A constructor for the objects.
+ */
+struct kmem_cache_args {
+	unsigned int align;
+	unsigned int useroffset;
+	unsigned int usersize;
+	unsigned int freeptr_offset;
+	bool use_freeptr_offset;
+	void (*ctor)(void *);
+};
+
+struct kmem_cache *__kmem_cache_create(const char *name, unsigned int size,
+			struct kmem_cache_args *args, slab_flags_t flags);
+struct kmem_cache *_kmem_cache_create(const char *name, unsigned int size,
 			unsigned int align, slab_flags_t flags,
 			void (*ctor)(void *));
 struct kmem_cache *kmem_cache_create_usercopy(const char *name,
@@ -242,6 +261,13 @@ struct kmem_cache *kmem_cache_create_usercopy(const char *name,
 			slab_flags_t flags,
 			unsigned int useroffset, unsigned int usersize,
 			void (*ctor)(void *));
+
+#define kmem_cache_create(__name, __object_size, __args, ...)		\
+	_Generic((__args),						\
+		 struct kmem_cache_args *: __kmem_cache_create,		\
+		 default: _kmem_cache_create)(__name, __object_size, __args, \
+					      __VA_ARGS__)
+
 void kmem_cache_destroy(struct kmem_cache *s);
 int kmem_cache_shrink(struct kmem_cache *s);
 
