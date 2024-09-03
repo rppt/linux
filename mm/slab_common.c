@@ -202,15 +202,14 @@ struct kmem_cache *find_mergeable(unsigned int size, unsigned int align,
 }
 
 static struct kmem_cache *create_cache(const char *name,
-		unsigned int object_size, unsigned int align,
-		slab_flags_t flags, unsigned int useroffset,
-		unsigned int usersize, void (*ctor)(void *))
+		unsigned int object_size, slab_flags_t flags,
+		struct kmem_cache_args *args)
 {
 	struct kmem_cache *s;
 	int err;
 
-	if (WARN_ON(useroffset + usersize > object_size))
-		useroffset = usersize = 0;
+	if (WARN_ON(args->useroffset + args->usersize > object_size))
+		args->useroffset = args->usersize = 0;
 
 	err = -ENOMEM;
 	s = kmem_cache_zalloc(kmem_cache, GFP_KERNEL);
@@ -219,14 +218,9 @@ static struct kmem_cache *create_cache(const char *name,
 
 	s->name = name;
 	s->size = s->object_size = object_size;
-	s->align = align;
-	s->ctor = ctor;
-#ifdef CONFIG_HARDENED_USERCOPY
-	s->useroffset = useroffset;
-	s->usersize = usersize;
-#endif
+	s->align = calculate_alignment(flags, args->align, object_size);
 
-	err = do_kmem_cache_create(s, flags);
+	err = do_kmem_cache_create(s, flags, args);
 	if (err)
 		goto out_free_cache;
 
@@ -304,9 +298,7 @@ __kmem_cache_create(const char *name, unsigned int size,
 		goto out_unlock;
 	}
 
-	s = create_cache(cache_name, size,
-			 calculate_alignment(flags, align, size),
-			 flags, useroffset, usersize, ctor);
+	s = create_cache(cache_name, size, flags, args);
 	if (IS_ERR(s)) {
 		err = PTR_ERR(s);
 		kfree_const(cache_name);
@@ -725,6 +717,10 @@ void __init create_boot_cache(struct kmem_cache *s, const char *name,
 {
 	int err;
 	unsigned int align = ARCH_KMALLOC_MINALIGN;
+	struct kmem_cache_args args = {
+		.useroffset = useroffset,
+		.usersize = usersize,
+	};
 
 	s->name = name;
 	s->size = s->object_size = size;
@@ -738,12 +734,7 @@ void __init create_boot_cache(struct kmem_cache *s, const char *name,
 		align = max(align, 1U << (ffs(size) - 1));
 	s->align = calculate_alignment(flags, align, size);
 
-#ifdef CONFIG_HARDENED_USERCOPY
-	s->useroffset = useroffset;
-	s->usersize = usersize;
-#endif
-
-	err = do_kmem_cache_create(s, flags);
+	err = do_kmem_cache_create(s, flags, &args);
 
 	if (err)
 		panic("Creation of kmalloc slab %s size=%u failed. Reason %d\n",
