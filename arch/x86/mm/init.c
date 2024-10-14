@@ -1073,7 +1073,7 @@ struct execmem_info __init *execmem_arch_setup(void)
 
 	start = MODULES_VADDR + offset;
 
-	if (IS_ENABLED(CONFIG_X86_64)) {
+	if (IS_ENABLED(CONFIG_ARCH_HAS_EXECMEM_ROX)) {
 		pgprot = PAGE_KERNEL_ROX;
 		flags = EXECMEM_KASAN_SHADOW | EXECMEM_ROX_CACHE;
 	} else {
