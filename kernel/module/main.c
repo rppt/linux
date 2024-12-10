@@ -1238,6 +1238,17 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	if (!ptr)
 		return -ENOMEM;
 
+	if (execmem_is_rox(execmem_type)) {
+		int err = execmem_make_temp_rw(ptr, size);
+
+		if (err) {
+			execmem_free(ptr);
+			return -ENOMEM;
+		}
+
+		mod->mem[type].is_rox = true;
+	}
+
 	/*
 	 * The pointer to these blocks of memory are stored on the module
 	 * structure and we keep that around so long as the module is
@@ -2751,6 +2762,8 @@ int __weak module_finalize(const Elf_Ehdr *hdr,
 
 static int post_relocation(struct module *mod, const struct load_info *info)
 {
+	int ret;
+
 	/* Sort exception table now relocations are done. */
 	sort_extable(mod->extable, mod->extable + mod->num_exentries);
 
@@ -2762,7 +2775,21 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 	add_kallsyms(mod, info);
 
 	/* Arch-specific module finalizing. */
-	return module_finalize(info->hdr, info->sechdrs, mod);
+	ret = module_finalize(info->hdr, info->sechdrs, mod);
+	if (ret)
+		return ret;
+
+	for_each_mod_mem_type(type) {
+		struct module_memory *mem = &mod->mem[type];
+
+		if (mem->is_rox) {
+			ret = execmem_restore_rox(mem->base, mem->size);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
 }
 
 /* Call module constructors. */

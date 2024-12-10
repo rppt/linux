@@ -151,6 +151,22 @@ void execmem_free(void *ptr);
 struct vm_struct *execmem_vmap(size_t size);
 #endif
 
+#ifdef CONFIG_ARCH_HAS_EXECMEM_ROX
+int execmem_make_temp_rw(void *ptr, size_t size);
+int execmem_restore_rox(void *ptr, size_t size);
+#else
+static inline int execmem_make_temp_rw(void *ptr, size_t size) { return 0; }
+static inline int execmem_restore_rox(void *ptr, size_t size) { return 0; }
+#endif
+
+/**
+ * execmem_is_rox - check if execmem is read-only
+ * @type - the execmem type to check
+ *
+ * Return: %true if the @type is read-only, %false if it's writable
+ */
+bool execmem_is_rox(enum execmem_type type);
+
 #if defined(CONFIG_EXECMEM) && !defined(CONFIG_ARCH_WANTS_EXECMEM_LATE)
 void execmem_init(void);
 #else

@@ -343,6 +343,17 @@ static bool execmem_cache_free(void *ptr)
 
 	return true;
 }
+
+int execmem_make_temp_rw(void *ptr, size_t size)
+{
+	return 0;
+}
+
+int execmem_restore_rox(void *ptr, size_t size)
+{
+	return 0;
+}
+
 #else /* CONFIG_ARCH_HAS_EXECMEM_ROX */
 static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 {
@@ -381,6 +392,11 @@ void execmem_free(void *ptr)
 
 	if (!execmem_cache_free(ptr))
 		vfree(ptr);
+}
+
+bool execmem_is_rox(enum execmem_type type)
+{
+	return !!(execmem_info->ranges[type].flags & EXECMEM_ROX_CACHE);
 }
 
 static bool execmem_validate(struct execmem_info *info)
