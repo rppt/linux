@@ -15,7 +15,6 @@
 #include <linux/maple_tree.h>
 #include <linux/set_memory.h>
 #include <linux/moduleloader.h>
-#include <linux/text-patching.h>
 
 #include <asm/tlbflush.h>
 
@@ -382,16 +381,6 @@ void execmem_free(void *ptr)
 
 	if (!execmem_cache_free(ptr))
 		vfree(ptr);
-}
-
-void *execmem_update_copy(void *dst, const void *src, size_t size)
-{
-	return text_poke_copy(dst, src, size);
-}
-
-bool execmem_is_rox(enum execmem_type type)
-{
-	return !!(execmem_info->ranges[type].flags & EXECMEM_ROX_CACHE);
 }
 
 static bool execmem_validate(struct execmem_info *info)
