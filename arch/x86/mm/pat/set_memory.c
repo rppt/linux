@@ -2142,6 +2142,14 @@ int set_memory_np_noalias(unsigned long addr, int numpages)
 					CPA_NO_CHECK_ALIAS, NULL);
 }
 
+int set_memory_rw_nx_noalias(unsigned long addr, int numpages)
+{
+	return change_page_attr_set_clr(&addr, numpages,
+					__pgprot(_PAGE_RW | _PAGE_NX),
+					__pgprot(0), 0,
+					CPA_NO_CHECK_ALIAS, NULL);
+}
+
 int set_memory_p(unsigned long addr, int numpages)
 {
 	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_PRESENT), 0);
