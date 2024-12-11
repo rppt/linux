@@ -211,6 +211,8 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	void *area, *ptr = NULL;
 	int err;
 
+	size = PAGE_ALIGN(size);
+
 	mutex_lock(mutex);
 	mas_for_each(&mas_free, area, ULONG_MAX) {
 		area_size = mas_range_len(&mas_free);
@@ -292,6 +294,8 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	if (err)
 		goto err_free_mem;
 
+	pr_info("===> %s: addr: %lx, order: %d, phys: %pa\n", __func__, start, vm->page_order, &vm->phys_addr);
+
 	return 0;
 
 err_free_mem:
@@ -304,6 +308,7 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 	void *p;
 	int err;
 
+	pr_info("===> %s: type: %px, size: %ld\n", __func__, range, size);
 	p = __execmem_cache_alloc(range, size);
 	if (p)
 		return p;
@@ -346,11 +351,59 @@ static bool execmem_cache_free(void *ptr)
 
 int execmem_make_temp_rw(void *ptr, size_t size)
 {
-	return 0;
+	unsigned int nr = PAGE_ALIGN(size) >> PAGE_SHIFT;
+
+	pr_info("===> %pS::%s: addr: %px nr: %d\n", __builtin_return_address(0), __func__, ptr, nr);
+
+	return set_memory_rw_nx_noalias((unsigned long)ptr, nr);
 }
+
+void __dump_pagetable(unsigned long address);
 
 int execmem_restore_rox(void *ptr, size_t size)
 {
+	pgprot_t pmd_pgprot = pgprot_4k_2_large(PAGE_KERNEL_ROX);
+	unsigned long addr = round_down((unsigned long)ptr, PMD_SIZE);
+	unsigned long end = round_up(addr + size, PMD_SIZE);
+	pgd_t *pgd = pgd_offset_k(addr);
+	p4d_t *p4d = p4d_offset(pgd, addr);
+	pud_t *pud = pud_offset(p4d, addr);
+	pmd_t *pmd;
+
+	pr_info("===> %pS::%s: addr: %px nr: %ld\n", __builtin_return_address(0), __func__, ptr, size >> PAGE_SHIFT);
+
+	for ( ; addr < end; addr += PMD_SIZE) {
+		unsigned long pfn = vmalloc_to_pfn((void *)addr);
+		pte_t *pte;
+
+		pmd = pmd_offset(pud, addr);
+
+		if (!pmd_present(*pmd)) {
+			pr_info("===> %s: %lx: no pmd?!\n", __func__, addr);
+			__dump_pagetable(addr);
+			return -ENOMEM;
+		}
+
+		if (pmd_leaf(*pmd)) {
+			pr_info("===> %s: %lx: pmd_leaf\n", __func__, addr);
+			__dump_pagetable(addr);
+			set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
+							canon_pgprot(pmd_pgprot))));
+			__dump_pagetable(addr);
+			continue;
+		}
+
+		pr_info("===> %s: addr: %lx pfn: %lx\n", __func__, addr, pfn);
+		__dump_pagetable(addr);
+		pte = (pte_t *)pmd_page_vaddr(*pmd);
+		set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
+						canon_pgprot(pmd_pgprot))));
+		__dump_pagetable(addr);
+		free_page((unsigned long)pte);
+	}
+
+	flush_tlb_kernel_range(addr, end - 1);
+
 	return 0;
 }
 
@@ -467,6 +520,13 @@ static void __init __execmem_init(void)
 	execmem_init_missing(info);
 
 	execmem_info = info;
+
+	for (int i = EXECMEM_DEFAULT; i < EXECMEM_TYPE_MAX; i++) {
+		struct execmem_range *r = &info->ranges[i];
+
+		pr_info("===> %s: %d: %px\n", __func__, i, r);
+	}
+
 }
 
 #ifdef CONFIG_ARCH_WANTS_EXECMEM_LATE
