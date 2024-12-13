@@ -374,7 +374,7 @@ int execmem_restore_rox(void *ptr, size_t size)
 
 	for ( ; addr < end; addr += PMD_SIZE) {
 		unsigned long pfn = vmalloc_to_pfn((void *)addr);
-		pte_t *pte;
+		pte_t *pte = NULL;
 
 		pmd = pmd_offset(pud, addr);
 
@@ -384,22 +384,19 @@ int execmem_restore_rox(void *ptr, size_t size)
 			return -ENOMEM;
 		}
 
-		if (pmd_leaf(*pmd)) {
+		if (!pmd_leaf(*pmd)) {
 			pr_info("===> %s: %lx: pmd_leaf\n", __func__, addr);
-			__dump_pagetable(addr);
-			set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
-							canon_pgprot(pmd_pgprot))));
-			__dump_pagetable(addr);
-			continue;
+			pte = (pte_t *)pmd_page_vaddr(*pmd);
 		}
 
 		pr_info("===> %s: addr: %lx pfn: %lx\n", __func__, addr, pfn);
 		__dump_pagetable(addr);
-		pte = (pte_t *)pmd_page_vaddr(*pmd);
 		set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
 						canon_pgprot(pmd_pgprot))));
 		__dump_pagetable(addr);
-		free_page((unsigned long)pte);
+
+		if (pte)
+			free_page((unsigned long)pte);
 	}
 
 	flush_tlb_kernel_range(addr, end - 1);
