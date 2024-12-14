@@ -88,6 +88,11 @@ static void *execmem_vmalloc(struct execmem_range *range, size_t size,
 #endif /* CONFIG_MMU */
 
 #ifdef CONFIG_ARCH_HAS_EXECMEM_ROX
+struct execmem_area {
+	struct vm_struct *vm;
+	atomic_t _refcount;
+};
+
 struct execmem_cache {
 	struct mutex mutex;
 	struct maple_tree busy_areas;
@@ -134,7 +139,7 @@ static void execmem_cache_clean(struct work_struct *work)
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
 	struct mutex *mutex = &execmem_cache.mutex;
 	MA_STATE(mas, free_areas, 0, ULONG_MAX);
-	void *area;
+	struct execmem_area *area;
 
 	mutex_lock(mutex);
 	mas_for_each(&mas, area, ULONG_MAX) {
@@ -142,11 +147,12 @@ static void execmem_cache_clean(struct work_struct *work)
 
 		if (IS_ALIGNED(size, PMD_SIZE) &&
 		    IS_ALIGNED(mas.index, PMD_SIZE)) {
-			struct vm_struct *vm = find_vm_area(area);
+			struct vm_struct *vm = area->vm;
 
 			execmem_set_direct_map_valid(vm, true);
 			mas_store_gfp(&mas, NULL, GFP_KERNEL);
-			vfree(area);
+			vfree(vm->addr);
+			kfree(area);
 		}
 	}
 	mutex_unlock(mutex);
@@ -154,30 +160,31 @@ static void execmem_cache_clean(struct work_struct *work)
 
 static DECLARE_WORK(execmem_cache_clean_work, execmem_cache_clean);
 
-static int execmem_cache_add(void *ptr, size_t size)
+static int execmem_cache_add(void *ptr, size_t size, struct execmem_area *area)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, free_areas, addr - 1, addr + 1);
+	struct execmem_area *lower_area = NULL;
+	struct execmem_area *upper_area = NULL;
 	unsigned long lower, upper;
-	void *area = NULL;
 	int err;
 
 	lower = addr;
 	upper = addr + size - 1;
 
 	mutex_lock(mutex);
-	area = mas_walk(&mas);
-	if (area && mas.last == addr - 1)
+	lower_area = mas_walk(&mas);
+	if (lower_area && lower_area == area && mas.last == addr - 1)
 		lower = mas.index;
 
-	area = mas_next(&mas, ULONG_MAX);
-	if (area && mas.index == addr + size)
+	upper_area = mas_next(&mas, ULONG_MAX);
+	if (upper_area && upper_area == area && mas.index == addr + size)
 		upper = mas.last;
 
 	mas_set_range(&mas, lower, upper);
-	err = mas_store_gfp(&mas, (void *)lower, GFP_KERNEL);
+	err = mas_store_gfp(&mas, area, GFP_KERNEL);
 	mutex_unlock(mutex);
 	if (err)
 		return err;
@@ -208,7 +215,8 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	MA_STATE(mas_busy, busy_areas, 0, ULONG_MAX);
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr, last, area_size = 0;
-	void *area, *ptr = NULL;
+	struct execmem_area *area;
+	void *ptr = NULL;
 	int err;
 
 	size = PAGE_ALIGN(size);
@@ -229,20 +237,18 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 
 	/* insert allocated size to busy_areas at range [addr, addr + size) */
 	mas_set_range(&mas_busy, addr, addr + size - 1);
-	err = mas_store_gfp(&mas_busy, (void *)addr, GFP_KERNEL);
+	err = mas_store_gfp(&mas_busy, area, GFP_KERNEL);
 	if (err)
 		goto out_unlock;
 
 	mas_store_gfp(&mas_free, NULL, GFP_KERNEL);
 	if (area_size > size) {
-		void *ptr = (void *)(addr + size);
-
 		/*
 		 * re-insert remaining free size to free_areas at range
 		 * [addr + size, last]
 		 */
 		mas_set_range(&mas_free, addr + size, last);
-		err = mas_store_gfp(&mas_free, ptr, GFP_KERNEL);
+		err = mas_store_gfp(&mas_free, area, GFP_KERNEL);
 		if (err) {
 			mas_store_gfp(&mas_busy, NULL, GFP_KERNEL);
 			goto out_unlock;
@@ -258,20 +264,26 @@ out_unlock:
 static int execmem_cache_populate(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
+	struct execmem_area *area;
 	unsigned long start, end;
 	struct vm_struct *vm;
 	size_t alloc_size;
 	int err = -ENOMEM;
 	void *p;
 
+	area = kzalloc(sizeof(*area), GFP_KERNEL);
+	if (!area)
+		return err;
+
 	alloc_size = round_up(size, PMD_SIZE);
 	p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags);
 	if (!p)
-		return err;
+		goto err_free_area;
 
 	vm = find_vm_area(p);
 	if (!vm)
 		goto err_free_mem;
+	area->vm = vm;
 
 	/* fill memory with instructions that will trap */
 	execmem_fill_trapping_insns(p, alloc_size, /* writable = */ true);
@@ -290,7 +302,7 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	if (err)
 		goto err_free_mem;
 
-	err = execmem_cache_add(p, alloc_size);
+	err = execmem_cache_add(p, alloc_size, area);
 	if (err)
 		goto err_free_mem;
 
@@ -300,6 +312,8 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 
 err_free_mem:
 	vfree(p);
+err_free_area:
+	kfree(area);
 	return err;
 }
 
@@ -326,8 +340,8 @@ static bool execmem_cache_free(void *ptr)
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, busy_areas, addr, addr);
+	struct execmem_area *area;
 	size_t size;
-	void *area;
 
 	mutex_lock(mutex);
 	area = mas_walk(&mas);
@@ -342,7 +356,7 @@ static bool execmem_cache_free(void *ptr)
 
 	execmem_fill_trapping_insns(ptr, size, /* writable = */ false);
 
-	execmem_cache_add(ptr, size);
+	execmem_cache_add(ptr, size, area);
 
 	schedule_work(&execmem_cache_clean_work);
 
