@@ -90,7 +90,7 @@ static void *execmem_vmalloc(struct execmem_range *range, size_t size,
 #ifdef CONFIG_ARCH_HAS_EXECMEM_ROX
 struct execmem_area {
 	struct vm_struct *vm;
-	atomic_t rw_mappings;
+	unsigned int rw_mappings;
 	size_t size;
 };
 
@@ -420,7 +420,7 @@ int execmem_make_temp_rw(void *ptr, size_t size)
 		mutex_unlock(mutex);
 		return -ENOMEM;
 	}
-	atomic_inc(&area->rw_mappings);
+	area->rw_mappings++;
 	mutex_unlock(mutex);
 
 	pr_info("===> %s: addr: %px nr: %d area: %px\n", __func__, ptr, nr, area);
@@ -492,7 +492,8 @@ int execmem_restore_rox(void *ptr, size_t size)
 
 		pr_info("===> %s: area: %px, size: %ld\n", __func__, area, area_size);
 
-		if (atomic_dec_and_test(&area->rw_mappings)) {
+		area->rw_mappings--;
+		if (!area->rw_mappings) {
 			err = __execmem_restore_rox(area->vm->addr, area_size);
 			if (err)
 				break;
