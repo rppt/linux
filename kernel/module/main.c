@@ -1235,13 +1235,16 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 		execmem_type = EXECMEM_MODULE_TEXT;
 
 	ptr = execmem_alloc(execmem_type, size);
-	if (!ptr)
+	if (!ptr) {
+		pr_info("%s: !ptr\n", __func__);
 		return -ENOMEM;
+	}
 
 	if (execmem_is_rox(execmem_type)) {
 		int err = execmem_make_temp_rw(ptr, size);
 
 		if (err) {
+			pr_info("%s: make_rw: %d\n", __func__, err);
 			execmem_free(ptr);
 			return -ENOMEM;
 		}
@@ -2784,8 +2787,10 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 
 		if (mem->is_rox) {
 			ret = execmem_restore_rox(mem->base, mem->size);
-			if (ret)
+			if (ret) {
+				pr_err("%s: restore_rox: %d\n", __func__, ret);
 				return ret;
+			}
 		}
 	}
 

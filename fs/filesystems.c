@@ -277,11 +277,16 @@ struct file_system_type *get_fs_type(const char *name)
 	int len = dot ? dot - name : strlen(name);
 
 	fs = __get_fs_type(name, len);
-	if (!fs && (request_module("fs-%.*s", len, name) == 0)) {
-		fs = __get_fs_type(name, len);
-		if (!fs)
-			pr_warn_once("request_module fs-%.*s succeeded, but still no fs?\n",
-				     len, name);
+	if (!fs) {
+		int ret = request_module("fs-%.*s", len, name);
+		if (ret == 0) {
+			fs = __get_fs_type(name, len);
+			if (!fs)
+				pr_warn("request_module fs-%.*s succeeded, but still no fs?\n",
+					len, name);
+		} else {
+			pr_warn("request_module fs-%.*s failed: %d\n", len, name, ret);
+		}
 	}
 
 	if (dot && fs && !(fs->fs_flags & FS_HAS_SUBTYPE)) {
