@@ -37,12 +37,6 @@
 
 #include "../mm_internal.h"
 
-void __dump_pagetable(const char *msg, unsigned long address);
-
-#define MAX_DIRECT_MAP_INVS 16
-static int direct_map_invs_cnt;
-static unsigned long direct_map_invs[MAX_DIRECT_MAP_INVS];
-
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
@@ -81,8 +75,6 @@ static DEFINE_SPINLOCK(cpa_lock);
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
 #define CPA_NO_CHECK_ALIAS 8 /* Do not search for aliases */
-#define CPA_PRINT 16
-#define CPA_DEBUG_SPLIT 32
 
 static inline pgprot_t cachemode2pgprot(enum page_cache_mode pcm)
 {
@@ -938,10 +930,6 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	pte_t new_pte, *tmp;
 	enum pg_level level;
 	bool nx, rw;
-
-	if (cpa->flags & CPA_DEBUG_SPLIT) {
-
-	}
 
 	/*
 	 * Check for races, another CPU might have split this page
@@ -1849,29 +1837,14 @@ static int __change_page_attr(struct cpa_data *cpa, int primary)
 	bool nx, rw;
 
 	address = __cpa_addr(cpa, cpa->curpage);
-
-	if (cpa->flags & CPA_PRINT)
-		pr_info("===> addr: %lx pri: %d\n", address, primary);
-
 repeat:
 	kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (!kpte) {
-		if (cpa->flags & CPA_PRINT)
-			pr_info("     !kpte\n");
-
+	if (!kpte)
 		return __cpa_process_fault(cpa, address, primary);
-	}
 
 	old_pte = *kpte;
-	if (pte_none(old_pte)) {
-		if (cpa->flags & CPA_PRINT)
-			pr_info("     pte_none, level: %d\n", level);
-
+	if (pte_none(old_pte))
 		return __cpa_process_fault(cpa, address, primary);
-	}
-
-	if (cpa->flags & CPA_PRINT)
-		__dump_pagetable("CPA", address);
 
 	if (level == PG_LEVEL_4K) {
 		pte_t new_pte;
@@ -1944,19 +1917,6 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
 	unsigned long vaddr;
 	int ret;
-
-	if (cpa->flags & CPA_PRINT) {
-		pr_info("===> %s\n", __func__);
-
-		for (int i = 0; i < ARRAY_SIZE(direct_map_invs); i++) {
-			unsigned long old_addr = direct_map_invs[i];
-
-			if (within(laddr, old_addr, old_addr + PMD_SIZE)) {
-				pr_info("===> %s:\n", __func__);
-				dump_stack();
-			}
-		}
-	}
 
 	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
 		return 0;
@@ -2393,18 +2353,6 @@ int set_memory_rw_nx_noalias(unsigned long addr, int numpages)
 					CPA_NO_CHECK_ALIAS, NULL);
 }
 
-int set_memory_rox_noalias(unsigned long addr, int numpages)
-{
-	pgprot_t clr = __pgprot(_PAGE_RW | _PAGE_DIRTY);
-
-	if (__supported_pte_mask & _PAGE_NX)
-		clr.pgprot |= _PAGE_NX;
-
-	return change_page_attr_set_clr(&addr, numpages,
-					__pgprot(0), clr, 0,
-					CPA_NO_CHECK_ALIAS /* | CPA_PRINT */, NULL);
-}
-
 int set_memory_p(unsigned long addr, int numpages)
 {
 	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_PRESENT), 0);
@@ -2678,25 +2626,6 @@ static int __set_pages_p(struct page *page, int numpages)
 	return __change_page_attr_set_clr(&cpa, 1);
 }
 
-static int ___set_pages_p(struct page *page, int numpages)
-{
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
-				.mask_clr = __pgprot(0),
-				.flags = CPA_NO_CHECK_ALIAS /* | CPA_PRINT */ };
-
-	/*
-	 * No alias checking needed for setting present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
-	return __change_page_attr_set_clr(&cpa, 1);
-}
-
 static int __set_pages_np(struct page *page, int numpages)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
@@ -2706,25 +2635,6 @@ static int __set_pages_np(struct page *page, int numpages)
 				.mask_set = __pgprot(0),
 				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
 				.flags = CPA_NO_CHECK_ALIAS };
-
-	/*
-	 * No alias checking needed for setting not present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
-	return __change_page_attr_set_clr(&cpa, 1);
-}
-
-static int ___set_pages_np(struct page *page, int numpages)
-{
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
-				.flags = CPA_NO_CHECK_ALIAS /* | CPA_PRINT */ };
 
 	/*
 	 * No alias checking needed for setting not present flag. otherwise,
@@ -2745,20 +2655,12 @@ int set_direct_map_default_noflush(struct page *page)
 	return __set_pages_p(page, 1);
 }
 
-static int direct_map_invs_cnt;
-static unsigned long direct_map_invs[MAX_DIRECT_MAP_INVS];
-
 int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 {
-	pr_info("pat: addr: %px, nr: %d, valid: %d\n", page_address(page), nr, valid);
-
-	if (direct_map_invs_cnt < MAX_DIRECT_MAP_INVS)
-		direct_map_invs[direct_map_invs_cnt++] = (unsigned long)page_address(page);
-
 	if (valid)
-		return ___set_pages_p(page, nr);
+		return __set_pages_p(page, nr);
 
-	return ___set_pages_np(page, nr);
+	return __set_pages_np(page, nr);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
