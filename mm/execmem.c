@@ -16,9 +16,14 @@
 #include <linux/set_memory.h>
 #include <linux/moduleloader.h>
 
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+
 #include <asm/tlbflush.h>
 
 #include "internal.h"
+
+void __dump_pagetable(const char *msg, unsigned long address);
 
 static struct execmem_info *execmem_info __ro_after_init;
 static struct execmem_info default_execmem_info __ro_after_init;
@@ -115,17 +120,17 @@ static inline unsigned long mas_range_len(struct ma_state *mas)
 
 static void execmem_mt_dump(struct maple_tree *mt)
 {
-#ifdef CONFIG_DEBUG_MAPLE_TREE
-	mt_dump(mt, mt_dump_hex);
-#else
-	MA_STATE(mas, mt, 0, ULONG_MAX);
-	struct execmem_area *area;
+/* #ifdef CONFIG_DEBUG_MAPLE_TREE */
+/* 	mt_dump(mt, mt_dump_hex); */
+/* #else */
+/* 	MA_STATE(mas, mt, 0, ULONG_MAX); */
+/* 	struct execmem_area *area; */
 
-	mas_for_each(&mas, area, ULONG_MAX) {
-		pr_info("start: %lx end: %lx size: %ld\n", mas.index, mas.last, mas_range_len(&mas));
-		pr_info("area: %px size: %ld vm_size: %ld\n", area, area->size, area->vm->size);
-	}
-#endif
+/* 	mas_for_each(&mas, area, ULONG_MAX) { */
+/* 		pr_info("start: %lx end: %lx size: %ld\n", mas.index, mas.last, mas_range_len(&mas)); */
+/* 		pr_info("area: %px size: %ld vm_size: %ld\n", area, area->size, area->vm->size); */
+/* 	} */
+/* #endif */
 }
 
 static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
@@ -135,10 +140,12 @@ static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 	int err = 0;
 
 	for (int i = 0; i < vm->nr_pages; i += nr) {
+		pr_info("direct_map: page_addr: %px, nr: %d\n", page_address(vm->pages[i]), nr);
 		err = set_direct_map_valid_noflush(vm->pages[i], nr, valid);
 		if (err)
 			goto err_restore;
 		updated += nr;
+		__dump_pagetable("DM", (unsigned long)page_address(vm->pages[i]));
 	}
 
 	return 0;
@@ -428,8 +435,7 @@ int execmem_make_temp_rw(void *ptr, size_t size)
 	return set_memory_rw_nx_noalias((unsigned long)ptr, nr);
 }
 
-void __dump_pagetable(unsigned long address);
-
+#if 0
 static int noinline __execmem_restore_rox(void *ptr, size_t size)
 {
 	pgprot_t pmd_pgprot = pgprot_4k_2_large(PAGE_KERNEL_ROX);
@@ -450,7 +456,7 @@ static int noinline __execmem_restore_rox(void *ptr, size_t size)
 
 		if (!pmd_present(*pmd)) {
 			pr_info("===> %s: %lx: no pmd?!\n", __func__, addr);
-			__dump_pagetable(addr);
+			__dump_pagetable("=>", addr);
 			return -ENOMEM;
 		}
 
@@ -460,10 +466,10 @@ static int noinline __execmem_restore_rox(void *ptr, size_t size)
 		}
 
 		pr_info("===> %s: addr: %lx pfn: %lx\n", __func__, addr, pfn);
-		__dump_pagetable(addr);
+		__dump_pagetable("ROX before", addr);
 		set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
 						canon_pgprot(pmd_pgprot))));
-		__dump_pagetable(addr);
+		__dump_pagetable("ROX after", addr);
 
 		if (pte)
 			free_page((unsigned long)pte);
@@ -472,6 +478,15 @@ static int noinline __execmem_restore_rox(void *ptr, size_t size)
 	flush_tlb_kernel_range(addr, end - 1);
 
 	return 0;
+}
+#endif
+
+int set_memory_rox_noalias(unsigned long addr, int numpages);
+
+static int __execmem_restore_rox(void *ptr, size_t size)
+{
+	unsigned int nr = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	return set_memory_rox/* _noalias */((unsigned long)ptr, nr);
 }
 
 int execmem_restore_rox(void *ptr, size_t size)
@@ -503,6 +518,31 @@ int execmem_restore_rox(void *ptr, size_t size)
 
 	return err;
 }
+
+static int execmem_pgt_show(struct seq_file *s, void *unused)
+{
+	return -EPERM;
+}
+
+static ssize_t execmem_pgt_write(struct file *file, const char __user *user_buf,
+				 size_t len, loff_t *ppos)
+{
+	char *buf, *endp;
+	unsigned long addr;
+
+	buf = memdup_user_nul(user_buf, len);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	addr = simple_strtoul(buf, NULL, 0);
+
+	pr_info("===> PGT: %lx\n", addr);
+	__dump_pagetable("PGT", addr);
+
+	kfree(buf);
+	return len;
+}
+DEFINE_SHOW_STORE_ATTRIBUTE(execmem_pgt);
 
 #else /* CONFIG_ARCH_HAS_EXECMEM_ROX */
 static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
@@ -623,8 +663,14 @@ static void __init __execmem_init(void)
 
 		pr_info("===> %s: %d: %px\n", __func__, i, r);
 	}
-
 }
+
+static int execmem_debugfs_init(void)
+{
+	debugfs_create_file("execmem_pgt", 0200, NULL, NULL, &execmem_pgt_fops);
+	return 0;
+}
+late_initcall(execmem_debugfs_init);
 
 #ifdef CONFIG_ARCH_WANTS_EXECMEM_LATE
 static int __init execmem_late_init(void)

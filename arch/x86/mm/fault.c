@@ -349,7 +349,7 @@ static int bad_address(void *p)
 	return get_kernel_nofault(dummy, (unsigned long *)p);
 }
 
-static void dump_pagetable(unsigned long address)
+static void dump_pagetable(const char *msg, unsigned long address)
 {
 	pgd_t *base = __va(read_cr3_pa());
 	pgd_t *pgd = base + pgd_index(address);
@@ -361,7 +361,7 @@ static void dump_pagetable(unsigned long address)
 	if (bad_address(pgd))
 		goto bad;
 
-	pr_info("PGD %lx ", pgd_val(*pgd));
+	pr_info("%s: PGD %lx ", msg, pgd_val(*pgd));
 
 	if (!pgd_present(*pgd))
 		goto out;
@@ -404,9 +404,9 @@ bad:
 
 #endif /* CONFIG_X86_64 */
 
-void __dump_pagetable(unsigned long address)
+void __dump_pagetable(const char *msg, unsigned long address)
 {
-	dump_pagetable(address);
+	dump_pagetable(msg, address);
 }
 
 /*
@@ -588,7 +588,7 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		show_ldttss(&gdt, "TR", tr);
 	}
 
-	dump_pagetable(address);
+	dump_pagetable("PF", address);
 
 	if (error_code & X86_PF_RMP)
 		snp_dump_hva_rmpentry(address);
@@ -608,7 +608,7 @@ pgtable_bad(struct pt_regs *regs, unsigned long error_code,
 
 	printk(KERN_ALERT "%s: Corrupted page table at address %lx\n",
 	       tsk->comm, address);
-	dump_pagetable(address);
+	dump_pagetable("PF", address);
 
 	if (__die("Bad pagetable", regs, error_code))
 		sig = 0;
