@@ -256,8 +256,9 @@ static void effective_prot(struct ptdump_state *pt_st, int level, u64 val)
 
 	if (level > 0) {
 		pgprotval_t higher_prot = st->prot_levels[level - 1];
+		pgprotval_t mask = _PAGE_USER | _PAGE_RW | _PAGE_PRESENT;
 
-		effective = (higher_prot & prot & (_PAGE_USER | _PAGE_RW)) |
+		effective = (higher_prot & prot & mask) |
 			    ((higher_prot | prot) & _PAGE_NX);
 	} else {
 		effective = prot;
