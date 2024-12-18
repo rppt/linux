@@ -37,6 +37,8 @@
 
 #include "../mm_internal.h"
 
+static int print_col;
+
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
@@ -416,16 +418,17 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa,
 	unsigned long start, addr, end;
 	int i;
 
-	if (cpa->flags & CPA_PAGES_ARRAY) {
+	if (cpa->flags & (CPA_PAGES_ARRAY | CPA_ARRAY)) {
 		for (i = 0; i < cpa->numpages; i++)
 			collapse_large_pages(__cpa_addr(cpa, i), pgtables);
 		return;
 	}
 
-	start = __cpa_addr(cpa, 0);
-	end = start + PAGE_SIZE * cpa->numpages;
+	addr = __cpa_addr(cpa, 0);
+	start = addr & PMD_MASK;
+	end = addr + PAGE_SIZE * cpa->numpages;
 
-	for (addr = start; within(addr, start, end); addr += PUD_SIZE)
+	for (addr = start; within(addr, start, end); addr += PMD_SIZE)
 		collapse_large_pages(addr, pgtables);
 }
 
@@ -1244,8 +1247,8 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	return 0;
 }
 
-static void collapse_pmd_page(pmd_t *pmd, unsigned long addr,
-			      struct list_head *pgtables)
+static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
+			     struct list_head *pgtables)
 {
 	pmd_t _pmd, old_pmd;
 	pte_t *pte, first;
@@ -1253,28 +1256,30 @@ static void collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 	pgprot_t pgprot;
 	int i = 0;
 
+	addr &= PMD_MASK;
+
 	pte = pte_offset_kernel(pmd, addr);
 	first = *pte;
 	pfn = pte_pfn(first);
 
 	/* Make sure alignment is suitable */
 	if (PFN_PHYS(pfn) & ~PMD_MASK)
-		return;
+		return 0;
 
 	/* The page is 4k intentionally */
 	if (pte_flags(first) & _PAGE_KERNEL_4K)
-		return;
+		return 0;
 
 	/* Check that the rest of PTEs are compatible with the first one */
 	for (i = 1, pte++; i < PTRS_PER_PTE; i++, pte++) {
 		pte_t entry = *pte;
 
 		if (!pte_present(entry))
-			return;
+			return 0;
 		if (pte_flags(entry) != pte_flags(first))
-			return;
+			return 0;
 		if (pte_pfn(entry) != pte_pfn(first) + i)
-			return;
+			return 0;
 	}
 
 	old_pmd = *pmd;
@@ -1308,70 +1313,68 @@ static void collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 		collapse_page_count(PG_LEVEL_2M);
 
 	pr_info("2M restored at %#lx\n", addr);
+	return 1;
 }
 
 static void collapse_pud_page(pud_t *pud, unsigned long addr,
 			      struct list_head *pgtables)
 {
-	bool collapse_pud = direct_gbpages;
 	unsigned long pfn;
 	pmd_t *pmd, first;
 	int i;
 
+	if (!direct_gbpages)
+		return;
+
+	addr &= PUD_MASK;
+
 	pmd = pmd_offset(pud, addr);
 	first = *pmd;
-
-	/* Try to restore large page if possible */
-	if (pmd_present(first) && !pmd_leaf(first)) {
-		collapse_pmd_page(pmd, addr, pgtables);
-		first = *pmd;
-	}
 
 	/*
 	 * To restore PUD page all PMD entries must be large and
 	 * have suitable alignment
 	 */
 	pfn = pmd_pfn(first);
-	if (!pmd_leaf(first) || (PFN_PHYS(pfn) & ~PUD_MASK))
-		collapse_pud = false;
+	if (!pmd_leaf(first) || (PFN_PHYS(pfn) & ~PUD_MASK)) {
+		if (print_col) pr_info("====> pud: !leaf or align: %lx, %llx\n", pmd_val(first), PFN_PHYS(pfn));
+		return;
+	}
 
 	/*
-	 * Restore all PMD large pages when possible and track if we can
-	 * restore PUD page.
-	 *
 	 * To restore PUD page, all following PMDs must be compatible with the
 	 * first one.
 	 */
-	for (i = 1, pmd++, addr += PMD_SIZE; i < PTRS_PER_PMD; i++, pmd++, addr += PMD_SIZE) {
+	for (i = 1, pmd++; i < PTRS_PER_PMD; i++, pmd++) {
 		pmd_t entry = *pmd;
-		if (!pmd_present(entry)) {
-			collapse_pud = false;
-			continue;
+
+		if (!pmd_present(entry) || !pmd_leaf(entry)) {
+			if (print_col) pr_info("====> pud: %d !present: %lx\n", i, pmd_val(entry));
+			return;
 		}
-		if (!pmd_leaf(entry)) {
-			collapse_pmd_page(pmd, addr, pgtables);
-			entry = *pmd;
+		if ((pmd_flags(entry) & ~AD_MASK) != (pmd_flags(first) & ~AD_MASK)) {
+			if (print_col) pr_info("====> pud: %d flags: first: %lx next: %lx\n", i, pmd_flags(first), pmd_flags(entry));
+			return;
 		}
-		if (!pmd_leaf(entry))
-			collapse_pud = false;
-		if (pmd_flags(entry) != pmd_flags(first))
-			collapse_pud = false;
-		if (pmd_pfn(entry) != pmd_pfn(first) + i * PTRS_PER_PTE)
-			collapse_pud = false;
+		if (pmd_pfn(entry) != pmd_pfn(first) + i * PTRS_PER_PTE) {
+			if (print_col) pr_info("====> pud: %d not cont: %lx %lx\n", i, pmd_val(first), pmd_val(entry));
+			return;
+		}
 	}
 
 	/* Restore PUD page and queue page table to be freed after TLB flush */
-	if (collapse_pud) {
-		list_add(&page_ptdesc(pud_page(*pud))->pt_list, pgtables);
-		set_pud(pud, pfn_pud(pfn, pmd_pgprot(first)));
-		if (pfn_range_is_mapped(pfn, pfn + 1))
-			collapse_page_count(PG_LEVEL_1G);
-		pr_info("1G restored at %#lx\n", addr - PUD_SIZE);
-	}
+	list_add(&page_ptdesc(pud_page(*pud))->pt_list, pgtables);
+	set_pud(pud, pfn_pud(pfn, pmd_pgprot(first)));
+
+	if (pfn_range_is_mapped(pfn, pfn + 1))
+		collapse_page_count(PG_LEVEL_1G);
+
+	pr_info("1G restored at %#lx\n", addr);
 }
 
+
 /*
- * Collaps PMD and PUD pages in the kernel mapping around the address where
+ * Collapse PMD and PUD pages in the kernel mapping around the address where
  * possible.
  *
  * Caller must flush TLB and free page tables queued on the list before
@@ -1383,8 +1386,9 @@ static void collapse_large_pages(unsigned long addr, struct list_head *pgtables)
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
+	pmd_t *pmd;
 
-	addr &= PUD_MASK;
+	addr &= PMD_MASK;
 
 	spin_lock(&pgd_lock);
 	pgd = pgd_offset_k(addr);
@@ -1396,6 +1400,12 @@ static void collapse_large_pages(unsigned long addr, struct list_head *pgtables)
 	pud = pud_offset(p4d, addr);
 	if (!pud_present(*pud) || pud_leaf(*pud))
 		goto out;
+
+	pmd = pmd_offset(pud, addr);
+	if (pmd_present(*pmd) && !pmd_leaf(*pmd)) {
+		if (!collapse_pmd_page(pmd, addr, pgtables))
+			goto out;
+	}
 
 	collapse_pud_page(pud, addr, pgtables);
 out:
