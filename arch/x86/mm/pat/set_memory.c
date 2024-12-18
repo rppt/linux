@@ -37,8 +37,6 @@
 
 #include "../mm_internal.h"
 
-static int print_col;
-
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
@@ -1262,7 +1260,6 @@ static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 	int i = 0;
 
 	addr &= PMD_MASK;
-
 	pte = pte_offset_kernel(pmd, addr);
 	first = *pte;
 	pfn = pte_pfn(first);
@@ -1317,7 +1314,6 @@ static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 	if (pfn_range_is_mapped(pfn, pfn + 1))
 		collapse_page_count(PG_LEVEL_2M);
 
-	pr_info("2M restored at %#lx\n", addr);
 	return 1;
 }
 
@@ -1332,7 +1328,6 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
 		return 0;
 
 	addr &= PUD_MASK;
-
 	pmd = pmd_offset(pud, addr);
 	first = *pmd;
 
@@ -1341,10 +1336,8 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
 	 * have suitable alignment
 	 */
 	pfn = pmd_pfn(first);
-	if (!pmd_leaf(first) || (PFN_PHYS(pfn) & ~PUD_MASK)) {
-		if (print_col) pr_info("====> pud: !leaf or align: %lx, %llx\n", pmd_val(first), PFN_PHYS(pfn));
+	if (!pmd_leaf(first) || (PFN_PHYS(pfn) & ~PUD_MASK))
 		return 0;
-	}
 
 	/*
 	 * To restore PUD page, all following PMDs must be compatible with the
@@ -1353,18 +1346,12 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
 	for (i = 1, pmd++; i < PTRS_PER_PMD; i++, pmd++) {
 		pmd_t entry = *pmd;
 
-		if (!pmd_present(entry) || !pmd_leaf(entry)) {
-			if (print_col) pr_info("====> pud: %d !present: %lx\n", i, pmd_val(entry));
+		if (!pmd_present(entry) || !pmd_leaf(entry))
 			return 0;
-		}
-		if (pmd_flags(entry) != pmd_flags(first)) {
-			if (print_col) pr_info("====> pud: %d flags: first: %lx next: %lx\n", i, pmd_flags(first), pmd_flags(entry));
+		if (pmd_flags(entry) != pmd_flags(first))
 			return 0;
-		}
-		if (pmd_pfn(entry) != pmd_pfn(first) + i * PTRS_PER_PTE) {
-			if (print_col) pr_info("====> pud: %d not cont: %lx %lx\n", i, pmd_val(first), pmd_val(entry));
+		if (pmd_pfn(entry) != pmd_pfn(first) + i * PTRS_PER_PTE)
 			return 0;
-		}
 	}
 
 	/* Restore PUD page and queue page table to be freed after TLB flush */
@@ -1374,7 +1361,6 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
 	if (pfn_range_is_mapped(pfn, pfn + 1))
 		collapse_page_count(PG_LEVEL_1G);
 
-	pr_info("1G restored at %#lx\n", addr);
 	return 1;
 }
 
