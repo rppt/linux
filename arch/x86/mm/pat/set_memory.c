@@ -413,7 +413,6 @@ static int collapse_large_pages(unsigned long addr, struct list_head *pgtables);
 static void cpa_collapse_large_pages(struct cpa_data *cpa)
 {
 	unsigned long start, addr, end;
-	struct ptdesc *page, *tmp;
 	LIST_HEAD(pgtables);
 	int collapsed = 0;
 	int i;
@@ -437,9 +436,9 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	flush_tlb_all();
 
-	list_for_each_entry_safe(page, tmp, &pgtables, pt_list) {
-		list_del(&page->pt_list);
-		__free_page(ptdesc_page(page));
+	list_for_each_entry_safe(ptdesc, tmp, &pgtables, pt_list) {
+		list_del(&ptdesc->pt_list);
+		__free_page(ptdesc_page(ptdesc));
 	}
 }
 
