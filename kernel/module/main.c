@@ -1244,7 +1244,6 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 		int err = execmem_make_temp_rw(ptr, size);
 
 		if (err) {
-			pr_info("%s: make_rw: %d\n", __func__, err);
 			execmem_free(ptr);
 			return -ENOMEM;
 		}
