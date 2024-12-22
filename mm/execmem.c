@@ -17,9 +17,14 @@
 #include <linux/moduleloader.h>
 #include <linux/text-patching.h>
 
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+
 #include <asm/tlbflush.h>
 
 #include "internal.h"
+
+void __dump_pagetable(const char *msg, unsigned long address);
 
 static struct execmem_info *execmem_info __ro_after_init;
 static struct execmem_info default_execmem_info __ro_after_init;
@@ -89,6 +94,12 @@ static void *execmem_vmalloc(struct execmem_range *range, size_t size,
 #endif /* CONFIG_MMU */
 
 #ifdef CONFIG_ARCH_HAS_EXECMEM_ROX
+struct execmem_area {
+	struct vm_struct *vm;
+	unsigned int rw_mappings;
+	size_t size;
+};
+
 struct execmem_cache {
 	struct mutex mutex;
 	struct maple_tree busy_areas;
@@ -108,6 +119,21 @@ static inline unsigned long mas_range_len(struct ma_state *mas)
 	return mas->last - mas->index + 1;
 }
 
+static void execmem_mt_dump(struct maple_tree *mt)
+{
+/* #ifdef CONFIG_DEBUG_MAPLE_TREE */
+/* 	mt_dump(mt, mt_dump_hex); */
+/* #else */
+/* 	MA_STATE(mas, mt, 0, ULONG_MAX); */
+/* 	struct execmem_area *area; */
+
+/* 	mas_for_each(&mas, area, ULONG_MAX) { */
+/* 		pr_info("start: %lx end: %lx size: %ld\n", mas.index, mas.last, mas_range_len(&mas)); */
+/* 		pr_info("area: %px size: %ld vm_size: %ld\n", area, area->size, area->vm->size); */
+/* 	} */
+/* #endif */
+}
+
 static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 {
 	unsigned int nr = (1 << get_vm_area_page_order(vm));
@@ -115,10 +141,12 @@ static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 	int err = 0;
 
 	for (int i = 0; i < vm->nr_pages; i += nr) {
+		pr_info("direct_map: page_addr: %px, nr: %d\n", page_address(vm->pages[i]), nr);
 		err = set_direct_map_valid_noflush(vm->pages[i], nr, valid);
 		if (err)
 			goto err_restore;
 		updated += nr;
+		__dump_pagetable("DM", (unsigned long)page_address(vm->pages[i]));
 	}
 
 	return 0;
@@ -135,7 +163,7 @@ static void execmem_cache_clean(struct work_struct *work)
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
 	struct mutex *mutex = &execmem_cache.mutex;
 	MA_STATE(mas, free_areas, 0, ULONG_MAX);
-	void *area;
+	struct execmem_area *area;
 
 	mutex_lock(mutex);
 	mas_for_each(&mas, area, ULONG_MAX) {
@@ -143,11 +171,12 @@ static void execmem_cache_clean(struct work_struct *work)
 
 		if (IS_ALIGNED(size, PMD_SIZE) &&
 		    IS_ALIGNED(mas.index, PMD_SIZE)) {
-			struct vm_struct *vm = find_vm_area(area);
+			struct vm_struct *vm = area->vm;
 
 			execmem_set_direct_map_valid(vm, true);
 			mas_store_gfp(&mas, NULL, GFP_KERNEL);
-			vfree(area);
+			vfree(vm->addr);
+			kfree(area);
 		}
 	}
 	mutex_unlock(mutex);
@@ -155,30 +184,38 @@ static void execmem_cache_clean(struct work_struct *work)
 
 static DECLARE_WORK(execmem_cache_clean_work, execmem_cache_clean);
 
-static int execmem_cache_add(void *ptr, size_t size)
+static int execmem_cache_add(void *ptr, size_t size, struct execmem_area *area,
+			     bool print)
 {
 	struct maple_tree *free_areas = &execmem_cache.free_areas;
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, free_areas, addr - 1, addr + 1);
+	struct execmem_area *lower_area = NULL;
+	struct execmem_area *upper_area = NULL;
 	unsigned long lower, upper;
-	void *area = NULL;
 	int err;
 
 	lower = addr;
 	upper = addr + size - 1;
 
+	if (print)
+		pr_info("cache_add: ptr: %px size: %ld, lower: %lx upper: %lx\n", ptr, size, lower, upper);
+
 	mutex_lock(mutex);
-	area = mas_walk(&mas);
-	if (area && mas.last == addr - 1)
+	lower_area = mas_walk(&mas);
+	if (lower_area && lower_area == area && mas.last == addr - 1)
 		lower = mas.index;
 
-	area = mas_next(&mas, ULONG_MAX);
-	if (area && mas.index == addr + size)
+	upper_area = mas_next(&mas, ULONG_MAX);
+	if (upper_area && upper_area == area && mas.index == addr + size)
 		upper = mas.last;
 
+	if (print)
+		pr_info("cache_add: area: %px, lower: %lx upper: %lx\n", area, lower, upper);
+
 	mas_set_range(&mas, lower, upper);
-	err = mas_store_gfp(&mas, (void *)lower, GFP_KERNEL);
+	err = mas_store_gfp(&mas, area, GFP_KERNEL);
 	mutex_unlock(mutex);
 	if (err)
 		return err;
@@ -209,7 +246,8 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	MA_STATE(mas_busy, busy_areas, 0, ULONG_MAX);
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr, last, area_size = 0;
-	void *area, *ptr = NULL;
+	struct execmem_area *area;
+	void *ptr = NULL;
 	int err;
 
 	mutex_lock(mutex);
@@ -220,30 +258,33 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 			break;
 	}
 
-	if (area_size < size)
+	if (area_size < size) {
+		pr_err("cache_alloc: no space?\n");
 		goto out_unlock;
+	}
 
 	addr = mas_free.index;
 	last = mas_free.last;
 
 	/* insert allocated size to busy_areas at range [addr, addr + size) */
 	mas_set_range(&mas_busy, addr, addr + size - 1);
-	err = mas_store_gfp(&mas_busy, (void *)addr, GFP_KERNEL);
-	if (err)
+	err = mas_store_gfp(&mas_busy, area, GFP_KERNEL);
+	if (err) {
+		pr_err("cache_alloc: update busy MT failed: %d\n", err);
 		goto out_unlock;
+	}
 
 	mas_store_gfp(&mas_free, NULL, GFP_KERNEL);
 	if (area_size > size) {
-		void *ptr = (void *)(addr + size);
-
 		/*
 		 * re-insert remaining free size to free_areas at range
 		 * [addr + size, last]
 		 */
 		mas_set_range(&mas_free, addr + size, last);
-		err = mas_store_gfp(&mas_free, ptr, GFP_KERNEL);
+		err = mas_store_gfp(&mas_free, area, GFP_KERNEL);
 		if (err) {
 			mas_store_gfp(&mas_busy, NULL, GFP_KERNEL);
+			pr_err("cache_alloc: update free MT failed: %d\n", err);
 			goto out_unlock;
 		}
 	}
@@ -251,22 +292,35 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 
 out_unlock:
 	mutex_unlock(mutex);
+
+	if (!ptr) {
+		pr_err("cache_alloc: free MT:\n");
+		execmem_mt_dump(free_areas);
+		pr_err("cache_alloc: busy MT:\n");
+		execmem_mt_dump(busy_areas);
+	}
+
 	return ptr;
 }
 
 static int execmem_cache_populate(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
+	struct execmem_area *area;
 	unsigned long start, end;
 	struct vm_struct *vm;
 	size_t alloc_size;
 	int err = -ENOMEM;
 	void *p;
 
+	area = kzalloc(sizeof(*area), GFP_KERNEL);
+	if (!area)
+		return err;
+
 	alloc_size = round_up(size, PMD_SIZE);
 	p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags);
 	if (!p)
-		return err;
+		goto err_free_area;
 
 	vm = find_vm_area(p);
 	if (!vm)
@@ -289,14 +343,20 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	if (err)
 		goto err_free_mem;
 
-	err = execmem_cache_add(p, alloc_size);
+	area->size = alloc_size;
+	area->vm = vm;
+	err = execmem_cache_add(p, alloc_size, area, true);
 	if (err)
 		goto err_free_mem;
 
+	pr_info("===> %s: addr: %lx, size: %ld, order: %d, area: %px\n", __func__, start, size, vm->page_order, area);
+	execmem_mt_dump(&execmem_cache.free_areas);
 	return 0;
 
 err_free_mem:
 	vfree(p);
+err_free_area:
+	kfree(area);
 	return err;
 }
 
@@ -305,6 +365,9 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 	void *p;
 	int err;
 
+	size = PAGE_ALIGN(size);
+
+	pr_info("===> %s: type: %px, size: %ld\n", __func__, range, size);
 	p = __execmem_cache_alloc(range, size);
 	if (p)
 		return p;
@@ -313,7 +376,12 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 	if (err)
 		return NULL;
 
-	return __execmem_cache_alloc(range, size);
+	p = __execmem_cache_alloc(range, size);
+
+	if (range == &execmem_info->ranges[EXECMEM_DEFAULT])
+		pr_info("===> %s: size: %ld, ptr: %px\n", __func__, size, p);
+
+	return p;
 }
 
 static bool execmem_cache_free(void *ptr)
@@ -322,8 +390,8 @@ static bool execmem_cache_free(void *ptr)
 	struct mutex *mutex = &execmem_cache.mutex;
 	unsigned long addr = (unsigned long)ptr;
 	MA_STATE(mas, busy_areas, addr, addr);
+	struct execmem_area *area;
 	size_t size;
-	void *area;
 
 	mutex_lock(mutex);
 	area = mas_walk(&mas);
@@ -338,12 +406,128 @@ static bool execmem_cache_free(void *ptr)
 
 	execmem_fill_trapping_insns(ptr, size, /* writable = */ false);
 
-	execmem_cache_add(ptr, size);
+	execmem_cache_add(ptr, size, area, false);
 
 	schedule_work(&execmem_cache_clean_work);
 
 	return true;
 }
+
+int execmem_make_temp_rw(void *ptr, size_t size)
+{
+	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
+	unsigned int nr = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	struct mutex *mutex = &execmem_cache.mutex;
+	unsigned long addr = (unsigned long)ptr;
+	MA_STATE(mas, busy_areas, addr, addr);
+	struct execmem_area *area;
+	int ret = -ENOMEM;
+
+	mutex_lock(mutex);
+	area = mas_walk(&mas);
+	if (!area)
+		goto out;
+
+	pr_info("===> %s: addr: %px nr: %d area: %px\n", __func__, ptr, nr, area);
+
+	ret = set_memory_nx(addr, nr);
+	if (ret)
+		goto out;
+
+	/* FIXME: error path should do something about restoring ROX or making area unavailable */
+	ret = set_memory_rw(addr, nr);
+	if (!ret)
+		area->rw_mappings++;
+
+out:
+	mutex_unlock(mutex);
+	return ret;
+}
+
+#if 0
+static int noinline __execmem_restore_rox(void *ptr, size_t size)
+{
+	pgprot_t pmd_pgprot = pgprot_4k_2_large(PAGE_KERNEL_ROX);
+	unsigned long addr = round_down((unsigned long)ptr, PMD_SIZE);
+	unsigned long end = round_up(addr + size, PMD_SIZE);
+	pgd_t *pgd = pgd_offset_k(addr);
+	p4d_t *p4d = p4d_offset(pgd, addr);
+	pud_t *pud = pud_offset(p4d, addr);
+	pmd_t *pmd;
+
+	pr_info("===> %s: addr: %px nr: %ld\n", __func__, ptr, size >> PAGE_SHIFT);
+
+	for ( ; addr < end; addr += PMD_SIZE) {
+		unsigned long pfn = vmalloc_to_pfn((void *)addr);
+		pte_t *pte = NULL;
+
+		pmd = pmd_offset(pud, addr);
+
+		if (!pmd_present(*pmd)) {
+			pr_info("===> %s: %lx: no pmd?!\n", __func__, addr);
+			__dump_pagetable("=>", addr);
+			return -ENOMEM;
+		}
+
+		if (!pmd_leaf(*pmd)) {
+			pr_info("===> %s: %lx: !pmd_leaf\n", __func__, addr);
+			pte = (pte_t *)pmd_page_vaddr(*pmd);
+		}
+
+		pr_info("===> %s: addr: %lx pfn: %lx\n", __func__, addr, pfn);
+		__dump_pagetable("ROX before", addr);
+		set_pmd(pmd, pmd_mkhuge(pfn_pmd(pfn,
+						canon_pgprot(pmd_pgprot))));
+		__dump_pagetable("ROX after", addr);
+
+		if (pte)
+			free_page((unsigned long)pte);
+	}
+
+	flush_tlb_kernel_range(addr, end - 1);
+
+	return 0;
+}
+#endif
+
+int set_memory_rox_noalias(unsigned long addr, int numpages);
+
+static int __execmem_restore_rox(void *ptr, size_t size)
+{
+	unsigned int nr = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	return set_memory_rox/* _noalias */((unsigned long)ptr, nr);
+}
+
+int execmem_restore_rox(void *ptr, size_t size)
+{
+	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
+	struct mutex *mutex = &execmem_cache.mutex;
+	unsigned long addr = (unsigned long)ptr;
+	MA_STATE(mas, busy_areas, addr, addr);
+	struct execmem_area *area;
+	int err = 0;
+
+	size = PAGE_ALIGN(size);
+	pr_info("===> %s: addr: %px nr: %ld\n", __func__, ptr, size >> PAGE_SHIFT);
+
+	mutex_lock(mutex);
+	mas_for_each(&mas, area, addr + size - 1) {
+		size_t area_size = area->size;
+
+		pr_info("===> %s: area: %px, size: %ld\n", __func__, area, area_size);
+
+		area->rw_mappings--;
+		if (!area->rw_mappings) {
+			err = __execmem_restore_rox(area->vm->addr, area_size);
+			if (err)
+				break;
+		}
+	}
+	mutex_unlock(mutex);
+
+	return err;
+}
+
 #else /* CONFIG_ARCH_HAS_EXECMEM_ROX */
 static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 {
@@ -462,7 +646,45 @@ static void __init __execmem_init(void)
 	execmem_init_missing(info);
 
 	execmem_info = info;
+
+	for (int i = EXECMEM_DEFAULT; i < EXECMEM_TYPE_MAX; i++) {
+		struct execmem_range *r = &info->ranges[i];
+
+		pr_info("===> %s: %d: %px\n", __func__, i, r);
+	}
 }
+
+static int execmem_pgt_show(struct seq_file *s, void *unused)
+{
+	return -EPERM;
+}
+
+static ssize_t execmem_pgt_write(struct file *file, const char __user *user_buf,
+				 size_t len, loff_t *ppos)
+{
+	char *buf, *endp;
+	unsigned long addr;
+
+	buf = memdup_user_nul(user_buf, len);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	addr = simple_strtoul(buf, NULL, 0);
+
+	pr_info("===> PGT: %lx\n", addr);
+	__dump_pagetable("PGT", addr);
+
+	kfree(buf);
+	return len;
+}
+DEFINE_SHOW_STORE_ATTRIBUTE(execmem_pgt);
+
+static int execmem_debugfs_init(void)
+{
+	debugfs_create_file("execmem_pgt", 0200, NULL, NULL, &execmem_pgt_fops);
+	return 0;
+}
+late_initcall(execmem_debugfs_init);
 
 #ifdef CONFIG_ARCH_WANTS_EXECMEM_LATE
 static int __init execmem_late_init(void)
