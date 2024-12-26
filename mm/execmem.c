@@ -114,6 +114,8 @@ static inline unsigned long mas_range_len(struct ma_state *mas)
 	return mas->last - mas->index + 1;
 }
 
+void set_direct_map_large_pages_array(struct page **pages, unsigned int nr);
+
 static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 {
 	unsigned int nr = (1 << get_vm_area_page_order(vm));
@@ -126,6 +128,9 @@ static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 			goto err_restore;
 		updated += nr;
 	}
+
+	if (valid)
+		set_direct_map_large_pages_array(vm->pages, vm->nr_pages);
 
 	return 0;
 

@@ -2652,6 +2652,17 @@ int set_direct_map_default_noflush(struct page *page)
 	return __set_pages_p(page, 1);
 }
 
+void set_direct_map_large_pages_array(struct page **pages, unsigned int nr)
+{
+	struct cpa_data cpa = {
+		.numpages = nr,
+		.flags = CPA_PAGES_ARRAY,
+		.pages = pages,
+	};
+
+	cpa_collapse_large_pages(&cpa);
+}
+
 int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 {
 	if (valid)

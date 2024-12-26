@@ -3257,6 +3257,13 @@ static inline void set_area_direct_map(const struct vm_struct *area,
 			set_direct_map(area->pages[i]);
 }
 
+void set_direct_map_large_pages_array(struct page **pages, unsigned int nr);
+
+static inline void set_area_direct_map_large_pages(const struct vm_struct *area)
+{
+	set_direct_map_large_pages_array(area->pages, area->nr_pages);
+}
+
 /*
  * Flush the vm mapping and reset the direct map.
  */
@@ -3292,6 +3299,7 @@ static void vm_reset_perms(struct vm_struct *area)
 	set_area_direct_map(area, set_direct_map_invalid_noflush);
 	_vm_unmap_aliases(start, end, flush_dmap);
 	set_area_direct_map(area, set_direct_map_default_noflush);
+	set_area_direct_map_large_pages(area);
 }
 
 static void delayed_vfree_work(struct work_struct *w)
