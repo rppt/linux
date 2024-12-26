@@ -1311,7 +1311,7 @@ static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 		}
 	}
 
-	if (pfn_range_is_mapped(pfn, pfn + 1))
+	if (virt_addr_valid(addr) && pfn_range_is_mapped(pfn, pfn + 1))
 		collapse_page_count(PG_LEVEL_2M);
 
 	return 1;
@@ -1358,7 +1358,7 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
 	list_add(&page_ptdesc(pud_page(*pud))->pt_list, pgtables);
 	set_pud(pud, pfn_pud(pfn, pmd_pgprot(first)));
 
-	if (pfn_range_is_mapped(pfn, pfn + 1))
+	if (virt_addr_valid(addr) && pfn_range_is_mapped(pfn, pfn + 1))
 		collapse_page_count(PG_LEVEL_1G);
 
 	return 1;
@@ -1375,11 +1375,11 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
  */
 static int collapse_large_pages(unsigned long addr, struct list_head *pgtables)
 {
+	int collapsed = 0;
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-	int ret = 0;
 
 	addr &= PMD_MASK;
 
@@ -1393,17 +1393,17 @@ static int collapse_large_pages(unsigned long addr, struct list_head *pgtables)
 	pud = pud_offset(p4d, addr);
 	if (!pud_present(*pud) || pud_leaf(*pud))
 		goto out;
-
 	pmd = pmd_offset(pud, addr);
-	if (pmd_present(*pmd) && !pmd_leaf(*pmd)) {
-		if (!collapse_pmd_page(pmd, addr, pgtables))
-			goto out;
-	}
+	if (!pmd_present(*pmd) || pmd_leaf(*pmd))
+		goto out;
 
-	ret = collapse_pud_page(pud, addr, pgtables);
+	collapsed = collapse_pmd_page(pmd, addr, pgtables);
+	if (collapsed)
+		collapsed += collapse_pud_page(pud, addr, pgtables);
+
 out:
 	spin_unlock(&pgd_lock);
-	return ret;
+	return collapsed;
 }
 
 static bool try_to_free_pte_page(pte_t *pte)
