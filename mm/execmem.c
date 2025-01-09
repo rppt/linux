@@ -258,6 +258,7 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
 	unsigned long start, end;
+	unsigned int page_shift;
 	struct vm_struct *vm;
 	size_t alloc_size;
 	int err = -ENOMEM;
@@ -284,8 +285,9 @@ static int execmem_cache_populate(struct execmem_range *range, size_t size)
 	if (err)
 		goto err_free_mem;
 
+	page_shift = get_vm_area_page_order(vm) + PAGE_SHIFT;
 	err = vmap_pages_range_noflush(start, end, range->pgprot, vm->pages,
-				       PMD_SHIFT);
+				       page_shift);
 	if (err)
 		goto err_free_mem;
 
