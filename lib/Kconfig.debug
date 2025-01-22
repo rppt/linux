@@ -3197,6 +3197,14 @@ config INT_SQRT_KUNIT_TEST
 
 	  If unsure, say N
 
+config TEST_KEXEC_HANDOVER
+	tristate "Test module for kexec handover"
+	default n
+	depends on m && KEXEC_HANDOVER
+	help
+	  Enable this option to create a kernel module that will test data
+	  persistence over kexec
+
 endif # RUNTIME_TESTING_MENU
 
 config ARCH_USE_MEMTEST
