@@ -51,6 +51,9 @@ static int test_kho_setup(void)
 		return -ENOMEM;
 	}
 
+	for (int i = 0; i < TEST_KHO_NR_PAGES; i++)
+		dump_page(page + i, "test_kho");
+
 	state->magic = TEST_KHO_MAGIC;
 	state->contig_data = page_address(page);
 	state->scattered_data = ptr;
@@ -100,6 +103,9 @@ static void __init test_kho_revive_data(const void *fdt)
 		return;
 	}
 
+	for (int i = 0; i < TEST_KHO_NR_PAGES; i++)
+		dump_page(virt_to_page(buf + PAGE_SIZE * i), "test_kho");
+
 	node = fdt_path_offset(fdt, "/test_kho/scattered_data");
 	if (node < 0) {
 		pr_warn("no scattered data node\n");
@@ -135,6 +141,8 @@ static void __init test_kho_revive_data(const void *fdt)
 		}
 
 		memcpy(buf + PAGE_SIZE * i, ptr, PAGE_SIZE);
+
+		dump_page(virt_to_page(ptr), "test_kho");
 	}
 
 	if (*csum != ip_compute_csum(buf, mem_size)) {
