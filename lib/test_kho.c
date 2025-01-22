@@ -64,6 +64,89 @@ static int test_kho_setup(void)
 	return 0;
 }
 
+static void __init test_kho_revive_data(const void *fdt)
+{
+	int node, len;
+	const struct kho_mem *mem;
+	const __sum16 *csum;
+	void *buf;
+
+	node = fdt_path_offset(fdt, "/test_kho/contig_data");
+	if (node < 0) {
+		pr_warn("no conting data node: %d\n", node);
+		return;
+	}
+
+	if (fdt_node_check_compatible(fdt, node, "contig_data-v1")) {
+		pr_warn("Node /contig_data has unknown compatible");
+		return;
+	}
+
+	csum = fdt_getprop(fdt, node, "csum", &len);
+	if (!csum || len != sizeof(*csum)) {
+		pr_warn("contig csum len does not match: %d\n", len);
+		return;
+	}
+
+	mem = fdt_getprop(fdt, node, "mem", &len);
+	buf = kho_claim_mem(mem);
+	if (!buf) {
+		pr_warn("failed to claim contig_data memory\n");
+		return;
+	}
+
+	if (*csum != ip_compute_csum(buf, mem_size)) {
+		pr_warn("wrong conting_csum want: %x got: %x\n", *csum, ip_compute_csum(buf, mem_size));
+		return;
+	}
+
+	node = fdt_path_offset(fdt, "/test_kho/scattered_data");
+	if (node < 0) {
+		pr_warn("no scattered data node\n");
+		return;
+	}
+
+	if (fdt_node_check_compatible(fdt, node, "scattered_data-v1")) {
+		pr_warn("Node /scattered_data has unknown compatible");
+		return;
+	}
+
+	csum = fdt_getprop(fdt, node, "csum", &len);
+	if (!csum || len != sizeof(*csum)) {
+		pr_warn("scattered csum len does not match: %d\n", len);
+		return;
+	}
+
+	mem = fdt_getprop(fdt, node, "mem", &len);
+	pr_info("===> %s: len: %d\n", __func__, len);
+
+	buf = vmalloc(mem_size);
+	if (!buf) {
+		pr_warn("vmalloc failed\n");
+		return;
+	}
+
+	for (int i = 0; i < len/sizeof(*mem); i++) {
+		void *ptr = kho_claim_mem(&mem[i]);
+
+		if (!ptr) {
+			pr_warn("failed to claim scattered_data memory\n");
+			goto out;
+		}
+
+		memcpy(buf + PAGE_SIZE * i, ptr, PAGE_SIZE);
+	}
+
+	if (*csum != ip_compute_csum(buf, mem_size)) {
+		pr_warn("wrong scattered_csum want: %x got: %x\n", *csum, ip_compute_csum(buf, mem_size));
+		return;
+	}
+
+	pr_info("all good! :)\n");
+out:
+	vfree(buf);
+}
+
 /**
  * test_kho_revive - Revive test blocks from KHO
  */
@@ -71,6 +154,7 @@ static void __init test_kho_revive(const void *fdt)
 {
 	int node, len;
 	const int *num;
+	const unsigned int *magic;
 
 	if (!IS_ENABLED(CONFIG_KEXEC_HANDOVER) || !fdt)
 		return;
@@ -84,11 +168,22 @@ static void __init test_kho_revive(const void *fdt)
 		return;
 	}
 
+	magic = fdt_getprop(fdt, node, "magic", &len);
+	if (!magic || len != sizeof(*magic))
+		return;
+
+	if (*magic != TEST_KHO_MAGIC) {
+		pr_err("magic does not match: want: %u got %u\n", TEST_KHO_MAGIC, *magic);
+		return;
+	}
+
 	num = fdt_getprop(fdt, node, "test-property", &len);
 	if (!num || len != sizeof(*num))
 		return;
 
 	printk ("value passed from prev kernel: %0x\n", *num);
+
+	test_kho_revive_data(fdt);
 }
 
 static int test_kho_save_contig_data(void *fdt)
