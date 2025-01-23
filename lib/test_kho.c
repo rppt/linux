@@ -52,7 +52,10 @@ static int test_kho_setup(void)
 	}
 
 	for (int i = 0; i < TEST_KHO_NR_PAGES; i++)
-		dump_page(page + i, "test_kho");
+		dump_page(page + i, "kho contig");
+
+	for (int i = 0; i < TEST_KHO_NR_PAGES; i++)
+		dump_page(vmalloc_to_page(ptr + PAGE_SIZE * i), "kho scattered");
 
 	state->magic = TEST_KHO_MAGIC;
 	state->contig_data = page_address(page);
