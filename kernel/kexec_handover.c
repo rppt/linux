@@ -620,7 +620,7 @@ static phys_addr_t __init scratch_size(int nid)
  * active. This CMA region will only be used for movable pages which are not a
  * problem for us during KHO because we can just move them somewhere else.
  */
-static void kho_reserve_scratch(void)
+static void __init kho_reserve_scratch(void)
 {
 	phys_addr_t addr, size;
 	int nid, i = 1;
@@ -672,7 +672,7 @@ err_disable_kho:
  * Scan the DT for any memory ranges and make sure they are reserved in
  * memblock, otherwise they will end up in a weird state on free lists.
  */
-static void kho_init_reserved_pages(void)
+static void __init kho_init_reserved_pages(void)
 {
 	const void *fdt = kho_get_fdt();
 	int offset = 0, depth = 0, initial_depth = 0, len;
