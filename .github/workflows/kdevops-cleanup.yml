@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# This can be used towards the end of your action. All tasks here run even if
+# any of the previous tasks failed.
+
+name: Kdevops cleanup workflow
+
+on:
+  workflow_call:  # Makes this workflow reusable
+
+jobs:
+  cleanup:
+    name: Archive results and cleanup
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Set Linux kdevops development path
+        if: ${{ job.status != 'cancelled' }}
+        run: echo "LINUX_KDEVOPS_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+
+      - name: Get systemd journal files
+        if: ${{ job.status != 'cancelled' }}
+        run: |
+          if [[ ! -d kdevops ]]; then
+            exit 0
+          fi
+          cd kdevops
+          make journal-dump
+
+      - name: Start SSH Agent
+        if: ${{ job.status != 'cancelled' }}
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Build our kdevops archive results
+        if: ${{ job.status != 'cancelled' }}
+        run: |
+          if [[ ! -d kdevops ]]; then
+            exit 0
+          fi
+          cd kdevops
+          make ci-archive
+
+      - name: Upload our kdevops results archive
+        if: ${{ job.status != 'cancelled' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kdevops-ci-results
+          path: ${{ env.LINUX_KDEVOPS_PATH }}/kdevops/archive/*.zip
+
+      - name: Run kdevops make destroy
+        if: always()
+        run: |
+          if [[ ! -d kdevops ]]; then
+            exit 0
+          fi
+          cd kdevops
+          make destroy
+          cd ..
+          rm -rf kdevops

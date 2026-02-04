@@ -1,0 +1,193 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# This can be used as a initialization workflow for most Linux kernel
+# development environments. This takes care of:
+#
+#   - Checks out and re-using a local mirror for your kernel tree
+#   - Looks for a defconfig in kdevops to use for your kernel tree
+#   - Sets up CI metadata for kdevops-results-archive
+#   - Ensures your kernel tree at least builds with defconfig
+#   - Brings up target DUTs nodes
+#   - Installs your Linux kernel tree on them
+#   - Builds all of your test requirements for your Linux kernel tree
+
+name: Base kdevops workflow
+
+on:
+  workflow_call:  # Makes this workflow reusable
+    inputs:
+      kdevops_defconfig:
+        required: false
+        type: string
+
+jobs:
+  setup:
+    name: Setup kdevops environment
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Verify we won't expect user input interactions on the host key
+        run: |
+          mkdir -p ~/.ssh
+          if ! grep -q "StrictHostKeyChecking no" ~/.ssh/config 2>/dev/null; then
+            echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          fi
+
+      - name: Start SSH Agent for initial test
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Modify the repo here if you have a custom or private URL for the archive
+      # This can also just be a repo variable later.
+      - name: Verify our ssh connection will work
+        run: |
+          if ! git ls-remote git@github.com:linux-kdevops/kdevops-results-archive.git HEAD; then
+            echo "Cannot access kdevops-results-archive repository"
+            exit 1
+          fi
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory '*'
+          git config --global user.name "kdevops"
+          git config --global user.email "kdevops@lists.linux.dev"
+
+      - name: Checkout kdevops
+        run: |
+          rm -rf kdevops
+          git clone /mirror/kdevops.git kdevops
+
+      - name: Make sure our repo kdevops defconfig exists
+        run: |
+          cd kdevops
+          if [[ -z "${{ inputs.kdevops_defconfig }}" ]]; then
+            KDEVOPS_DEFCONFIG=$(basename ${{ github.repository }})
+          else
+            KDEVOPS_DEFCONFIG="${{ inputs.kdevops_defconfig }}"
+          fi
+
+          if [[ ! -f defconfigs/$KDEVOPS_DEFCONFIG ]]; then
+            echo "kdevops lacks a defconfig for this repository, expected to find: defconfigs/$KDEVOPS_DEFCONFIG"
+            exit 1
+          fi
+
+          echo "KDEVOPS_DEFCONFIG=$KDEVOPS_DEFCONFIG" >> $GITHUB_ENV
+
+      - name: Checkout custom branch with delta on kdevops/linux
+        run: |
+          LINUX_TREE="https://github.com/${{ github.repository }}"
+          LINUX_TREE_REF="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          cd kdevops
+          git clone $LINUX_TREE --reference /mirror/linux.git/ --depth=5 linux
+          cd linux
+          git fetch origin $LINUX_TREE_REF
+          git checkout $LINUX_TREE_REF
+          git log -1
+
+      - name: Initialize CI metadata for kdevops-results-archive for linux
+        run: |
+          cd kdevops/linux
+          echo "$(basename ${{ github.repository }})" > ../ci.trigger
+
+          # This supports using kdevops github actions using two different
+          # approaches:
+          #
+          #  1) Commit the .github/ directory onto a Linux tree before your
+          #     kernel changes. This approach is used for example for
+          #     testing patches posted on the mailing list with patchwork,
+          #     this is the strategy kernel-patch-deaemon uses. Since the
+          #     patches are ephemeral there is not important git history to
+          #     maintain.
+          #
+          #  2) Merge the .github/ directory at the end of your development
+          #     tree. This is useful for kernel developers wishing to test
+          #     existing trees.
+          #
+          # So this checks to see if the last commit (top of the tree) *added*
+          # the .github directory. If the last commit added it, then we assume
+          # the commit prior to it was the one we'd like to document as the main
+          # test point.
+          if git diff-tree --no-commit-id --name-only --diff-filter=A -r HEAD | grep -q "^\.github/"; then
+            git log -2 --skip=1 --pretty=format:"%s" -1 > ../ci.subject
+            git describe --exact-match --tags HEAD^ 2>/dev/null || git rev-parse --short HEAD^ > ../ci.ref
+          else
+            git log -1 --pretty=format:"%s" > ../ci.subject
+            git describe --exact-match --tags HEAD 2>/dev/null || git rev-parse --short HEAD > ../ci.ref
+          fi
+
+          RELEVANT_GIT_TAG=$(cat ../ci.ref)
+          RELEVANT_GIT_REF=$(git rev-parse --short=12 $RELEVANT_GIT_TAG)
+
+          echo "LINUX_GIT_REF=$RELEVANT_GIT_REF" >> $GITHUB_ENV
+          echo "LINUX_GIT_TAG=$RELEVANT_GIT_TAG" >> $GITHUB_ENV
+
+          # Start out pessimistic
+          echo "unknown" > ../ci.result
+          echo "Nothing to write home about." > ../ci.commit_extra
+
+      - name: Run a quick Linux kernel defconfig build test
+        run: |
+          cd kdevops/linux
+          git reset --hard ${{ env.LINUX_GIT_TAG }}
+          make defconfig
+          make -j$(nproc)
+
+      - name: Run kdevops make defconfig-repo
+        run: |
+          LINUX_TREE="https://github.com/${{ github.repository }}"
+          LINUX_TREE_REF="${{ env.LINUX_GIT_TAG }}"
+
+          # We make the compromise here to use a relevant git tag for the
+          # host prefix so that folks can easily tell what exact kernel tree
+          # is being tested by using the relevant git ref. That is, if you
+          # pushed a tree with the .github/ directory as the top of the tree,
+          # that commit will not be used, we'll use the last one as that is
+          # the relevant git ref we want to annotate a test for.
+          #
+          # The compromise here we use special KDEVOPS to separete the
+          # commit ID and github.run_id. Exotic things likes UTF characters
+          # and dots have problems.
+          KDEVOPS_HOSTS_PREFIX="${{ env.LINUX_GIT_REF }}KDEVOPS${{ github.run_id }}"
+
+          echo "Going to use defconfig-${{ env.KDEVOPS_DEFCONFIG }}"
+
+          echo "Linux tree:          $LINUX_TREE"
+          echo "Linux trigger ref:   $LINUX_TREE_REF"
+          echo "Linux tag:           ${{ env.LINUX_GIT_TAG }}"
+          echo "Runner ID:           ${{ github.run_id }}"
+          echo "kdevops host prefix: $KDEVOPS_HOSTS_PREFIX"
+          echo "kdevops defconfig:   defconfig-${{ env.KDEVOPS_DEFCONFIG }}"
+
+          KDEVOPS_ARGS="\
+          KDEVOPS_HOSTS_PREFIX=$KDEVOPS_HOSTS_PREFIX \
+          LINUX_TREE=$LINUX_TREE \
+          LINUX_TREE_REF=$LINUX_TREE_REF \
+          ANSIBLE_CFG_CALLBACK_PLUGIN="debug" \
+          KMOD_TIMEOUT="175" \
+          defconfig-${{ env.KDEVOPS_DEFCONFIG }}"
+          echo "Going to run:"
+          echo "make $KDEVOPS_ARGS"
+
+          cd kdevops
+          make $KDEVOPS_ARGS
+
+      - name: Run kdevops make
+        run: |
+          cd kdevops
+          make -j$(nproc)
+
+      - name: Run kdevops make bringup
+        run: |
+          cd kdevops
+          ls -ld linux
+          make bringup
+
+      - name: Build linux and boot test nodes on test kernel
+        run: |
+          cd kdevops
+          make linux
+
+      - name: Build required ci tests
+        run: |
+          cd kdevops
+          make ci-build-test

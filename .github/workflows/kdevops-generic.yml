@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Most simple Linux kernel subsystems can be tested with this target
+# test setup. For more elaborates tests look for a topic branch under the
+# kdevops-ci tree. For example to test a filesystem look at the fstests
+# branch.
+
+name: Run generic kdevops CI tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  setup:
+    uses: ./.github/workflows/kdevops-init.yml
+    secrets: inherit
+
+  run-tests:
+    needs: setup
+    name: Run CI tests
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Run CI tests
+        run: |
+          cd kdevops
+          make ci-test
+          echo "ok" > ci.result
+
+  cleanup:
+    needs: [run-tests, setup]  # Add setup as a dependency to ensure proper ordering
+    if: always()  # This ensures cleanup runs even if run-tests fails
+    uses: ./.github/workflows/kdevops-cleanup.yml
+    secrets: inherit

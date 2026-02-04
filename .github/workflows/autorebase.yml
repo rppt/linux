@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: GPL-2.0
+---
+name: Autorebase
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 14 * * *'
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Configure git
+        run: |
+          git config --local user.email "github-actions@github.com"
+          git config --local user.name "GitHub Actions"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Get latest mainline tag
+        id: mainline
+        run: |
+          tag=$(./scripts/korg-releases.py --moniker mainline)
+          "${{ github.workspace }}/scripts/github_output.sh" mainline_tag "$tag"
+
+      - name: Get current kernel version
+        id: localver
+        run: |
+          version=$(make kernelversion)
+          tag="v${version/.0/}"
+          "${{ github.workspace }}/scripts/github_output.sh" local_tag "$tag"
+
+      - name: Check if tags match
+        id: check
+        run: |
+          set -euxo pipefail
+          if [ "${{ steps.mainline.outputs.mainline_tag }}" = \
+               "${{ steps.localver.outputs.local_tag }}" ]; then
+            echo "Tags are the same. Skipping rebase."
+            exit 0
+          fi
+          echo "Rebase \
+            ${{ steps.localver.outputs.local_tag }} -> \
+            ${{ steps.mainline.outputs.mainline_tag }}"
+
+      - name: Unshallow (get full history for rebase)
+        run: |
+          git fetch --unshallow
+
+      - name: Add torvalds remote
+        run: |
+          git remote add torvalds \
+            https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+          git fetch torvalds
+
+      - name: Rebase master onto new mainline
+        run: |
+          set -euxo pipefail
+          git checkout ${{ github.event.repository.default_branch }}
+          git rebase --onto ${{ steps.mainline.outputs.mainline_tag }} \
+              ${{ steps.localver.outputs.local_tag }} \
+              ${{ github.event.repository.default_branch }}
+
+      - name: Push rebased branch
+        run: |
+          git push origin ${{ github.event.repository.default_branch }} --force
