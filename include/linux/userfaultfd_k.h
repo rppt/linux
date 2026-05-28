@@ -37,34 +37,9 @@ enum uf_reason {
 #include <linux/hugetlb_inline.h>
 
 /* The set of all possible UFFD-related VM flags. */
-#define __VM_UFFD_FLAGS (VM_UFFD_MISSING | VM_UFFD_MINOR | \
-			 VM_UFFD_WP | VM_UFFD_RWP)
+#define __VM_UFFD_FLAGS VM_UFFD
 
-#define __VMA_UFFD_FLAGS mk_vma_flags_from_masks(VMA_UFFD_MISSING, VMA_UFFD_WP, \
-						 VMA_UFFD_MINOR, VMA_UFFD_RWP)
-
-/* Mode bits stored in vm_uffd_state.mode, mirroring the VM_UFFD_* flags. */
-#define UFFD_MODE_MISSING	BIT(0)
-#define UFFD_MODE_WP		BIT(1)
-#define UFFD_MODE_MINOR		BIT(2)
-#define UFFD_MODE_RWP		BIT(3)
-#define UFFD_MODE_ALL		(UFFD_MODE_MISSING | UFFD_MODE_WP | \
-				 UFFD_MODE_MINOR | UFFD_MODE_RWP)
-
-static inline unsigned int vm_flags_to_uffd_mode(vm_flags_t flags)
-{
-	unsigned int mode = 0;
-
-	if (flags & VM_UFFD_MISSING)
-		mode |= UFFD_MODE_MISSING;
-	if (flags & VM_UFFD_WP)
-		mode |= UFFD_MODE_WP;
-	if (flags & VM_UFFD_MINOR)
-		mode |= UFFD_MODE_MINOR;
-	if (flags & VM_UFFD_RWP)
-		mode |= UFFD_MODE_RWP;
-	return mode;
-}
+#define __VMA_UFFD_FLAGS mk_vma_flags(VMA_UFFD_BIT)
 
 /*
  * CAREFUL: Check include/uapi/asm-generic/fcntl.h when defining
@@ -127,7 +102,7 @@ extern vm_fault_t handle_userfault(struct vm_fault *vmf,
 /* VMA userfaultfd operations */
 struct vm_uffd_ops {
 	/* Checks if a VMA can support userfaultfd */
-	bool (*can_userfault)(struct vm_area_struct *vma, vm_flags_t vm_flags);
+	bool (*can_userfault)(struct vm_area_struct *vma, unsigned int mode);
 	/*
 	 * Called to resolve UFFDIO_CONTINUE request.
 	 * Should return the folio found at pgoff in the VMA's pagecache if it
@@ -211,25 +186,25 @@ static inline bool is_mergeable_vm_uffd_state(struct vm_area_struct *vma,
 
 static inline bool userfaultfd_missing(struct vm_area_struct *vma)
 {
-	return (vma->vm_flags & VM_UFFD_MISSING) &&
+	return (vma->vm_flags & VM_UFFD) &&
 	       (vma->vm_uffd_state.mode & UFFD_MODE_MISSING);
 }
 
 static inline bool userfaultfd_wp(struct vm_area_struct *vma)
 {
-	return (vma->vm_flags & VM_UFFD_WP) &&
+	return (vma->vm_flags & VM_UFFD) &&
 	       (vma->vm_uffd_state.mode & UFFD_MODE_WP);
 }
 
 static inline bool userfaultfd_minor(struct vm_area_struct *vma)
 {
-	return (vma->vm_flags & VM_UFFD_MINOR) &&
+	return (vma->vm_flags & VM_UFFD) &&
 	       (vma->vm_uffd_state.mode & UFFD_MODE_MINOR);
 }
 
 static inline bool userfaultfd_rwp(struct vm_area_struct *vma)
 {
-	return (vma->vm_flags & VM_UFFD_RWP) &&
+	return (vma->vm_flags & VM_UFFD) &&
 	       (vma->vm_uffd_state.mode & UFFD_MODE_RWP);
 }
 
@@ -241,10 +216,10 @@ static inline bool userfaultfd_protected(struct vm_area_struct *vma)
 /*
  * Never enable huge pmd sharing on some uffd registered vmas:
  *
- * - VM_UFFD_WP and VM_UFFD_RWP VMAs, because the write protect / access
+ * - uffd_WP and uffd-_RWP VMAs, because the write protect / access
  *   tracking information is per pgtable entry.
  *
- * - VM_UFFD_MINOR VMAs, because otherwise we would never get minor faults for
+ * - Uffd-MINOR VMAs, because otherwise we would never get minor faults for
  *   VMAs which share huge pmds. (If you have two mappings to the same
  *   underlying pages, and fault in the non-UFFD-registered one with a write,
  *   with huge pmd sharing this would *also* setup the second UFFD-registered
@@ -298,7 +273,7 @@ static inline bool userfaultfd_huge_pmd_rwp(struct vm_area_struct *vma,
 
 static inline bool userfaultfd_armed(struct vm_area_struct *vma)
 {
-	return vma_test_any_mask(vma, __VMA_UFFD_FLAGS);
+	return vma_test(vma, VMA_UFFD_BIT);
 }
 
 static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)

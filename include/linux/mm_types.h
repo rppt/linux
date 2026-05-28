@@ -721,6 +721,15 @@ struct vm_region {
 
 #ifdef CONFIG_USERFAULTFD
 #define NULL_VM_UFFD_STATE ((struct vm_uffd_state) { NULL, })
+
+/* Mode bits stored in vm_uffd_state.mode */
+#define UFFD_MODE_MISSING	BIT(0)
+#define UFFD_MODE_WP		BIT(1)
+#define UFFD_MODE_MINOR		BIT(2)
+#define UFFD_MODE_RWP		BIT(3)
+#define UFFD_MODE_ALL		(UFFD_MODE_MISSING | UFFD_MODE_WP | \
+				 UFFD_MODE_MINOR | UFFD_MODE_RWP)
+
 struct vm_uffd_state {
 	struct userfaultfd_ctx *ctx;
 	unsigned int mode;

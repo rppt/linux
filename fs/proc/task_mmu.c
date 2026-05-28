@@ -1216,8 +1216,7 @@ static void show_smap_vma_flags(struct seq_file *m, struct vm_area_struct *vma)
 		[ilog2(VM_HUGEPAGE)]	= "hg",
 		[ilog2(VM_NOHUGEPAGE)]	= "nh",
 		[ilog2(VM_MERGEABLE)]	= "mg",
-		[ilog2(VM_UFFD_MISSING)]= "um",
-		[ilog2(VM_UFFD_WP)]	= "uw",
+		[ilog2(VM_UFFD)]	= "uf",
 #ifdef CONFIG_ARM64_MTE
 		[ilog2(VM_MTE)]		= "mt",
 		[ilog2(VM_MTE_ALLOWED)]	= "",
@@ -1234,12 +1233,6 @@ static void show_smap_vma_flags(struct seq_file *m, struct vm_area_struct *vma)
 		[ilog2(VM_PKEY_BIT4)]	= "",
 #endif
 #endif /* CONFIG_ARCH_HAS_PKEYS */
-#ifdef CONFIG_HAVE_ARCH_USERFAULTFD_MINOR
-		[ilog2(VM_UFFD_MINOR)]	= "ui",
-#endif /* CONFIG_HAVE_ARCH_USERFAULTFD_MINOR */
-#ifdef CONFIG_USERFAULTFD_RWP
-		[ilog2(VM_UFFD_RWP)]	= "ur",
-#endif
 #ifdef CONFIG_ARCH_HAS_USER_SHADOW_STACK
 		[ilog2(VM_SHADOW_STACK)] = "ss",
 #endif
@@ -1259,6 +1252,20 @@ static void show_smap_vma_flags(struct seq_file *m, struct vm_area_struct *vma)
 		if (vma->vm_flags & (1UL << i))
 			seq_printf(m, "%s ", mnemonics[i]);
 	}
+#ifdef CONFIG_USERFAULTFD
+	if (vma->vm_flags & VM_UFFD) {
+		unsigned int mode = vma->vm_uffd_state.mode;
+
+		if (mode & UFFD_MODE_MISSING)
+			seq_puts(m, "um ");
+		if (mode & UFFD_MODE_WP)
+			seq_puts(m, "uw ");
+		if (mode & UFFD_MODE_MINOR)
+			seq_puts(m, "ui ");
+		if (mode & UFFD_MODE_RWP)
+			seq_puts(m, "ur ");
+	}
+#endif
 	seq_putc(m, '\n');
 }
 
