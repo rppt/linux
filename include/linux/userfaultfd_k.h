@@ -9,6 +9,22 @@
 #ifndef _LINUX_USERFAULTFD_K_H
 #define _LINUX_USERFAULTFD_K_H
 
+#include <linux/bits.h>
+
+/*
+ * Fault reason passed to handle_userfault().  These are independent of the
+ * VM_UFFD_* VMA flags so that the fault reason encoding is decoupled from
+ * the VMA flag namespace.
+ */
+enum uf_reason {
+	USERFAULT_MISSING	= BIT(0),
+	USERFAULT_WP		= BIT(1),
+	USERFAULT_MINOR	= BIT(2),
+	USERFAULT_RWP		= BIT(3),
+};
+#define USERFAULT_ANY	(USERFAULT_MISSING | USERFAULT_WP | \
+			 USERFAULT_MINOR | USERFAULT_RWP)
+
 #ifdef CONFIG_USERFAULTFD
 
 #include <linux/userfaultfd.h> /* linux/include/uapi/linux/userfaultfd.h */
@@ -82,7 +98,8 @@ struct userfaultfd_ctx {
 	struct mm_struct *mm;
 };
 
-extern vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason);
+extern vm_fault_t handle_userfault(struct vm_fault *vmf,
+				   enum uf_reason reason);
 
 /* VMA userfaultfd operations */
 struct vm_uffd_ops {
@@ -335,7 +352,7 @@ static inline bool pte_swp_uffd_any(pte_t pte)
 
 /* mm helpers */
 static inline vm_fault_t handle_userfault(struct vm_fault *vmf,
-				unsigned long reason)
+				enum uf_reason reason)
 {
 	return VM_FAULT_SIGBUS;
 }
