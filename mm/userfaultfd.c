@@ -99,7 +99,7 @@ bool validate_dst_vma(struct vm_area_struct *dst_vma, unsigned long dst_end)
 	 * enforce the VM_MAYWRITE check done at uffd registration
 	 * time.
 	 */
-	if (!dst_vma->vm_userfaultfd_ctx.ctx)
+	if (!dst_vma->vm_uffd_state.ctx)
 		return false;
 
 	return true;
@@ -1814,8 +1814,8 @@ static int validate_move_areas(struct userfaultfd_ctx *ctx,
 		return -EINVAL;
 
 	/* Ensure dst_vma is registered in uffd we are operating on */
-	if (!dst_vma->vm_userfaultfd_ctx.ctx ||
-	    dst_vma->vm_userfaultfd_ctx.ctx != ctx)
+	if (!dst_vma->vm_uffd_state.ctx ||
+	    dst_vma->vm_uffd_state.ctx != ctx)
 		return -EINVAL;
 
 	/* Only allow moving across anonymous vmas */
@@ -2249,7 +2249,7 @@ static void userfaultfd_set_ctx(struct vm_area_struct *vma,
 				vm_flags_t vm_flags)
 {
 	vma_start_write(vma);
-	vma->vm_userfaultfd_ctx = (struct vm_userfaultfd_ctx){ctx};
+	vma->vm_uffd_state = (struct vm_uffd_state){ctx};
 	userfaultfd_set_vm_flags(vma,
 				 (vma->vm_flags & ~__VM_UFFD_FLAGS) | vm_flags);
 }
@@ -2296,7 +2296,7 @@ static struct vm_area_struct *userfaultfd_clear_vma(struct vma_iterator *vmi,
 	}
 
 	ret = vma_modify_flags_uffd(vmi, prev, vma, start, end,
-				    &new_vma_flags, NULL_VM_UFFD_CTX,
+				    &new_vma_flags, NULL_VM_UFFD_STATE,
 				    give_up_on_oom);
 
 	/*
@@ -2330,15 +2330,15 @@ static int userfaultfd_register_range(struct userfaultfd_ctx *ctx,
 		cond_resched();
 
 		VM_WARN_ON_ONCE(!vma_can_userfault(vma, vm_flags, wp_async));
-		VM_WARN_ON_ONCE(vma->vm_userfaultfd_ctx.ctx &&
-				vma->vm_userfaultfd_ctx.ctx != ctx);
+		VM_WARN_ON_ONCE(vma->vm_uffd_state.ctx &&
+				vma->vm_uffd_state.ctx != ctx);
 		VM_WARN_ON_ONCE(!vma_test(vma, VMA_MAYWRITE_BIT));
 
 		/*
 		 * Nothing to do: this vma is already registered into this
 		 * userfaultfd and with the right tracking mode too.
 		 */
-		if (vma->vm_userfaultfd_ctx.ctx == ctx &&
+		if (vma->vm_uffd_state.ctx == ctx &&
 		    (vma->vm_flags & __VM_UFFD_FLAGS) == vm_flags)
 			goto skip;
 
@@ -2347,7 +2347,7 @@ static int userfaultfd_register_range(struct userfaultfd_ctx *ctx,
 		 * switches that would drop VM_UFFD_WP or VM_UFFD_RWP, so a
 		 * stray bit here is a bug.
 		 */
-		VM_WARN_ON_ONCE(vma->vm_userfaultfd_ctx.ctx == ctx &&
+		VM_WARN_ON_ONCE(vma->vm_uffd_state.ctx == ctx &&
 				vma->vm_flags & (VM_UFFD_WP | VM_UFFD_RWP) & ~vm_flags);
 
 		if (vma->vm_start > start)
@@ -2368,7 +2368,7 @@ static int userfaultfd_register_range(struct userfaultfd_ctx *ctx,
 
 		vma = vma_modify_flags_uffd(&vmi, prev, vma, start, vma_end,
 					    &new_vma_flags,
-					    (struct vm_userfaultfd_ctx){ctx},
+					    (struct vm_uffd_state){ctx},
 					    /* give_up_on_oom = */false);
 		if (IS_ERR(vma))
 			return PTR_ERR(vma);
@@ -2397,10 +2397,10 @@ static void userfaultfd_release_new(struct userfaultfd_ctx *ctx)
 	struct vm_area_struct *vma;
 	VMA_ITERATOR(vmi, mm, 0);
 
-	/* the various vma->vm_userfaultfd_ctx still points to it */
+	/* the various vma->vm_uffd_state still points to it */
 	mmap_write_lock(mm);
 	for_each_vma(vmi, vma) {
-		if (vma->vm_userfaultfd_ctx.ctx == ctx)
+		if (vma->vm_uffd_state.ctx == ctx)
 			userfaultfd_reset_ctx(vma);
 	}
 	mmap_write_unlock(mm);
@@ -2427,9 +2427,9 @@ static void userfaultfd_release_all(struct mm_struct *mm,
 	prev = NULL;
 	for_each_vma(vmi, vma) {
 		cond_resched();
-		VM_WARN_ON_ONCE(!!vma->vm_userfaultfd_ctx.ctx ^
+		VM_WARN_ON_ONCE(!!vma->vm_uffd_state.ctx ^
 				!!(vma->vm_flags & __VM_UFFD_FLAGS));
-		if (vma->vm_userfaultfd_ctx.ctx != ctx) {
+		if (vma->vm_uffd_state.ctx != ctx) {
 			prev = vma;
 			continue;
 		}
@@ -2520,7 +2520,7 @@ static bool userfaultfd_rwp_async_ctx(struct userfaultfd_ctx *ctx)
  */
 bool userfaultfd_wp_unpopulated(struct vm_area_struct *vma)
 {
-	struct userfaultfd_ctx *ctx = vma->vm_userfaultfd_ctx.ctx;
+	struct userfaultfd_ctx *ctx = vma->vm_uffd_state.ctx;
 
 	if (!ctx)
 		return false;
@@ -2862,7 +2862,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
 
 	assert_fault_locked(vmf);
 
-	ctx = vma->vm_userfaultfd_ctx.ctx;
+	ctx = vma->vm_uffd_state.ctx;
 	if (!ctx)
 		goto out;
 
@@ -3102,7 +3102,7 @@ int dup_userfaultfd(struct vm_area_struct *vma, struct list_head *fcs)
 	struct userfaultfd_ctx *ctx = NULL, *octx;
 	struct userfaultfd_fork_ctx *fctx;
 
-	octx = vma->vm_userfaultfd_ctx.ctx;
+	octx = vma->vm_uffd_state.ctx;
 	if (!octx)
 		return 0;
 
@@ -3146,7 +3146,7 @@ int dup_userfaultfd(struct vm_area_struct *vma, struct list_head *fcs)
 		list_add_tail(&fctx->list, fcs);
 	}
 
-	vma->vm_userfaultfd_ctx.ctx = ctx;
+	vma->vm_uffd_state.ctx = ctx;
 	return 0;
 }
 
@@ -3203,11 +3203,11 @@ void dup_userfaultfd_fail(struct list_head *fcs)
 }
 
 void mremap_userfaultfd_prep(struct vm_area_struct *vma,
-			     struct vm_userfaultfd_ctx *vm_ctx)
+			     struct vm_uffd_state *vm_ctx)
 {
 	struct userfaultfd_ctx *ctx;
 
-	ctx = vma->vm_userfaultfd_ctx.ctx;
+	ctx = vma->vm_uffd_state.ctx;
 
 	if (!ctx)
 		return;
@@ -3224,7 +3224,7 @@ void mremap_userfaultfd_prep(struct vm_area_struct *vma,
 	}
 }
 
-void mremap_userfaultfd_complete(struct vm_userfaultfd_ctx *vm_ctx,
+void mremap_userfaultfd_complete(struct vm_uffd_state *vm_ctx,
 				 unsigned long from, unsigned long to,
 				 unsigned long len)
 {
@@ -3244,7 +3244,7 @@ void mremap_userfaultfd_complete(struct vm_userfaultfd_ctx *vm_ctx,
 	userfaultfd_event_wait_completion(ctx, &ewq);
 }
 
-void mremap_userfaultfd_fail(struct vm_userfaultfd_ctx *vm_ctx)
+void mremap_userfaultfd_fail(struct vm_uffd_state *vm_ctx)
 {
 	struct userfaultfd_ctx *ctx = vm_ctx->ctx;
 
@@ -3263,7 +3263,7 @@ bool userfaultfd_remove(struct vm_area_struct *vma,
 	struct userfaultfd_ctx *ctx;
 	struct userfaultfd_wait_queue ewq;
 
-	ctx = vma->vm_userfaultfd_ctx.ctx;
+	ctx = vma->vm_uffd_state.ctx;
 	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_REMOVE))
 		return true;
 
@@ -3301,7 +3301,7 @@ int userfaultfd_unmap_prep(struct vm_area_struct *vma, unsigned long start,
 			   unsigned long end, struct list_head *unmaps)
 {
 	struct userfaultfd_unmap_ctx *unmap_ctx;
-	struct userfaultfd_ctx *ctx = vma->vm_userfaultfd_ctx.ctx;
+	struct userfaultfd_ctx *ctx = vma->vm_uffd_state.ctx;
 
 	if (!ctx || !(ctx->features & UFFD_FEATURE_EVENT_UNMAP) ||
 	    has_unmap_ctx(ctx, unmaps, start, end))
@@ -3821,7 +3821,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	do {
 		cond_resched();
 
-		VM_WARN_ON_ONCE(!!cur->vm_userfaultfd_ctx.ctx ^
+		VM_WARN_ON_ONCE(!!cur->vm_uffd_state.ctx ^
 				!!(cur->vm_flags & __VM_UFFD_FLAGS));
 
 		/* check not compatible vmas */
@@ -3875,8 +3875,8 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 * wouldn't know which one to deliver the userfaults to.
 		 */
 		ret = -EBUSY;
-		if (cur->vm_userfaultfd_ctx.ctx &&
-		    cur->vm_userfaultfd_ctx.ctx != ctx)
+		if (cur->vm_uffd_state.ctx &&
+		    cur->vm_uffd_state.ctx != ctx)
 			goto out_unlock;
 
 		/*
@@ -3885,7 +3885,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		 * subsequent mprotect() would then promote stale markers
 		 * into the other mode. Require an unregister first.
 		 */
-		if (cur->vm_userfaultfd_ctx.ctx == ctx &&
+		if (cur->vm_uffd_state.ctx == ctx &&
 		    cur->vm_flags & (VM_UFFD_WP | VM_UFFD_RWP) & ~vm_flags)
 			goto out_unlock;
 
@@ -3993,15 +3993,15 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 	do {
 		cond_resched();
 
-		VM_WARN_ON_ONCE(!!cur->vm_userfaultfd_ctx.ctx ^
+		VM_WARN_ON_ONCE(!!cur->vm_uffd_state.ctx ^
 				!!(cur->vm_flags & __VM_UFFD_FLAGS));
 
 		/*
 		 * Prevent unregistering through a different userfaultfd than
 		 * the one used for registration.
 		 */
-		if (cur->vm_userfaultfd_ctx.ctx &&
-		    cur->vm_userfaultfd_ctx.ctx != ctx)
+		if (cur->vm_uffd_state.ctx &&
+		    cur->vm_uffd_state.ctx != ctx)
 			goto out_unlock;
 
 		/*
@@ -4028,10 +4028,10 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 		cond_resched();
 
 		/* VMA not registered with userfaultfd. */
-		if (!vma->vm_userfaultfd_ctx.ctx)
+		if (!vma->vm_uffd_state.ctx)
 			goto skip;
 
-		VM_WARN_ON_ONCE(vma->vm_userfaultfd_ctx.ctx != ctx);
+		VM_WARN_ON_ONCE(vma->vm_uffd_state.ctx != ctx);
 		VM_WARN_ON_ONCE(!vma_can_userfault(vma, vma->vm_flags, wp_async));
 		VM_WARN_ON_ONCE(!(vma->vm_flags & VM_MAYWRITE));
 
@@ -4049,7 +4049,7 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 			struct userfaultfd_wake_range range;
 			range.start = start;
 			range.len = vma_end - start;
-			wake_userfault(vma->vm_userfaultfd_ctx.ctx, &range);
+			wake_userfault(vma->vm_uffd_state.ctx, &range);
 		}
 
 		vma = userfaultfd_clear_vma(&vmi, prev, vma,
@@ -4390,7 +4390,7 @@ static int userfaultfd_set_mode(struct userfaultfd_ctx *ctx,
 		VMA_ITERATOR(vmi, mm, 0);
 
 		for_each_vma(vmi, vma) {
-			if (vma->vm_userfaultfd_ctx.ctx == ctx)
+			if (vma->vm_uffd_state.ctx == ctx)
 				vma_start_write(vma);
 		}
 	}
@@ -4545,12 +4545,12 @@ out:
 
 bool userfaultfd_wp_async(struct vm_area_struct *vma)
 {
-	return userfaultfd_wp_async_ctx(vma->vm_userfaultfd_ctx.ctx);
+	return userfaultfd_wp_async_ctx(vma->vm_uffd_state.ctx);
 }
 
 bool userfaultfd_rwp_async(struct vm_area_struct *vma)
 {
-	return userfaultfd_rwp_async_ctx(vma->vm_userfaultfd_ctx.ctx);
+	return userfaultfd_rwp_async_ctx(vma->vm_uffd_state.ctx);
 }
 
 static inline unsigned int uffd_ctx_features(__u64 user_features)

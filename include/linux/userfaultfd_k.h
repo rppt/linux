@@ -162,10 +162,10 @@ int move_pages_huge_pmd(struct mm_struct *mm, pmd_t *dst_pmd, pmd_t *src_pmd, pm
 			unsigned long dst_addr, unsigned long src_addr);
 
 /* mm helpers */
-static inline bool is_mergeable_vm_userfaultfd_ctx(struct vm_area_struct *vma,
-					struct vm_userfaultfd_ctx vm_ctx)
+static inline bool is_mergeable_vm_uffd_state(struct vm_area_struct *vma,
+					struct vm_uffd_state vm_ctx)
 {
-	return vma->vm_userfaultfd_ctx.ctx == vm_ctx.ctx;
+	return vma->vm_uffd_state.ctx == vm_ctx.ctx;
 }
 
 /*
@@ -266,7 +266,7 @@ static inline bool userfaultfd_armed(struct vm_area_struct *vma)
 
 static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)
 {
-	struct userfaultfd_ctx *uffd_ctx = vma->vm_userfaultfd_ctx.ctx;
+	struct userfaultfd_ctx *uffd_ctx = vma->vm_uffd_state.ctx;
 
 	return uffd_ctx && (uffd_ctx->features & UFFD_FEATURE_EVENT_REMAP) == 0;
 }
@@ -276,11 +276,11 @@ extern void dup_userfaultfd_complete(struct list_head *);
 void dup_userfaultfd_fail(struct list_head *);
 
 extern void mremap_userfaultfd_prep(struct vm_area_struct *,
-				    struct vm_userfaultfd_ctx *);
-extern void mremap_userfaultfd_complete(struct vm_userfaultfd_ctx *,
+				    struct vm_uffd_state *);
+extern void mremap_userfaultfd_complete(struct vm_uffd_state *,
 					unsigned long from, unsigned long to,
 					unsigned long len);
-void mremap_userfaultfd_fail(struct vm_userfaultfd_ctx *);
+void mremap_userfaultfd_fail(struct vm_uffd_state *);
 
 extern bool userfaultfd_remove(struct vm_area_struct *vma,
 			       unsigned long start,
@@ -347,8 +347,8 @@ static inline long uffd_wp_range(struct vm_area_struct *vma,
 	return false;
 }
 
-static inline bool is_mergeable_vm_userfaultfd_ctx(struct vm_area_struct *vma,
-					struct vm_userfaultfd_ctx vm_ctx)
+static inline bool is_mergeable_vm_uffd_state(struct vm_area_struct *vma,
+					struct vm_uffd_state vm_ctx)
 {
 	return true;
 }
@@ -422,18 +422,18 @@ static inline void dup_userfaultfd_fail(struct list_head *l)
 }
 
 static inline void mremap_userfaultfd_prep(struct vm_area_struct *vma,
-					   struct vm_userfaultfd_ctx *ctx)
+					   struct vm_uffd_state *ctx)
 {
 }
 
-static inline void mremap_userfaultfd_complete(struct vm_userfaultfd_ctx *ctx,
+static inline void mremap_userfaultfd_complete(struct vm_uffd_state *ctx,
 					       unsigned long from,
 					       unsigned long to,
 					       unsigned long len)
 {
 }
 
-static inline void mremap_userfaultfd_fail(struct vm_userfaultfd_ctx *ctx)
+static inline void mremap_userfaultfd_fail(struct vm_uffd_state *ctx)
 {
 }
 
