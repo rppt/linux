@@ -43,6 +43,29 @@ enum uf_reason {
 #define __VMA_UFFD_FLAGS mk_vma_flags_from_masks(VMA_UFFD_MISSING, VMA_UFFD_WP, \
 						 VMA_UFFD_MINOR, VMA_UFFD_RWP)
 
+/* Mode bits stored in vm_uffd_state.mode, mirroring the VM_UFFD_* flags. */
+#define UFFD_MODE_MISSING	BIT(0)
+#define UFFD_MODE_WP		BIT(1)
+#define UFFD_MODE_MINOR		BIT(2)
+#define UFFD_MODE_RWP		BIT(3)
+#define UFFD_MODE_ALL		(UFFD_MODE_MISSING | UFFD_MODE_WP | \
+				 UFFD_MODE_MINOR | UFFD_MODE_RWP)
+
+static inline unsigned int vm_flags_to_uffd_mode(vm_flags_t flags)
+{
+	unsigned int mode = 0;
+
+	if (flags & VM_UFFD_MISSING)
+		mode |= UFFD_MODE_MISSING;
+	if (flags & VM_UFFD_WP)
+		mode |= UFFD_MODE_WP;
+	if (flags & VM_UFFD_MINOR)
+		mode |= UFFD_MODE_MINOR;
+	if (flags & VM_UFFD_RWP)
+		mode |= UFFD_MODE_RWP;
+	return mode;
+}
+
 /*
  * CAREFUL: Check include/uapi/asm-generic/fcntl.h when defining
  * new flags, since they might collide with O_* ones. We want
@@ -182,7 +205,37 @@ int move_pages_huge_pmd(struct mm_struct *mm, pmd_t *dst_pmd, pmd_t *src_pmd, pm
 static inline bool is_mergeable_vm_uffd_state(struct vm_area_struct *vma,
 					struct vm_uffd_state vm_ctx)
 {
-	return vma->vm_uffd_state.ctx == vm_ctx.ctx;
+	return vma->vm_uffd_state.ctx == vm_ctx.ctx &&
+	       vma->vm_uffd_state.mode == vm_ctx.mode;
+}
+
+static inline bool userfaultfd_missing(struct vm_area_struct *vma)
+{
+	return (vma->vm_flags & VM_UFFD_MISSING) &&
+	       (vma->vm_uffd_state.mode & UFFD_MODE_MISSING);
+}
+
+static inline bool userfaultfd_wp(struct vm_area_struct *vma)
+{
+	return (vma->vm_flags & VM_UFFD_WP) &&
+	       (vma->vm_uffd_state.mode & UFFD_MODE_WP);
+}
+
+static inline bool userfaultfd_minor(struct vm_area_struct *vma)
+{
+	return (vma->vm_flags & VM_UFFD_MINOR) &&
+	       (vma->vm_uffd_state.mode & UFFD_MODE_MINOR);
+}
+
+static inline bool userfaultfd_rwp(struct vm_area_struct *vma)
+{
+	return (vma->vm_flags & VM_UFFD_RWP) &&
+	       (vma->vm_uffd_state.mode & UFFD_MODE_RWP);
+}
+
+static inline bool userfaultfd_protected(struct vm_area_struct *vma)
+{
+	return userfaultfd_wp(vma) || userfaultfd_rwp(vma);
 }
 
 /*
@@ -199,9 +252,8 @@ static inline bool is_mergeable_vm_uffd_state(struct vm_area_struct *vma,
  */
 static inline bool uffd_disable_huge_pmd_share(struct vm_area_struct *vma)
 {
-	return vma_test_any_mask(vma,
-		mk_vma_flags_from_masks(VMA_UFFD_WP, VMA_UFFD_RWP,
-					VMA_UFFD_MINOR));
+	return userfaultfd_minor(vma) || userfaultfd_wp(vma) ||
+	       userfaultfd_rwp(vma);
 }
 
 /*
@@ -216,40 +268,8 @@ static inline bool uffd_disable_huge_pmd_share(struct vm_area_struct *vma)
  */
 static inline bool uffd_disable_fault_around(struct vm_area_struct *vma)
 {
-	return vma_test_any_mask(vma,
-		mk_vma_flags_from_masks(VMA_UFFD_WP, VMA_UFFD_RWP,
-					VMA_UFFD_MINOR));
-}
-
-static inline bool userfaultfd_missing(struct vm_area_struct *vma)
-{
-	return vma_test_any_mask(vma, VMA_UFFD_MISSING);
-}
-
-static inline bool userfaultfd_wp(struct vm_area_struct *vma)
-{
-	return vma_test_any_mask(vma, VMA_UFFD_WP);
-}
-
-static inline bool userfaultfd_minor(struct vm_area_struct *vma)
-{
-	return vma_test_any_mask(vma, VMA_UFFD_MINOR);
-}
-
-static inline bool userfaultfd_rwp(struct vm_area_struct *vma)
-{
-	/*
-	 * Callers gate PAGE_NONE usage on this; PAGE_NONE is a BUILD_BUG()
-	 * without CONFIG_ARCH_HAS_PTE_PROTNONE, so fold to false.
-	 */
-	if (!IS_ENABLED(CONFIG_ARCH_HAS_PTE_PROTNONE))
-		return false;
-	return vma_test_single_mask(vma, VMA_UFFD_RWP);
-}
-
-static inline bool userfaultfd_protected(struct vm_area_struct *vma)
-{
-	return userfaultfd_wp(vma) || userfaultfd_rwp(vma);
+	return userfaultfd_minor(vma) || userfaultfd_wp(vma) ||
+	       userfaultfd_rwp(vma);
 }
 
 static inline bool userfaultfd_pte_wp(struct vm_area_struct *vma,
