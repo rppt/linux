@@ -261,7 +261,7 @@ static int mfill_get_vma(struct mfill_state *state)
 	 * validate 'mode' now that we know the dst_vma: don't allow
 	 * a wrprotect copy if the userfaultfd didn't register as WP.
 	 */
-	if ((flags & MFILL_ATOMIC_WP) && !(dst_vma->vm_flags & VM_UFFD_WP))
+	if ((flags & MFILL_ATOMIC_WP) && !userfaultfd_wp(dst_vma))
 		goto out_unlock;
 
 	if (is_vm_hugetlb_page(dst_vma))
@@ -2249,7 +2249,10 @@ static void userfaultfd_set_ctx(struct vm_area_struct *vma,
 				vm_flags_t vm_flags)
 {
 	vma_start_write(vma);
-	vma->vm_uffd_state = (struct vm_uffd_state){ctx};
+	vma->vm_uffd_state = (struct vm_uffd_state){
+		.ctx = ctx,
+		.mode = vm_flags_to_uffd_mode(vm_flags),
+	};
 	userfaultfd_set_vm_flags(vma,
 				 (vma->vm_flags & ~__VM_UFFD_FLAGS) | vm_flags);
 }
@@ -2368,7 +2371,10 @@ static int userfaultfd_register_range(struct userfaultfd_ctx *ctx,
 
 		vma = vma_modify_flags_uffd(&vmi, prev, vma, start, vma_end,
 					    &new_vma_flags,
-					    (struct vm_uffd_state){ctx},
+					    (struct vm_uffd_state){
+						.ctx = ctx,
+						.mode = vm_flags_to_uffd_mode(vm_flags),
+					    },
 					    /* give_up_on_oom = */false);
 		if (IS_ERR(vma))
 			return PTR_ERR(vma);
