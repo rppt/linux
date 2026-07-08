@@ -21,7 +21,7 @@ pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
 }
 
-static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
+unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {
 	if (cpa->flags & CPA_PAGES_ARRAY) {
 		struct page *page = cpa->pages[idx];

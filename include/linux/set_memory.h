@@ -129,6 +129,8 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 			   unsigned int *level, bool *nx, bool *rw);
 
+unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx);
+
 pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 				  unsigned int *level, bool *nx, bool *rw);
 
