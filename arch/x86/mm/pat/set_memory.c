@@ -678,6 +678,91 @@ static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long star
 }
 
 /*
+ * Lookup the page table entry for a virtual address in a specific pgd.
+ * Return a pointer to the entry (or NULL if the entry does not exist),
+ * the level of the entry, and the effective NX and RW bits of all
+ * page table levels.
+ */
+pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
+				  unsigned int *level, bool *nx, bool *rw)
+{
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	*level = PG_LEVEL_256T;
+	*nx = false;
+	*rw = true;
+
+	if (pgd_none(*pgd))
+		return NULL;
+
+	*level = PG_LEVEL_512G;
+	*nx |= pgd_flags(*pgd) & _PAGE_NX;
+	*rw &= pgd_flags(*pgd) & _PAGE_RW;
+
+	p4d = p4d_offset(pgd, address);
+	if (p4d_none(*p4d))
+		return NULL;
+
+	if (p4d_leaf(*p4d) || !p4d_present(*p4d))
+		return (pte_t *)p4d;
+
+	*level = PG_LEVEL_1G;
+	*nx |= p4d_flags(*p4d) & _PAGE_NX;
+	*rw &= p4d_flags(*p4d) & _PAGE_RW;
+
+	pud = pud_offset(p4d, address);
+	if (pud_none(*pud))
+		return NULL;
+
+	if (pud_leaf(*pud) || !pud_present(*pud))
+		return (pte_t *)pud;
+
+	*level = PG_LEVEL_2M;
+	*nx |= pud_flags(*pud) & _PAGE_NX;
+	*rw &= pud_flags(*pud) & _PAGE_RW;
+
+	pmd = pmd_offset(pud, address);
+	if (pmd_none(*pmd))
+		return NULL;
+
+	if (pmd_leaf(*pmd) || !pmd_present(*pmd))
+		return (pte_t *)pmd;
+
+	*level = PG_LEVEL_4K;
+	*nx |= pmd_flags(*pmd) & _PAGE_NX;
+	*rw &= pmd_flags(*pmd) & _PAGE_RW;
+
+	return pte_offset_kernel(pmd, address);
+}
+
+/*
+ * Lookup the page table entry for a virtual address in a specific pgd.
+ * Return a pointer to the entry and the level of the mapping.
+ */
+pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
+			     unsigned int *level)
+{
+	bool nx, rw;
+
+	return lookup_address_in_pgd_attr(pgd, address, level, &nx, &rw);
+}
+
+/*
+ * Lookup the page table entry for a virtual address. Return a pointer
+ * to the entry and the level of the mapping.
+ *
+ * Note: the function returns p4d, pud or pmd either when the entry is marked
+ * large or when the present bit is not set. Otherwise it returns NULL.
+ */
+pte_t *lookup_address(unsigned long address, unsigned int *level)
+{
+	return lookup_address_in_pgd(pgd_offset_k(address), address, level);
+}
+EXPORT_SYMBOL_GPL(lookup_address);
+
+/*
  * Lookup the PMD entry for a virtual address. Return a pointer to the entry
  * or NULL if not present.
  */
