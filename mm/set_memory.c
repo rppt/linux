@@ -2,6 +2,7 @@
 
 #include <linux/highmem.h>
 #include <linux/vmalloc.h>
+#include <linux/pgtable.h>
 
 #include <linux/set_memory.h>
 
@@ -95,7 +96,7 @@ repeat:
 	if (pte_none(old_pte))
 		return arch_cpa_process_fault(cpa, address, primary);
 
-	if (level == PG_LEVEL_4K) {
+	if (level == PGTABLE_LEVEL_PTE) {
 		arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
 		cpa->numpages = 1;
 		return 0;
