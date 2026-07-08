@@ -38,25 +38,13 @@ static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
 	return *cpa->vaddr + idx * PAGE_SIZE;
 }
 
-static int __should_split_large_page(pte_t *kpte, unsigned long address,
-				     struct cpa_data *cpa)
-{
-	return arch_should_split_large_page(kpte, address, cpa);
-}
-
 static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
-	int do_split;
-
 	if (cpa->force_split)
 		return 1;
 
-	spin_lock(&pgd_lock);
-	do_split = __should_split_large_page(kpte, address, cpa);
-	spin_unlock(&pgd_lock);
-
-	return do_split;
+	return arch_should_split_large_page(kpte, address, cpa);
 }
 
 static int split_large_page(struct cpa_data *cpa, pte_t *kpte,

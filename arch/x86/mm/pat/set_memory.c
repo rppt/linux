@@ -1030,7 +1030,13 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 				 struct cpa_data *cpa)
 {
-	return __should_split_large_page(kpte, address, cpa);
+	int do_split;
+
+	spin_lock(&pgd_lock);
+	do_split = __should_split_large_page(kpte, address, cpa);
+	spin_unlock(&pgd_lock);
+
+	return do_split;
 }
 
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
