@@ -448,20 +448,23 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 
 	switch (level) {
 	case PGTABLE_LEVEL_PMD:
-		old_prot = pmd_pgprot(*(pmd_t *)kpte);
-		old_pfn = _pmd_pfn(*(pmd_t *)kpte);
 		psize = PMD_SIZE;
 		pmask = PMD_MASK;
 		break;
 	case PGTABLE_LEVEL_PUD:
-		old_prot = pud_pgprot(*(pud_t *)kpte);
-		old_pfn = _pud_pfn(*(pud_t *)kpte);
 		psize = PUD_SIZE;
 		pmask = PUD_MASK;
 		break;
 	default:
 		return -EINVAL;
 	}
+
+	/*
+	 * RISC-V uses the same layout for leaf entries at every level, so a
+	 * large leaf can be read and written through the pte_* helpers.
+	 */
+	old_prot = pte_pgprot(*kpte);
+	old_pfn = pte_pfn(*kpte);
 
 	/* Number of pages of the request that fit into this large page. */
 	lpaddr = (address + psize) & pmask;
@@ -489,10 +492,7 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 		return 1;
 
 	/* Whole large page covered: update the leaf in place. */
-	if (level == PGTABLE_LEVEL_PMD)
-		set_pmd((pmd_t *)kpte, pfn_pmd(old_pfn, req_prot));
-	else
-		set_pud((pud_t *)kpte, pfn_pud(old_pfn, req_prot));
+	set_pte(kpte, pfn_pte(old_pfn, req_prot));
 	cpa->flags |= CPA_FLUSHTLB;
 
 	return 0;
@@ -507,7 +507,8 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 			  unsigned long address, struct ptdesc *ptdesc)
 {
 	struct page *base = ptdesc_page(ptdesc);
-	unsigned long old_pfn, i;
+	pte_t *pbase = (pte_t *)page_address(base);
+	unsigned long old_pfn, pfninc, psize, i;
 	unsigned int level;
 	pgprot_t prot;
 	bool nx, rw;
@@ -518,39 +519,38 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		return 1;
 
 	switch (level) {
-	case PGTABLE_LEVEL_PMD: {
-		pte_t *pbase = (pte_t *)page_address(base);
-
-		old_pfn = _pmd_pfn(*(pmd_t *)kpte);
-		prot = pmd_pgprot(*(pmd_t *)kpte);
-		for (i = 0; i < PTRS_PER_PTE; i++)
-			set_pte(pbase + i, pfn_pte(old_pfn + i, prot));
-		smp_wmb();
-		set_pmd((pmd_t *)kpte, pfn_pmd(page_to_pfn(base), PAGE_TABLE));
+	case PGTABLE_LEVEL_PMD:
+		psize = PMD_SIZE;
 		break;
-	}
-	case PGTABLE_LEVEL_PUD: {
-		pmd_t *pbase = (pmd_t *)page_address(base);
-
-		old_pfn = _pud_pfn(*(pud_t *)kpte);
-		prot = pud_pgprot(*(pud_t *)kpte);
-		for (i = 0; i < PTRS_PER_PMD; i++)
-			set_pmd(pbase + i,
-				pfn_pmd(old_pfn + ((i * PMD_SIZE) >> PAGE_SHIFT),
-					prot));
-		smp_wmb();
-		set_pud((pud_t *)kpte, pfn_pud(page_to_pfn(base), PAGE_TABLE));
+	case PGTABLE_LEVEL_PUD:
+		psize = PUD_SIZE;
 		break;
-	}
 	default:
 		return 1;
 	}
 
+	old_pfn = pte_pfn(*kpte);
+	prot = pte_pgprot(*kpte);
+
 	/*
-	 * A split may affect a mapping larger than the requested range, so
-	 * flush everything before the attribute change touches the new leaves.
+	 * Fill the new next-level table with leaves that inherit the large
+	 * leaf's protection.  RISC-V page-table pages hold PTRS_PER_PTE entries
+	 * at every level, so the per-entry pfn stride is the large-page size
+	 * divided by that count.
 	 */
-	flush_tlb_all();
+	pfninc = (psize >> PAGE_SHIFT) / PTRS_PER_PTE;
+	for (i = 0; i < PTRS_PER_PTE; i++)
+		set_pte(pbase + i, pfn_pte(old_pfn + i * pfninc, prot));
+
+	smp_wmb();
+
+	set_pte(kpte, pfn_pte(page_to_pfn(base), PAGE_TABLE));
+
+	/*
+	 * The split touched a range larger than the request (the whole large
+	 * page), so the final flush in arch_cpa_flush() has to cover everything.
+	 */
+	cpa->force_flush_all = 1;
 
 	return 0;
 }
@@ -569,68 +569,67 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 }
 
 /*
- * RISC-V updates the linear-map alias in __set_memory() below and always
- * passes CPA_NO_CHECK_ALIAS, so this hook is never invoked; it exists only to
- * satisfy the generic core.
+ * Keep the linear-map alias of a kernel or vmalloc mapping in sync with the
+ * primary mapping.  cpa->pfn identifies the physical page just changed; its
+ * linear-map address is the alias that needs the same attributes.
  */
 int arch_cpa_process_alias(struct cpa_data *cpa)
 {
-	return 0;
+	struct cpa_data alias_cpa;
+	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
+	unsigned long vaddr;
+
+	/* Only pages that are part of the linear map have an alias. */
+	if (!is_linear_mapping(laddr))
+		return 0;
+
+	/* If the primary mapping is the linear map there is no separate alias. */
+	vaddr = __cpa_addr(cpa, cpa->curpage);
+	if (is_linear_mapping(vaddr))
+		return 0;
+
+	alias_cpa = *cpa;
+	alias_cpa.vaddr = &laddr;
+	alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
+	alias_cpa.curpage = 0;
+
+	/*
+	 * The alias lives at a different address than the primary range, so the
+	 * final flush in arch_cpa_flush() has to cover everything.
+	 */
+	cpa->force_flush_all = 1;
+
+	return __change_page_attr_set_clr(&alias_cpa, 0);
 }
 
 void arch_cpa_flush(struct cpa_data *cpa, int err)
 {
+	unsigned long start;
+
 	/*
-	 * A split may have affected a range larger than the request, so flush
-	 * the whole kernel TLB (matching the pre-CPA behaviour on 64-bit).
+	 * Flush the whole kernel TLB when the change reached beyond the
+	 * requested range (a split or a linear-map alias), when the addresses
+	 * are not a single contiguous range, or on error.  Otherwise a ranged
+	 * flush of the request is enough.
 	 */
-	flush_tlb_all();
+	if (err || cpa->force_flush_all ||
+	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
+		flush_tlb_all();
+		return;
+	}
+
+	start = __cpa_addr(cpa, 0);
+	flush_tlb_kernel_range(start, start + cpa->numpages * PAGE_SIZE);
 }
 
 static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask,
 			pgprot_t clear_mask)
 {
-	unsigned long start = addr;
-	int ret;
-
 	if (!numpages)
 		return 0;
 
-#ifdef CONFIG_64BIT
-	/*
-	 * Apply the same change to the linear-mapping alias of the range: the
-	 * permissions of a kernel or vmalloc mapping and those of its linear
-	 * alias must be kept in sync.
-	 */
-	if (is_vmalloc_or_module_addr((void *)start)) {
-		struct vm_struct *area = find_vm_area((void *)start);
-		int i, page_start;
-
-		page_start = (start - (unsigned long)area->addr) >> PAGE_SHIFT;
-
-		for (i = page_start; i < page_start + numpages; ++i) {
-			unsigned long lm =
-				(unsigned long)page_address(area->pages[i]);
-
-			ret = change_page_attr_set_clr(&lm, 1, set_mask,
-						       clear_mask, 0,
-						       CPA_NO_CHECK_ALIAS, NULL);
-			if (ret)
-				return ret;
-		}
-	} else if (is_kernel_mapping(start)) {
-		unsigned long lm = (unsigned long)lm_alias(start);
-
-		ret = change_page_attr_set_clr(&lm, numpages, set_mask,
-					       clear_mask, 0,
-					       CPA_NO_CHECK_ALIAS, NULL);
-		if (ret)
-			return ret;
-	}
-#endif
-
-	return change_page_attr_set_clr(&start, numpages, set_mask, clear_mask,
-					0, CPA_NO_CHECK_ALIAS, NULL);
+	return change_page_attr_set_clr(&addr, numpages, set_mask, clear_mask,
+					0, 0, NULL);
 }
 
 #endif /* CONFIG_GENERIC_SET_MEMORY */
