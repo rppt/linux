@@ -2,6 +2,7 @@
 
 #include <linux/highmem.h>
 #include <linux/vmalloc.h>
+#include <linux/pgtable.h>
 
 #include <linux/set_memory.h>
 
@@ -20,14 +21,14 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	pud_t *pud;
 	pmd_t *pmd;
 
-	*level = PG_LEVEL_256T;
+	*level = PGTABLE_LEVEL_PGD;
 	*nx = false;
 	*rw = true;
 
 	if (pgd_none(*pgd))
 		return NULL;
 
-	*level = PG_LEVEL_512G;
+	*level = PGTABLE_LEVEL_P4D;
 	*nx |= pgd_flags(*pgd) & _PAGE_NX;
 	*rw &= pgd_flags(*pgd) & _PAGE_RW;
 
@@ -38,7 +39,7 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	if (p4d_leaf(*p4d) || !p4d_present(*p4d))
 		return (pte_t *)p4d;
 
-	*level = PG_LEVEL_1G;
+	*level = PGTABLE_LEVEL_PUD;
 	*nx |= p4d_flags(*p4d) & _PAGE_NX;
 	*rw &= p4d_flags(*p4d) & _PAGE_RW;
 
@@ -49,7 +50,7 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	if (pud_leaf(*pud) || !pud_present(*pud))
 		return (pte_t *)pud;
 
-	*level = PG_LEVEL_2M;
+	*level = PGTABLE_LEVEL_PMD;
 	*nx |= pud_flags(*pud) & _PAGE_NX;
 	*rw &= pud_flags(*pud) & _PAGE_RW;
 
@@ -60,7 +61,7 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	if (pmd_leaf(*pmd) || !pmd_present(*pmd))
 		return (pte_t *)pmd;
 
-	*level = PG_LEVEL_4K;
+	*level = PGTABLE_LEVEL_PTE;
 	*nx |= pmd_flags(*pmd) & _PAGE_NX;
 	*rw &= pmd_flags(*pmd) & _PAGE_RW;
 
@@ -180,7 +181,7 @@ repeat:
 	if (pte_none(old_pte))
 		return arch_cpa_process_fault(cpa, address, primary);
 
-	if (level == PG_LEVEL_4K) {
+	if (level == PGTABLE_LEVEL_PTE) {
 		arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
 		cpa->numpages = 1;
 		return 0;
