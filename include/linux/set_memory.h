@@ -82,6 +82,15 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 
 #ifdef CONFIG_GENERIC_SET_MEMORY
 
+/*
+ * The generic CPA core needs a hook to canonicalise pgprot values.  x86
+ * provides its own in asm/pgtable.h; other architectures fall back to the
+ * identity here.
+ */
+#ifndef canon_pgprot
+#define canon_pgprot(p)		(p)
+#endif
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
@@ -119,6 +128,9 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 
 pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 			   unsigned int *level, bool *nx, bool *rw);
+
+pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
+				  unsigned int *level, bool *nx, bool *rw);
 
 int __change_page_attr_set_clr(struct cpa_data *cpa, int primary);
 int change_page_attr_set_clr(unsigned long *addr, int numpages,
