@@ -94,7 +94,7 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 				 struct cpa_data *cpa)
 {
-	unsigned long numpages, pmask, psize, lpaddr, old_pfn;
+	unsigned long numpages, lpaddr, old_pfn;
 	pgprot_t old_prot, req_prot;
 	unsigned int level;
 	bool nx, rw;
@@ -104,19 +104,6 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	if (tmp != kpte)
 		return 1;
 
-	switch (level) {
-	case PGTABLE_LEVEL_PMD:
-		psize = PMD_SIZE;
-		pmask = PMD_MASK;
-		break;
-	case PGTABLE_LEVEL_PUD:
-		psize = PUD_SIZE;
-		pmask = PUD_MASK;
-		break;
-	default:
-		return -EINVAL;
-	}
-
 	/*
 	 * RISC-V uses the same layout for leaf entries at every level, so a
 	 * large leaf can be read and written through the pte_* helpers.
@@ -124,22 +111,13 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	old_prot = pte_pgprot(*kpte);
 	old_pfn = pte_pfn(*kpte);
 
-	/* Number of pages of the request that fit into this large page. */
-	lpaddr = (address + psize) & pmask;
-	numpages = (lpaddr - address) >> PAGE_SHIFT;
-	if (numpages < cpa->numpages)
-		cpa->numpages = numpages;
+	if (!cpa_large_page_geometry(cpa, address, level, old_pfn,
+				     &lpaddr, &numpages))
+		return -EINVAL;
 
 	req_prot = old_prot;
 	pgprot_val(req_prot) &= ~pgprot_val(cpa->mask_clr);
 	pgprot_val(req_prot) |= pgprot_val(cpa->mask_set);
-
-	/* pfn of @address within the large page (used for alias handling). */
-	cpa->pfn = old_pfn + ((address & (psize - 1)) >> PAGE_SHIFT);
-
-	/* Base address and 4K-page count of the whole large page. */
-	lpaddr = address & pmask;
-	numpages = psize >> PAGE_SHIFT;
 
 	/* Same protection: nothing to do, keep the large page. */
 	if (pgprot_val(req_prot) == pgprot_val(old_prot))
