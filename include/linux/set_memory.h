@@ -131,11 +131,6 @@ pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 
 unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx);
 
-unsigned long cpa_large_page_geometry(struct cpa_data *cpa,
-				      unsigned long address, unsigned int level,
-				      unsigned long old_pfn, unsigned long *base,
-				      unsigned long *numpages);
-
 pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 				  unsigned int *level, bool *nx, bool *rw);
 

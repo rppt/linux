@@ -38,56 +38,6 @@ unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
 	return *cpa->vaddr + idx * PAGE_SIZE;
 }
 
-/*
- * Compute the geometry of the large page a CPA request lands in.
- *
- * @cpa and @address describe the request, @level is the level of the large
- * leaf covering @address and @old_pfn is its base pfn.
- *
- * The number of pages remaining in the request is clamped to what fits between
- * @address and the end of the large page, and cpa->pfn is set to the pfn that
- * @address maps to inside the leaf (used later for alias handling).  The base
- * address of the large page is returned in @base and the number of 4K pages it
- * spans in @numpages.
- *
- * Returns the size of the large page in bytes, or 0 if @level does not
- * describe a supported large page.
- */
-unsigned long cpa_large_page_geometry(struct cpa_data *cpa,
-				      unsigned long address, unsigned int level,
-				      unsigned long old_pfn, unsigned long *base,
-				      unsigned long *numpages)
-{
-	unsigned long psize, pmask, lpaddr, fitpages;
-
-	switch (level) {
-	case PGTABLE_LEVEL_PMD:
-		psize = PMD_SIZE;
-		pmask = PMD_MASK;
-		break;
-	case PGTABLE_LEVEL_PUD:
-		psize = PUD_SIZE;
-		pmask = PUD_MASK;
-		break;
-	default:
-		return 0;
-	}
-
-	/* Clamp the request to the number of pages left in the large page. */
-	lpaddr = (address + psize) & pmask;
-	fitpages = (lpaddr - address) >> PAGE_SHIFT;
-	if (fitpages < cpa->numpages)
-		cpa->numpages = fitpages;
-
-	/* pfn that @address maps to within the large page. */
-	cpa->pfn = old_pfn + ((address & (psize - 1)) >> PAGE_SHIFT);
-
-	*base = address & pmask;
-	*numpages = psize >> PAGE_SHIFT;
-
-	return psize;
-}
-
 static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
