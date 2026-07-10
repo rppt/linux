@@ -88,6 +88,14 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 #define CPA_NO_CHECK_ALIAS 8 /* Do not search for aliases */
 #define CPA_COLLAPSE 16 /* try to collapse large pages */
 
+struct cpa_arch_info {
+	spinlock_t *lock;
+};
+
+struct cpa_arch_info *cpa_arch_setup(void);
+
+void cpa_init(void);
+
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
