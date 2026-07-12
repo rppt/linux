@@ -6,21 +6,7 @@
 
 #include <linux/set_memory.h>
 
-static struct cpa_arch_info *cpa_arch_info;
-
 static DEFINE_SPINLOCK(cpa_lock);
-
-static inline void arch_lock(void)
-{
-	if (cpa_arch_info->lock)
-		spin_lock(cpa_arch_info->lock);
-}
-
-static inline void arch_unlock(void)
-{
-	if (cpa_arch_info->lock)
-		spin_unlock(cpa_arch_info->lock);
-}
 
 /*
  * Lookup the page table entry for a virtual address in a specific pgd.
@@ -151,9 +137,9 @@ static int should_split_large_page(pte_t *kpte, unsigned long address,
 	if (cpa->force_split)
 		return 1;
 
-	arch_lock();
+	spin_lock(&pgd_lock);
 	do_split = __should_split_large_page(kpte, address, cpa);
-	arch_unlock();
+	spin_unlock(&pgd_lock);
 
 	return do_split;
 }
@@ -345,9 +331,4 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 
 out:
 	return err;
-}
-
-void __init cpa_init(void)
-{
-	cpa_arch_info = cpa_arch_setup();
 }
