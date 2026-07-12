@@ -10,6 +10,11 @@ static struct cpa_arch_info *cpa_arch_info;
 
 static DEFINE_SPINLOCK(cpa_lock);
 
+static inline bool cpa_lock_required(void)
+{
+	return !cpa_arch_info->no_cpa_lock && !debug_pagealloc_enabled();
+}
+
 static inline void arch_lock(void)
 {
 	if (cpa_arch_info->lock)
@@ -174,10 +179,10 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	bool nx, rw;
 	pte_t *tmp;
 
-	if (!debug_pagealloc_enabled())
+	if (cpa_lock_required())
 		spin_unlock(&cpa_lock);
 	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
-	if (!debug_pagealloc_enabled())
+	if (cpa_lock_required())
 		spin_lock(&cpa_lock);
 	if (!ptdesc)
 		return -ENOMEM;
@@ -272,10 +277,10 @@ int __change_page_attr_set_clr(struct cpa_data *cpa, int primary)
 		if (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))
 			cpa->numpages = 1;
 
-		if (!debug_pagealloc_enabled())
+		if (cpa_lock_required())
 			spin_lock(&cpa_lock);
 		ret = __change_page_attr(cpa, primary);
-		if (!debug_pagealloc_enabled())
+		if (cpa_lock_required())
 			spin_unlock(&cpa_lock);
 		if (ret)
 			goto out;

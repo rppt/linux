@@ -103,6 +103,12 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 
 struct cpa_arch_info {
 	spinlock_t *lock;
+	/*
+	 * The architecture serializes kernel page table updates by other
+	 * means and may call set_memory APIs from atomic context, so the
+	 * CPA loop must not take cpa_lock.
+	 */
+	bool no_cpa_lock;
 };
 
 struct cpa_arch_info *cpa_arch_setup(void);
