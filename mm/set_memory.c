@@ -6,7 +6,21 @@
 
 #include <linux/set_memory.h>
 
+static struct cpa_arch_info *cpa_arch_info;
+
 static DEFINE_SPINLOCK(cpa_lock);
+
+static inline void arch_lock(void)
+{
+	if (cpa_arch_info->lock)
+		spin_lock(cpa_arch_info->lock);
+}
+
+static inline void arch_unlock(void)
+{
+	if (cpa_arch_info->lock)
+		spin_unlock(cpa_arch_info->lock);
+}
 
 /*
  * Lookup the page table entry for a virtual address in a specific pgd.
@@ -127,23 +141,29 @@ static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
 	unsigned int level;
+	int do_split;
 	bool nx, rw;
 	pte_t *tmp;
 
 	if (cpa->force_split)
 		return 1;
 
-	guard(spinlock)(&pgd_lock);
-
+	arch_lock();
 	/*
 	 * Check for races, another CPU might have split this page
 	 * up already:
 	 */
 	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
+	if (tmp != kpte) {
+		arch_unlock();
 		return 1;
+	}
 
-	return arch_should_split_large_page(kpte, address, cpa, level, nx, rw);
+	do_split = arch_should_split_large_page(kpte, address, cpa, level,
+						nx, rw);
+
+	arch_unlock();
+	return do_split;
 }
 
 static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
@@ -162,19 +182,22 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	if (!ptdesc)
 		return -ENOMEM;
 
-	guard(spinlock)(&pgd_lock);
+	arch_lock();
 
 	/*
 	 * Check for races, another CPU might have split this page
 	 * up for us already:
 	 */
 	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
+	if (tmp != kpte) {
+		arch_unlock();
 		return 1;
+	}
 
 	if (arch_split_large_page(cpa, kpte, address, level, ptdesc))
 		pagetable_free(ptdesc);
 
+	arch_unlock();
 	return 0;
 }
 
@@ -346,4 +369,9 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 
 out:
 	return err;
+}
+
+void __init cpa_init(void)
+{
+	cpa_arch_info = cpa_arch_setup();
 }

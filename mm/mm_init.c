@@ -2747,4 +2747,5 @@ void __init mm_core_init(void)
 	kmsan_init_runtime();
 	mm_cache_init();
 	execmem_init();
+	cpa_init();
 }
