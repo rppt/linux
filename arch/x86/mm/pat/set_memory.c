@@ -22,6 +22,7 @@
 #include <linux/cc_platform.h>
 #include <linux/set_memory.h>
 #include <linux/memregion.h>
+#include <linux/cleanup.h>
 
 #include <asm/e820/api.h>
 #include <asm/processor.h>
@@ -934,6 +935,8 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	unsigned int level;
 	bool nx, rw;
 
+	guard(spinlock)(&pgd_lock);
+
 	/*
 	 * Check for races, another CPU might have split this page
 	 * up already:
@@ -1070,21 +1073,6 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	cpa->flags |= CPA_FLUSHTLB;
 	cpa_inc_lp_preserved(level);
 	return 0;
-}
-
-static int should_split_large_page(pte_t *kpte, unsigned long address,
-				   struct cpa_data *cpa)
-{
-	int do_split;
-
-	if (cpa->force_split)
-		return 1;
-
-	spin_lock(&pgd_lock);
-	do_split = __should_split_large_page(kpte, address, cpa);
-	spin_unlock(&pgd_lock);
-
-	return do_split;
 }
 
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
@@ -1230,35 +1218,21 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			    unsigned long address)
-{
-	struct ptdesc *ptdesc;
-
-	if (!debug_pagealloc_enabled())
-		spin_unlock(&cpa_lock);
-	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
-	if (!debug_pagealloc_enabled())
-		spin_lock(&cpa_lock);
-	if (!ptdesc)
-		return -ENOMEM;
-
-	if (__split_large_page(cpa, kpte, address, ptdesc))
-		pagetable_free(ptdesc);
-
-	return 0;
-}
-
 static int handle_large_page(pte_t *kpte, unsigned long address,
 			     struct cpa_data *cpa)
 {
-	int do_split, err;
+	int do_split;
+	struct ptdesc *ptdesc;
+
+	if (cpa->force_split)
+		return 1;
 
 	/*
 	 * Check, whether we can keep the large page intact
 	 * and just change the pte:
 	 */
-	do_split = should_split_large_page(kpte, address, cpa);
+	do_split = __should_split_large_page(kpte, address, cpa);
+
 	/*
 	 * When the range fits into the existing large page,
 	 * return. cp->numpages and cpa->tlbflush have been updated in
@@ -1270,11 +1244,16 @@ static int handle_large_page(pte_t *kpte, unsigned long address,
 	/*
 	 * We have to split the large page:
 	 */
-	err = split_large_page(cpa, kpte, address);
-	if (err)
-		return err;
+	spin_unlock(&cpa_lock);
+	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
+	spin_lock(&cpa_lock);
+	if (!ptdesc)
+		return -ENOMEM;
 
-	return do_split;
+	if (__split_large_page(cpa, kpte, address, ptdesc))
+		pagetable_free(ptdesc);
+
+	return 1;
 }
 
 static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
