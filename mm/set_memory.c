@@ -190,8 +190,9 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 */
 	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
 	if (tmp != kpte) {
+		pagetable_free(ptdesc);
 		arch_unlock();
-		return 1;
+		return 0;
 	}
 
 	if (arch_split_large_page(cpa, kpte, address, level, ptdesc))
