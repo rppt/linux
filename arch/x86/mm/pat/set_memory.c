@@ -1916,7 +1916,6 @@ static void change_pte_attr(struct cpa_data *cpa, pte_t *kpte, pte_t old_pte,
 static int __change_page_attr(struct cpa_data *cpa, int primary)
 {
 	unsigned long address;
-	int split;
 	unsigned int level;
 	pte_t *kpte, old_pte;
 	bool nx, rw;
@@ -1931,16 +1930,16 @@ repeat:
 	if (pte_none(old_pte))
 		return __cpa_process_fault(cpa, address, primary);
 
-	if (level == PGTABLE_LEVEL_PTE) {
-		change_pte_attr(cpa, kpte, old_pte, address, nx, rw);
-		return 0;
+	if (level != PGTABLE_LEVEL_PTE) {
+		int split = handle_large_page(kpte, address, cpa);
+
+		if (split <= 0)
+			return split;
+		goto repeat;
 	}
 
-	split = handle_large_page(kpte, address, cpa);
-	if (split > 0)
-		goto repeat;
-
-	return split;
+	change_pte_attr(cpa, kpte, old_pte, address, nx, rw);
+	return 0;
 }
 
 static int __change_page_attr_set_clr(struct cpa_data *cpa, int primary);
