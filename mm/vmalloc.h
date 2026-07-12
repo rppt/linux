@@ -23,6 +23,11 @@ int __must_check vmap_pages_range_noflush(unsigned long addr, unsigned long end,
 {
 	return -EINVAL;
 }
+
+static inline unsigned int get_vm_area_page_order(struct vm_struct *vm)
+{
+	return 0;
+}
 #endif
 
 void clear_vm_uninitialized_flag(struct vm_struct *vm);
