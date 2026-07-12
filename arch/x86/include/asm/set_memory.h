@@ -10,6 +10,12 @@
 int set_memory_rox(unsigned long addr, int numpages);
 
 /*
+ * The effective NX and RW bits of an intermediate page table entry
+ */
+#define pgtable_entry_nx(val)	((val) & _PAGE_NX)
+#define pgtable_entry_rw(val)	((val) & _PAGE_RW)
+
+/*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:
  * Cacheability  : UnCached, WriteCombining, WriteThrough, WriteBack

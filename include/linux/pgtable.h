@@ -2473,6 +2473,13 @@ static inline const char *pgtable_level_to_str(enum pgtable_level level)
 #define pud_pgprot(x) ((pgprot_t) {0})
 #endif
 
+/*
+ * Some architectures, e.g. x86, mask off unsupported protection bits.
+ */
+#ifndef canon_pgprot
+#define canon_pgprot(prot) (prot)
+#endif
+
 /* description of effects of mapping type and prot in current implementation.
  * this is due to the limited x86 page protection hardware.  The expected
  * behavior is in parens:

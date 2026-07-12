@@ -82,6 +82,19 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 
 #ifdef CONFIG_GENERIC_SET_MEMORY
 
+#include <linux/pgtable.h>
+
+/*
+ * The effective NX and RW bits of an intermediate (non-leaf) page table
+ * entry value. Must be overridden by architectures where the intermediate
+ * page table levels restrict the effective permissions of the leaf
+ * entries.
+ */
+#ifndef pgtable_entry_nx
+#define pgtable_entry_nx(val)	false
+#define pgtable_entry_rw(val)	true
+#endif
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
@@ -113,6 +126,14 @@ struct cpa_data {
 			force_flush_all		: 1;
 	struct page	**pages;
 };
+
+pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
+				  unsigned int *level, bool *nx, bool *rw);
+pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
+			     unsigned int *level);
+pte_t *lookup_address(unsigned long address, unsigned int *level);
+
+unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx);
 
 void arch_cpa_flush(struct cpa_data *cpa, int err);
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
@@ -159,6 +180,12 @@ static inline int cpa_clear_pages_array(struct page **pages, int numpages,
 {
 	return change_page_attr_set_clr(NULL, numpages, __pgprot(0), mask, 0,
 		CPA_PAGES_ARRAY, pages);
+}
+
+#else /* CONFIG_GENERIC_SET_MEMORY */
+
+static inline void cpa_init(void)
+{
 }
 
 #endif /* CONFIG_GENERIC_SET_MEMORY */

@@ -43,8 +43,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 		return NULL;
 
 	*level = PGTABLE_LEVEL_P4D;
-	*nx |= pgd_flags(*pgd) & _PAGE_NX;
-	*rw &= pgd_flags(*pgd) & _PAGE_RW;
+	*nx |= pgtable_entry_nx(pgd_val(*pgd));
+	*rw &= pgtable_entry_rw(pgd_val(*pgd));
 
 	p4d = p4d_offset(pgd, address);
 	if (p4d_none(*p4d))
@@ -54,8 +54,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 		return (pte_t *)p4d;
 
 	*level = PGTABLE_LEVEL_PUD;
-	*nx |= p4d_flags(*p4d) & _PAGE_NX;
-	*rw &= p4d_flags(*p4d) & _PAGE_RW;
+	*nx |= pgtable_entry_nx(p4d_val(*p4d));
+	*rw &= pgtable_entry_rw(p4d_val(*p4d));
 
 	pud = pud_offset(p4d, address);
 	if (pud_none(*pud))
@@ -65,8 +65,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 		return (pte_t *)pud;
 
 	*level = PGTABLE_LEVEL_PMD;
-	*nx |= pud_flags(*pud) & _PAGE_NX;
-	*rw &= pud_flags(*pud) & _PAGE_RW;
+	*nx |= pgtable_entry_nx(pud_val(*pud));
+	*rw &= pgtable_entry_rw(pud_val(*pud));
 
 	pmd = pmd_offset(pud, address);
 	if (pmd_none(*pmd))
@@ -76,8 +76,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 		return (pte_t *)pmd;
 
 	*level = PGTABLE_LEVEL_PTE;
-	*nx |= pmd_flags(*pmd) & _PAGE_NX;
-	*rw &= pmd_flags(*pmd) & _PAGE_RW;
+	*nx |= pgtable_entry_nx(pmd_val(*pmd));
+	*rw &= pgtable_entry_rw(pmd_val(*pmd));
 
 	return pte_offset_kernel(pmd, address);
 }
@@ -120,7 +120,7 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
 }
 
-static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
+unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {
 	if (cpa->flags & CPA_PAGES_ARRAY) {
 		struct page *page = cpa->pages[idx];
@@ -210,7 +210,7 @@ static int __change_page_attr(struct cpa_data *cpa, int primary)
 	pte_t *kpte, old_pte;
 	bool nx, rw;
 
-	address = __cpa_addr(cpa, cpa->curpage);
+	address = cpa_addr(cpa, cpa->curpage);
 repeat:
 	kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
 	if (!kpte)
