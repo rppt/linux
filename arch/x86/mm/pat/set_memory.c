@@ -1249,6 +1249,34 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	return 0;
 }
 
+static int handle_large_page(pte_t *kpte, unsigned long address,
+			     struct cpa_data *cpa)
+{
+	int do_split, err;
+
+	/*
+	 * Check, whether we can keep the large page intact
+	 * and just change the pte:
+	 */
+	do_split = should_split_large_page(kpte, address, cpa);
+	/*
+	 * When the range fits into the existing large page,
+	 * return. cp->numpages and cpa->tlbflush have been updated in
+	 * try_large_page:
+	 */
+	if (do_split <= 0)
+		return do_split;
+
+	/*
+	 * We have to split the large page:
+	 */
+	err = split_large_page(cpa, kpte, address);
+	if (err)
+		return err;
+
+	return do_split;
+}
+
 static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 			     struct list_head *pgtables)
 {
@@ -1848,7 +1876,7 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 static int __change_page_attr(struct cpa_data *cpa, int primary)
 {
 	unsigned long address;
-	int do_split, err;
+	int split;
 	unsigned int level;
 	pte_t *kpte, old_pte;
 	bool nx, rw;
@@ -1900,27 +1928,11 @@ repeat:
 		return 0;
 	}
 
-	/*
-	 * Check, whether we can keep the large page intact
-	 * and just change the pte:
-	 */
-	do_split = should_split_large_page(kpte, address, cpa);
-	/*
-	 * When the range fits into the existing large page,
-	 * return. cp->numpages and cpa->tlbflush have been updated in
-	 * try_large_page:
-	 */
-	if (do_split <= 0)
-		return do_split;
-
-	/*
-	 * We have to split the large page:
-	 */
-	err = split_large_page(cpa, kpte, address);
-	if (!err)
+	split = handle_large_page(kpte, address, cpa);
+	if (split > 0)
 		goto repeat;
 
-	return err;
+	return split;
 }
 
 static int __change_page_attr_set_clr(struct cpa_data *cpa, int primary);
