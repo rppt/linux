@@ -147,6 +147,82 @@ static inline pgprot_t cpa_pgprot_apply_masks(pgprot_t prot, pgprot_t clr,
 			pgprot_val(set));
 }
 
+/*
+ * Strict W^X (write xor execute) verification for the generic CPA loop.
+ *
+ * An architecture opts into the check by overriding cpa_check_wx() (which may
+ * also gate it on runtime NX support) and by reporting whether a leaf
+ * protection value is writable / executable through cpa_pgprot_write() and
+ * cpa_pgprot_exec(). The write and execute permission bits are position
+ * invariant across page table levels on the architectures that implement
+ * this, so a single pgprot based test serves all levels. The generic defaults
+ * disable the check.
+ */
+#ifndef cpa_check_wx
+static inline bool cpa_check_wx(void)
+{
+	return false;
+}
+#define cpa_check_wx cpa_check_wx
+#endif
+
+#ifndef cpa_pgprot_write
+static inline bool cpa_pgprot_write(pgprot_t prot)
+{
+	return false;
+}
+#define cpa_pgprot_write cpa_pgprot_write
+#endif
+
+#ifndef cpa_pgprot_exec
+static inline bool cpa_pgprot_exec(pgprot_t prot)
+{
+	return false;
+}
+#define cpa_pgprot_exec cpa_pgprot_exec
+#endif
+
+/*
+ * Validate strict W^X semantics. Warn when a leaf is about to become both
+ * writable and executable, unless a non-leaf entry along the walk already
+ * disables writing (!rw) or execution (nx).
+ */
+static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long start,
+				  unsigned long pfn, unsigned long npg,
+				  bool nx, bool rw)
+{
+	unsigned long end;
+
+	if (!cpa_check_wx())
+		return new;
+
+	/* Nothing to check if neither writability nor executability changes */
+	if (cpa_pgprot_write(old) == cpa_pgprot_write(new) &&
+	    cpa_pgprot_exec(old) == cpa_pgprot_exec(new))
+		return new;
+
+	/* Only a leaf that becomes writable and executable is a concern */
+	if (!(cpa_pgprot_write(new) && cpa_pgprot_exec(new)))
+		return new;
+
+	/* Non-leaf translation entries can disable writing or execution. */
+	if (!rw || nx)
+		return new;
+
+	end = start + npg * PAGE_SIZE - 1;
+	WARN_ONCE(1, "CPA detected W^X violation: %016llx -> %016llx range: 0x%016lx - 0x%016lx PFN %lx\n",
+		  (unsigned long long)pgprot_val(old),
+		  (unsigned long long)pgprot_val(new),
+		  start, end, pfn);
+
+	/*
+	 * For now, allow all permission change attempts by returning the
+	 * attempted permissions.  This can 'return old' to actively
+	 * refuse the permission change at a later time.
+	 */
+	return new;
+}
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4

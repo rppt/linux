@@ -45,6 +45,30 @@ static inline pgprot_t cpa_pgprot_fixup(pgprot_t prot)
 }
 #define cpa_pgprot_fixup cpa_pgprot_fixup
 
+/* W^X verification helpers, see the generic versions in <linux/set_memory.h> */
+static inline bool cpa_check_wx(void)
+{
+	/*
+	 * 32-bit has some unfixable W+X issues, like EFI code and writable
+	 * data being in the same page, so only enforce on 64-bit. Also only
+	 * verify when the CPU actually supports NX.
+	 */
+	return !IS_ENABLED(CONFIG_X86_32) && (__supported_pte_mask & _PAGE_NX);
+}
+#define cpa_check_wx cpa_check_wx
+
+static inline bool cpa_pgprot_write(pgprot_t prot)
+{
+	return pgprot_val(prot) & _PAGE_RW;
+}
+#define cpa_pgprot_write cpa_pgprot_write
+
+static inline bool cpa_pgprot_exec(pgprot_t prot)
+{
+	return !(pgprot_val(prot) & _PAGE_NX);
+}
+#define cpa_pgprot_exec cpa_pgprot_exec
+
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:
