@@ -66,12 +66,10 @@ static ptval_t set_pageattr_masks(ptval_t val, struct cpa_data *cpa)
 	/*
 	 * Some users clear and set bits which alias each other (e.g. PTE_NG and
 	 * PTE_PRESENT_INVALID). It is therefore important that we always clear
-	 * first then set.
+	 * first then set, which is exactly what cpa_pgprot_apply_masks() does.
 	 */
-	val &= ~(pgprot_val(cpa->mask_clr));
-	val |= (pgprot_val(cpa->mask_set));
-
-	return val;
+	return pgprot_val(cpa_pgprot_apply_masks(__pgprot(val), cpa->mask_clr,
+						 cpa->mask_set));
 }
 
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
