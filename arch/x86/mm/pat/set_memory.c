@@ -761,23 +761,6 @@ static void __set_pmd_pte(pte_t *kpte, unsigned long address, pte_t pte)
 #endif
 }
 
-static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
-{
-	/*
-	 * _PAGE_GLOBAL means "global page" for present PTEs.
-	 * But, it is also used to indicate _PAGE_PROTNONE
-	 * for non-present PTEs.
-	 *
-	 * This ensures that a _PAGE_GLOBAL PTE going from
-	 * present to non-present is not confused as
-	 * _PAGE_PROTNONE.
-	 */
-	if (!(pgprot_val(prot) & _PAGE_PRESENT))
-		pgprot_val(prot) &= ~_PAGE_GLOBAL;
-
-	return prot;
-}
-
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 				 struct cpa_data *cpa, unsigned int level,
 				 bool nx, bool rw)
@@ -820,18 +803,18 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	 */
 
 	/* Clear PSE (aka _PAGE_PAT) and move PAT bit to correct position */
-	req_prot = pgprot_large_2_4k(old_prot);
+	req_prot = cpa_pgprot_large_to_4k(old_prot);
 
-	pgprot_val(req_prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(req_prot) |= pgprot_val(cpa->mask_set);
+	req_prot = cpa_pgprot_apply_masks(req_prot, cpa->mask_clr,
+					  cpa->mask_set);
 
 	/*
 	 * req_prot is in format of 4k pages. It must be converted to large
 	 * page format: the caching mode includes the PAT bit located at
 	 * different bit positions in the two formats.
 	 */
-	req_prot = pgprot_4k_2_large(req_prot);
-	req_prot = pgprot_clear_protnone_bits(req_prot);
+	req_prot = cpa_pgprot_4k_to_large(req_prot);
+	req_prot = cpa_pgprot_fixup(req_prot);
 	if (pgprot_val(req_prot) & _PAGE_PRESENT)
 		pgprot_val(req_prot) |= _PAGE_PSE;
 
@@ -971,7 +954,7 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		 * Clear PSE (aka _PAGE_PAT) and move
 		 * PAT bit to correct position.
 		 */
-		ref_prot = pgprot_large_2_4k(ref_prot);
+		ref_prot = cpa_pgprot_large_to_4k(ref_prot);
 		ref_pfn = pmd_pfn(*(pmd_t *)kpte);
 		lpaddr = address & PMD_MASK;
 		lpinc = PAGE_SIZE;
@@ -996,7 +979,7 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		return 1;
 	}
 
-	ref_prot = pgprot_clear_protnone_bits(ref_prot);
+	ref_prot = cpa_pgprot_fixup(ref_prot);
 
 	/*
 	 * Get the target pfn from the original entry:
@@ -1371,7 +1354,7 @@ static void populate_pte(struct cpa_data *cpa,
 
 	pte = pte_offset_kernel(pmd, start);
 
-	pgprot = pgprot_clear_protnone_bits(pgprot);
+	pgprot = cpa_pgprot_fixup(pgprot);
 
 	while (num_pages-- && start < end) {
 		set_pte(pte, pfn_pte(cpa->pfn, pgprot));
@@ -1651,11 +1634,11 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 {
 	pte_t new_pte;
 	pgprot_t old_prot = pte_pgprot(old_pte);
-	pgprot_t new_prot = pte_pgprot(old_pte);
+	pgprot_t new_prot;
 	unsigned long pfn = pte_pfn(old_pte);
 
-	pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
+	new_prot = cpa_pgprot_apply_masks(old_prot, cpa->mask_clr,
+					  cpa->mask_set);
 
 	cpa_inc_4k_install();
 	/* Hand in lpsize = 0 to enforce the protection mechanism */
@@ -1665,7 +1648,7 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 	new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
 			      nx, rw);
 
-	new_prot = pgprot_clear_protnone_bits(new_prot);
+	new_prot = cpa_pgprot_fixup(new_prot);
 
 	/*
 	 * We need to keep the pfn from the existing PTE,

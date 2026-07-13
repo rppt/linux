@@ -95,6 +95,58 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 #define pgtable_entry_rw(val)	true
 #endif
 
+/*
+ * Helpers used to compute the page-protection bits of a leaf entry in the
+ * generic CPA loop. Architectures with a special leaf-protection encoding
+ * override these in <asm/set_memory.h>; the generic versions are identity.
+ */
+
+/*
+ * Convert a leaf protection value between the large (huge) page encoding and
+ * the PTE encoding. On some architectures (e.g. x86) the caching-mode (PAT)
+ * bit lives at a different position in the two formats.
+ */
+#ifndef cpa_pgprot_large_to_4k
+static inline pgprot_t cpa_pgprot_large_to_4k(pgprot_t prot)
+{
+	return prot;
+}
+#define cpa_pgprot_large_to_4k cpa_pgprot_large_to_4k
+#endif
+
+#ifndef cpa_pgprot_4k_to_large
+static inline pgprot_t cpa_pgprot_4k_to_large(pgprot_t prot)
+{
+	return prot;
+}
+#define cpa_pgprot_4k_to_large cpa_pgprot_4k_to_large
+#endif
+
+/*
+ * Architecture fixup applied to a freshly computed leaf protection before it
+ * is installed (e.g. x86 clears the global bit on non-present entries so it
+ * is not misinterpreted as _PAGE_PROTNONE).
+ */
+#ifndef cpa_pgprot_fixup
+static inline pgprot_t cpa_pgprot_fixup(pgprot_t prot)
+{
+	return prot;
+}
+#define cpa_pgprot_fixup cpa_pgprot_fixup
+#endif
+
+/*
+ * Apply the CPA clear/set masks to a protection value. Clearing is always
+ * done before setting because some architectures use clear/set bits that
+ * alias each other.
+ */
+static inline pgprot_t cpa_pgprot_apply_masks(pgprot_t prot, pgprot_t clr,
+					      pgprot_t set)
+{
+	return __pgprot((pgprot_val(prot) & ~pgprot_val(clr)) |
+			pgprot_val(set));
+}
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4

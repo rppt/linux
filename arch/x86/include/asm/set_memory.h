@@ -15,6 +15,36 @@ int set_memory_rox(unsigned long addr, int numpages);
 #define pgtable_entry_nx(val)	((val) & _PAGE_NX)
 #define pgtable_entry_rw(val)	((val) & _PAGE_RW)
 
+/* CPA leaf-protection helpers, see the generic versions in <linux/set_memory.h> */
+static inline pgprot_t cpa_pgprot_large_to_4k(pgprot_t prot)
+{
+	/* Clear PSE (aka _PAGE_PAT) and move the PAT bit to its 4k position */
+	return pgprot_large_2_4k(prot);
+}
+#define cpa_pgprot_large_to_4k cpa_pgprot_large_to_4k
+
+static inline pgprot_t cpa_pgprot_4k_to_large(pgprot_t prot)
+{
+	/* Move the PAT bit to its large-page position */
+	return pgprot_4k_2_large(prot);
+}
+#define cpa_pgprot_4k_to_large cpa_pgprot_4k_to_large
+
+static inline pgprot_t cpa_pgprot_fixup(pgprot_t prot)
+{
+	/*
+	 * _PAGE_GLOBAL means "global page" for present PTEs, but it is also
+	 * used to indicate _PAGE_PROTNONE for non-present PTEs. Clear it on
+	 * non-present entries so a present->non-present transition is not
+	 * misinterpreted as _PAGE_PROTNONE.
+	 */
+	if (!(pgprot_val(prot) & _PAGE_PRESENT))
+		pgprot_val(prot) &= ~_PAGE_GLOBAL;
+
+	return prot;
+}
+#define cpa_pgprot_fixup cpa_pgprot_fixup
+
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:
