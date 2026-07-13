@@ -7,6 +7,10 @@
 #define _ASM_RISCV_SET_MEMORY_H
 
 #ifndef __ASSEMBLER__
+
+#include <asm/page.h>
+#include <asm/pgtable-bits.h>
+
 /*
  * Functions to change memory attributes.
  */
@@ -26,6 +30,25 @@ static __always_inline int set_kernel_memory(char *startp, char *endp,
 
 	return set_memory(start, num_pages);
 }
+
+/* CPA W^X helpers, see the generic versions in <linux/set_memory.h> */
+static inline bool cpa_check_wx(void)
+{
+	return true;
+}
+#define cpa_check_wx cpa_check_wx
+
+static inline bool cpa_pgprot_write(pgprot_t prot)
+{
+	return pgprot_val(prot) & _PAGE_WRITE;
+}
+#define cpa_pgprot_write cpa_pgprot_write
+
+static inline bool cpa_pgprot_exec(pgprot_t prot)
+{
+	return pgprot_val(prot) & _PAGE_EXEC;
+}
+#define cpa_pgprot_exec cpa_pgprot_exec
 #else
 static inline int set_memory_ro(unsigned long addr, int numpages) { return 0; }
 static inline int set_memory_rw(unsigned long addr, int numpages) { return 0; }
