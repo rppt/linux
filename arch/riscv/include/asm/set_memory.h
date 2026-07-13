@@ -49,6 +49,14 @@ static inline bool cpa_pgprot_exec(pgprot_t prot)
 	return pgprot_val(prot) & _PAGE_EXEC;
 }
 #define cpa_pgprot_exec cpa_pgprot_exec
+
+static inline bool cpa_alias_needs_update(unsigned long vaddr, unsigned long pfn,
+					  pgprot_t mask_set, pgprot_t mask_clr)
+{
+	/* No alias when the primary target is in the linear map. */
+	return !is_linear_mapping(vaddr);
+}
+#define cpa_alias_needs_update cpa_alias_needs_update
 #else
 static inline int set_memory_ro(unsigned long addr, int numpages) { return 0; }
 static inline int set_memory_rw(unsigned long addr, int numpages) { return 0; }
