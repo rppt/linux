@@ -97,6 +97,10 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	cpa->pfn = pte_pfn(__pte(val)) + ((address & (psize - 1)) >> PAGE_SHIFT);
 
 	newval = set_pageattr_masks(val, cpa);
+	newval = pgprot_val(verify_rwx(__pgprot(val), __pgprot(newval),
+				       address & ~(psize - 1),
+				       pte_pfn(__pte(val)),
+				       psize >> PAGE_SHIFT, nx, rw));
 	if (newval == val)
 		return 0;
 
@@ -145,6 +149,8 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 	ptval_t newval;
 
 	newval = set_pageattr_masks(val, cpa);
+	newval = pgprot_val(verify_rwx(__pgprot(val), __pgprot(newval),
+				       address, pte_pfn(old_pte), 1, nx, rw));
 
 	cpa->pfn = pte_pfn(old_pte);
 
