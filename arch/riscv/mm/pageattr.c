@@ -56,8 +56,8 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	if (numpages < cpa->numpages)
 		cpa->numpages = numpages;
 
-	req_prot = __pgprot((pgprot_val(old_prot) & ~pgprot_val(cpa->mask_clr)) |
-			    pgprot_val(cpa->mask_set));
+	req_prot = cpa_pgprot_apply_masks(old_prot, cpa->mask_clr,
+					  cpa->mask_set);
 
 	/*
 	 * old_pfn points to the large page base pfn, add the offset of the
@@ -145,8 +145,8 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 	pgprot_t new_prot = __pgprot(pte_val(old_pte) & ~_PAGE_PFN_MASK);
 	pte_t new_pte;
 
-	pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
+	new_prot = cpa_pgprot_apply_masks(new_prot, cpa->mask_clr,
+					  cpa->mask_set);
 
 	new_pte = pfn_pte(pfn, new_prot);
 	cpa->pfn = pfn;
