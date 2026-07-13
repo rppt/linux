@@ -140,27 +140,6 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	return 0;
 }
 
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw)
-{
-	unsigned long pfn = pte_pfn(old_pte);
-	pgprot_t old_prot = __pgprot(pte_val(old_pte) & ~_PAGE_PFN_MASK);
-	pgprot_t new_prot;
-	pte_t new_pte;
-
-	new_prot = cpa_pgprot_apply_masks(old_prot, cpa->mask_clr,
-					  cpa->mask_set);
-	new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1, nx, rw);
-
-	new_pte = pfn_pte(pfn, new_prot);
-	cpa->pfn = pfn;
-
-	if (pte_val(old_pte) != pte_val(new_pte)) {
-		set_pte(kpte, new_pte);
-		cpa->flags |= CPA_FLUSHTLB;
-	}
-}
-
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			   int primary)
 {
