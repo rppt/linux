@@ -69,6 +69,12 @@ static inline bool cpa_pgprot_exec(pgprot_t prot)
 }
 #define cpa_pgprot_exec cpa_pgprot_exec
 
+static inline void cpa_set_pte(pte_t *ptep, pte_t pte)
+{
+	set_pte_atomic(ptep, pte);
+}
+#define cpa_set_pte cpa_set_pte
+
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:

@@ -223,11 +223,36 @@ static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long star
 	return new;
 }
 
+#ifndef cpa_set_pte
+static inline void cpa_set_pte(pte_t *ptep, pte_t pte)
+{
+	set_pte(ptep, pte);
+}
+#define cpa_set_pte cpa_set_pte
+#endif
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
 #define CPA_NO_CHECK_ALIAS 8 /* Do not search for aliases */
 #define CPA_COLLAPSE 16 /* try to collapse large pages */
+
+/*
+ * A range of memory whose leaf mappings must not carry certain protection
+ * bits (e.g. kernel text must stay executable, .rodata read-only). The generic
+ * CPA loop strips the forbidden bits from any leaf that overlaps the range.
+ * Architectures publish an array of these through cpa_arch_info; architectures
+ * with no such requirements leave it empty.
+ */
+struct cpa_prot_zone {
+	unsigned long	start;		/* inclusive, vaddr or pfn */
+	unsigned long	end;		/* inclusive, vaddr or pfn */
+	u64		forbidden;	/* protection bits to strip */
+	const int	*enable;	/* NULL: always; else *enable != 0 */
+	bool		pfn_based;	/* start/end are pfns, not vaddrs */
+	bool		lp_partial_only;/* skip when preserving a full large page */
+	bool		needs_lp_check;	/* only strip if current mapping is large */
+};
 
 struct cpa_arch_info {
 	spinlock_t *lock;
@@ -237,6 +262,14 @@ struct cpa_arch_info {
 	 * CPA loop must not take cpa_lock.
 	 */
 	bool no_cpa_lock;
+	/*
+	 * Static protection zones (see above) and the protection bit that
+	 * marks a present leaf. When present_mask is set, the static
+	 * protection scan is skipped for non-present leaves.
+	 */
+	const struct cpa_prot_zone *prot_zones;
+	unsigned int nr_prot_zones;
+	u64 present_mask;
 };
 
 struct cpa_arch_info *cpa_arch_setup(void);
@@ -279,8 +312,10 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 			  unsigned long address, unsigned int level,
 			  struct ptdesc *ptdesc);
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
+
+pgprot_t apply_static_protections(pgprot_t prot, unsigned long start,
+				  unsigned long pfn, unsigned long npg,
+				  unsigned long lpsize);
 
 int __change_page_attr_set_clr(struct cpa_data *cpa, int primary);
 int change_page_attr_set_clr(unsigned long *addr, int numpages,

@@ -142,6 +142,79 @@ unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 	return *cpa->vaddr + idx * PAGE_SIZE;
 }
 
+static bool overlaps(unsigned long r1_start, unsigned long r1_end,
+		     unsigned long r2_start, unsigned long r2_end)
+{
+	return (r1_start <= r2_end && r1_end >= r2_start) ||
+		(r2_start <= r1_end && r2_end >= r1_start);
+}
+
+/*
+ * Certain areas of memory require very specific protection flags, for example
+ * kernel text must stay executable and .rodata read-only. Callers don't always
+ * get this right, so strip the architecture's forbidden bits from any leaf that
+ * overlaps a protected zone (see struct cpa_prot_zone). Architectures without
+ * such zones (nr_prot_zones == 0) get their protection returned unchanged.
+ */
+static __always_inline pgprot_t __apply_static_protections(pgprot_t prot,
+		unsigned long start, unsigned long pfn, unsigned long npg,
+		unsigned long lpsize)
+{
+	const struct cpa_arch_info *ai = cpa_arch_info;
+	unsigned long end = start + npg * PAGE_SIZE - 1;
+	u64 forbidden = 0;
+	unsigned int i;
+
+	if (!ai->nr_prot_zones)
+		return prot;
+
+	/*
+	 * There is no point in checking conflicts when the requested mapping is
+	 * setting the leaf !PRESENT.
+	 */
+	if (ai->present_mask && !((u64)pgprot_val(prot) & ai->present_mask))
+		return prot;
+
+	for (i = 0; i < ai->nr_prot_zones; i++) {
+		const struct cpa_prot_zone *z = &ai->prot_zones[i];
+		unsigned long s = z->pfn_based ? pfn : start;
+		unsigned long e = z->pfn_based ? pfn + npg - 1 : end;
+
+		if (z->enable && !*z->enable)
+			continue;
+		/*
+		 * Some zones only apply when the change does not span a full
+		 * large page (e.g. preserve large kernel-text mappings).
+		 */
+		if (z->lp_partial_only &&
+		    lpsize == npg * PAGE_SIZE && !(start & (lpsize - 1)))
+			continue;
+		if (!overlaps(s, e, z->start, z->end))
+			continue;
+		/*
+		 * Some zones only forbid bits when the current mapping is a
+		 * large page (splitting it would lose the protection anyway).
+		 */
+		if (z->needs_lp_check) {
+			unsigned int level;
+
+			if (!lookup_address(start, &level) ||
+			    level == PGTABLE_LEVEL_PTE)
+				continue;
+		}
+		forbidden |= z->forbidden;
+	}
+
+	return __pgprot(pgprot_val(prot) & ~forbidden);
+}
+
+pgprot_t apply_static_protections(pgprot_t prot, unsigned long start,
+				  unsigned long pfn, unsigned long npg,
+				  unsigned long lpsize)
+{
+	return __apply_static_protections(prot, start, pfn, npg, lpsize);
+}
+
 static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
@@ -226,7 +299,30 @@ repeat:
 		return arch_cpa_process_fault(cpa, address, primary);
 
 	if (level == PGTABLE_LEVEL_PTE) {
-		arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
+		pgprot_t old_prot = pte_pgprot(old_pte);
+		unsigned long pfn = pte_pfn(old_pte);
+		pgprot_t new_prot;
+		pte_t new_pte;
+
+		new_prot = cpa_pgprot_apply_masks(old_prot, cpa->mask_clr,
+						  cpa->mask_set);
+		/* Hand in lpsize = 0 to enforce the protection mechanism */
+		new_prot = __apply_static_protections(new_prot, address, pfn,
+						      1, 0);
+		new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
+				      nx, rw);
+		new_prot = cpa_pgprot_fixup(new_prot);
+
+		/*
+		 * Keep the pfn from the existing PTE, we are only changing its
+		 * attributes.
+		 */
+		new_pte = pfn_pte(pfn, new_prot);
+		cpa->pfn = pfn;
+		if (pte_val(old_pte) != pte_val(new_pte)) {
+			cpa_set_pte(kpte, new_pte);
+			cpa->flags |= CPA_FLUSHTLB;
+		}
 		cpa->numpages = 1;
 		return 0;
 	}

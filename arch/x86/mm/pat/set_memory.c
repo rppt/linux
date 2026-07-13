@@ -35,14 +35,6 @@
 
 #include "../mm_internal.h"
 
-enum cpa_warn {
-	CPA_CONFLICT,
-	CPA_PROTECT,
-	CPA_DETECT,
-};
-
-static const int cpa_warn_level = CPA_PROTECT;
-
 static inline pgprot_t cachemode2pgprot(enum page_cache_mode pcm)
 {
 	return __pgprot(cachemode2protval(pcm));
@@ -114,7 +106,6 @@ static unsigned long cpa_1g_preserved;
 static unsigned long cpa_2m_checked;
 static unsigned long cpa_2m_sameprot;
 static unsigned long cpa_2m_preserved;
-static unsigned long cpa_4k_install;
 
 static inline void cpa_inc_1g_checked(void)
 {
@@ -124,11 +115,6 @@ static inline void cpa_inc_1g_checked(void)
 static inline void cpa_inc_2m_checked(void)
 {
 	cpa_2m_checked++;
-}
-
-static inline void cpa_inc_4k_install(void)
-{
-	data_race(cpa_4k_install++);
 }
 
 static inline void cpa_inc_lp_sameprot(int level)
@@ -155,7 +141,6 @@ static int cpastats_show(struct seq_file *m, void *p)
 	seq_printf(m, "2M pages checked:     %16lu\n", cpa_2m_checked);
 	seq_printf(m, "2M pages sameprot:    %16lu\n", cpa_2m_sameprot);
 	seq_printf(m, "2M pages preserved:   %16lu\n", cpa_2m_preserved);
-	seq_printf(m, "4K pages set-checked: %16lu\n", cpa_4k_install);
 	return 0;
 }
 
@@ -181,7 +166,6 @@ late_initcall(cpa_stats_init);
 #else
 static inline void cpa_inc_1g_checked(void) { }
 static inline void cpa_inc_2m_checked(void) { }
-static inline void cpa_inc_4k_install(void) { }
 static inline void cpa_inc_lp_sameprot(int level) { }
 static inline void cpa_inc_lp_preserved(int level) { }
 #endif
@@ -432,189 +416,6 @@ collapse_large_pages:
 		cpa_collapse_large_pages(cpa);
 }
 
-static bool overlaps(unsigned long r1_start, unsigned long r1_end,
-		     unsigned long r2_start, unsigned long r2_end)
-{
-	return (r1_start <= r2_end && r1_end >= r2_start) ||
-		(r2_start <= r1_end && r2_end >= r1_start);
-}
-
-#ifdef CONFIG_PCI_BIOS
-/*
- * The BIOS area between 640k and 1Mb needs to be executable for PCI BIOS
- * based config access (CONFIG_PCI_GOBIOS) support.
- */
-#define BIOS_PFN	PFN_DOWN(BIOS_BEGIN)
-#define BIOS_PFN_END	PFN_DOWN(BIOS_END - 1)
-
-static pgprotval_t protect_pci_bios(unsigned long spfn, unsigned long epfn)
-{
-	if (pcibios_enabled && overlaps(spfn, epfn, BIOS_PFN, BIOS_PFN_END))
-		return _PAGE_NX;
-	return 0;
-}
-#else
-static pgprotval_t protect_pci_bios(unsigned long spfn, unsigned long epfn)
-{
-	return 0;
-}
-#endif
-
-/*
- * The .rodata section needs to be read-only. Using the pfn catches all
- * aliases.  This also includes __ro_after_init, so do not enforce until
- * kernel_set_to_readonly is true.
- */
-static pgprotval_t protect_rodata(unsigned long spfn, unsigned long epfn)
-{
-	unsigned long epfn_ro, spfn_ro = PFN_DOWN(__pa_symbol(__start_rodata));
-
-	/*
-	 * Note: __end_rodata is at page aligned and not inclusive, so
-	 * subtract 1 to get the last enforced PFN in the rodata area.
-	 */
-	epfn_ro = PFN_DOWN(__pa_symbol(__end_rodata)) - 1;
-
-	if (kernel_set_to_readonly && overlaps(spfn, epfn, spfn_ro, epfn_ro))
-		return _PAGE_RW;
-	return 0;
-}
-
-/*
- * Protect kernel text against becoming non executable by forbidding
- * _PAGE_NX.  This protects only the high kernel mapping (_text -> _etext)
- * out of which the kernel actually executes.  Do not protect the low
- * mapping.
- *
- * This does not cover __inittext since that is gone after boot.
- */
-static pgprotval_t protect_kernel_text(unsigned long start, unsigned long end)
-{
-	unsigned long t_end = (unsigned long)_etext - 1;
-	unsigned long t_start = (unsigned long)_text;
-
-	if (overlaps(start, end, t_start, t_end))
-		return _PAGE_NX;
-	return 0;
-}
-
-#if defined(CONFIG_X86_64)
-/*
- * Once the kernel maps the text as RO (kernel_set_to_readonly is set),
- * kernel text mappings for the large page aligned text, rodata sections
- * will be always read-only. For the kernel identity mappings covering the
- * holes caused by this alignment can be anything that user asks.
- *
- * This will preserve the large page mappings for kernel text/data at no
- * extra cost.
- */
-static pgprotval_t protect_kernel_text_ro(unsigned long start,
-					  unsigned long end)
-{
-	unsigned long t_end = (unsigned long)__end_rodata_hpage_align - 1;
-	unsigned long t_start = (unsigned long)_text;
-	unsigned int level;
-
-	if (!kernel_set_to_readonly || !overlaps(start, end, t_start, t_end))
-		return 0;
-	/*
-	 * Don't enforce the !RW mapping for the kernel text mapping, if
-	 * the current mapping is already using small page mapping.  No
-	 * need to work hard to preserve large page mappings in this case.
-	 *
-	 * This also fixes the Linux Xen paravirt guest boot failure caused
-	 * by unexpected read-only mappings for kernel identity
-	 * mappings. In this paravirt guest case, the kernel text mapping
-	 * and the kernel identity mapping share the same page-table pages,
-	 * so the protections for kernel text and identity mappings have to
-	 * be the same.
-	 */
-	if (lookup_address(start, &level) && (level != PGTABLE_LEVEL_PTE))
-		return _PAGE_RW;
-	return 0;
-}
-#else
-static pgprotval_t protect_kernel_text_ro(unsigned long start,
-					  unsigned long end)
-{
-	return 0;
-}
-#endif
-
-static inline bool conflicts(pgprot_t prot, pgprotval_t val)
-{
-	return (pgprot_val(prot) & ~val) != pgprot_val(prot);
-}
-
-static inline void check_conflict(int warnlvl, pgprot_t prot, pgprotval_t val,
-				  unsigned long start, unsigned long end,
-				  unsigned long pfn, const char *txt)
-{
-	static const char *lvltxt[] = {
-		[CPA_CONFLICT]	= "conflict",
-		[CPA_PROTECT]	= "protect",
-		[CPA_DETECT]	= "detect",
-	};
-
-	if (warnlvl > cpa_warn_level || !conflicts(prot, val))
-		return;
-
-	pr_warn("CPA %8s %10s: 0x%016lx - 0x%016lx PFN %lx req %016llx prevent %016llx\n",
-		lvltxt[warnlvl], txt, start, end, pfn, (unsigned long long)pgprot_val(prot),
-		(unsigned long long)val);
-}
-
-/*
- * Certain areas of memory on x86 require very specific protection flags,
- * for example the BIOS area or kernel text. Callers don't always get this
- * right (again, ioremap() on BIOS memory is not uncommon) so this function
- * checks and fixes these known static required protection bits.
- */
-static inline pgprot_t static_protections(pgprot_t prot, unsigned long start,
-					  unsigned long pfn, unsigned long npg,
-					  unsigned long lpsize, int warnlvl)
-{
-	pgprotval_t forbidden, res;
-	unsigned long end;
-
-	/*
-	 * There is no point in checking RW/NX conflicts when the requested
-	 * mapping is setting the page !PRESENT.
-	 */
-	if (!(pgprot_val(prot) & _PAGE_PRESENT))
-		return prot;
-
-	/* Operate on the virtual address */
-	end = start + npg * PAGE_SIZE - 1;
-
-	res = protect_kernel_text(start, end);
-	check_conflict(warnlvl, prot, res, start, end, pfn, "Text NX");
-	forbidden = res;
-
-	/*
-	 * Special case to preserve a large page. If the change spawns the
-	 * full large page mapping then there is no point to split it
-	 * up. Happens with ftrace and is going to be removed once ftrace
-	 * switched to text_poke().
-	 */
-	if (lpsize != (npg * PAGE_SIZE) || (start & (lpsize - 1))) {
-		res = protect_kernel_text_ro(start, end);
-		check_conflict(warnlvl, prot, res, start, end, pfn, "Text RO");
-		forbidden |= res;
-	}
-
-	/* Check the PFN directly */
-	res = protect_pci_bios(pfn, pfn + npg - 1);
-	check_conflict(warnlvl, prot, res, start, end, pfn, "PCIBIOS NX");
-	forbidden |= res;
-
-	res = protect_rodata(pfn, pfn + npg - 1);
-	check_conflict(warnlvl, prot, res, start, end, pfn, "Rodata RO");
-	forbidden |= res;
-
-	return __pgprot(pgprot_val(prot) & ~forbidden);
-}
-
 /*
  * Lookup the PMD entry for a virtual address. Return a pointer to the entry
  * or NULL if not present.
@@ -789,11 +590,11 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 
 	/*
 	 * Sanity check that the existing mapping is correct versus the static
-	 * protections. static_protections() guards against !PRESENT, so no
-	 * extra conditional required here.
+	 * protections. apply_static_protections() guards against !PRESENT, so
+	 * no extra conditional required here.
 	 */
-	chk_prot = static_protections(old_prot, lpaddr, old_pfn, numpages,
-				      psize, CPA_CONFLICT);
+	chk_prot = apply_static_protections(old_prot, lpaddr, old_pfn, numpages,
+					    psize);
 
 	if (WARN_ON_ONCE(pgprot_val(chk_prot) != pgprot_val(old_prot))) {
 		/*
@@ -828,8 +629,8 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	 * Check whether the requested pgprot is conflicting with a static
 	 * protection requirement in the large page.
 	 */
-	new_prot = static_protections(req_prot, lpaddr, old_pfn, numpages,
-				      psize, CPA_DETECT);
+	new_prot = apply_static_protections(req_prot, lpaddr, old_pfn, numpages,
+					    psize);
 
 	new_prot = verify_rwx(old_prot, new_prot, lpaddr, old_pfn, numpages,
 			      nx, rw);
@@ -869,7 +670,7 @@ static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 		goto set;
 
 	/* Hand in lpsize = 0 to enforce the protection mechanism */
-	prot = static_protections(ref_prot, address, pfn, npg, 0, CPA_PROTECT);
+	prot = apply_static_protections(ref_prot, address, pfn, npg, 0);
 
 	if (pgprot_val(prot) == pgprot_val(ref_prot))
 		goto set;
@@ -1584,43 +1385,6 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 	return __cpa_process_fault(cpa, vaddr, primary);
 }
 
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw)
-{
-	pte_t new_pte;
-	pgprot_t old_prot = pte_pgprot(old_pte);
-	pgprot_t new_prot;
-	unsigned long pfn = pte_pfn(old_pte);
-
-	new_prot = cpa_pgprot_apply_masks(old_prot, cpa->mask_clr,
-					  cpa->mask_set);
-
-	cpa_inc_4k_install();
-	/* Hand in lpsize = 0 to enforce the protection mechanism */
-	new_prot = static_protections(new_prot, address, pfn, 1, 0,
-				      CPA_PROTECT);
-
-	new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
-			      nx, rw);
-
-	new_prot = cpa_pgprot_fixup(new_prot);
-
-	/*
-	 * We need to keep the pfn from the existing PTE,
-	 * after all we're only going to change its attributes
-	 * not the memory it points to
-	 */
-	new_pte = pfn_pte(pfn, new_prot);
-	cpa->pfn = pfn;
-	/*
-	 * Do we really change anything ?
-	 */
-	if (pte_val(old_pte) != pte_val(new_pte)) {
-		set_pte_atomic(kpte, new_pte);
-		cpa->flags |= CPA_FLUSHTLB;
-	}
-}
-
 /*
  * Check the directmap and "high kernel map" 'aliases'.
  */
@@ -2328,8 +2092,58 @@ static struct cpa_arch_info cpa_arch_info = {
 	.lock = &pgd_lock,
 };
 
+/* text NX, [x86_64] text/rodata RO large-page preserve, [PCI] BIOS NX, rodata RO */
+static struct cpa_prot_zone cpa_prot_zones[4];
+
 struct cpa_arch_info *cpa_arch_setup(void)
 {
+	unsigned int n = 0;
+
+	/* Kernel text must remain executable. */
+	cpa_prot_zones[n++] = (struct cpa_prot_zone){
+		.start		= (unsigned long)_text,
+		.end		= (unsigned long)_etext - 1,
+		.forbidden	= _PAGE_NX,
+	};
+#ifdef CONFIG_X86_64
+	/*
+	 * Preserve the read-only large-page mappings of the large-page aligned
+	 * kernel text/rodata: only enforce !RW when the current mapping is a
+	 * large page and the change does not cover it fully (see the history of
+	 * protect_kernel_text_ro()).
+	 */
+	cpa_prot_zones[n++] = (struct cpa_prot_zone){
+		.start		= (unsigned long)_text,
+		.end		= (unsigned long)__end_rodata_hpage_align - 1,
+		.forbidden	= _PAGE_RW,
+		.enable		= &kernel_set_to_readonly,
+		.lp_partial_only = true,
+		.needs_lp_check	= true,
+	};
+#endif
+#ifdef CONFIG_PCI_BIOS
+	/* The BIOS area must stay executable for PCI BIOS config access. */
+	cpa_prot_zones[n++] = (struct cpa_prot_zone){
+		.start		= PFN_DOWN(BIOS_BEGIN),
+		.end		= PFN_DOWN(BIOS_END - 1),
+		.forbidden	= _PAGE_NX,
+		.enable		= &pcibios_enabled,
+		.pfn_based	= true,
+	};
+#endif
+	/* .rodata (including __ro_after_init) must become read-only. */
+	cpa_prot_zones[n++] = (struct cpa_prot_zone){
+		.start		= PFN_DOWN(__pa_symbol(__start_rodata)),
+		.end		= PFN_DOWN(__pa_symbol(__end_rodata)) - 1,
+		.forbidden	= _PAGE_RW,
+		.enable		= &kernel_set_to_readonly,
+		.pfn_based	= true,
+	};
+
+	cpa_arch_info.prot_zones = cpa_prot_zones;
+	cpa_arch_info.nr_prot_zones = n;
+	cpa_arch_info.present_mask = _PAGE_PRESENT;
+
 	return &cpa_arch_info;
 }
 
