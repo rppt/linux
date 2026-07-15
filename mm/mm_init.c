@@ -29,6 +29,7 @@
 #include <linux/cma.h>
 #include <linux/crash_dump.h>
 #include <linux/execmem.h>
+#include <linux/set_memory.h>
 #include <linux/vmstat.h>
 #include <linux/kexec_handover.h>
 #include <linux/hugetlb.h>
@@ -2746,4 +2747,5 @@ void __init mm_core_init(void)
 	kmsan_init_runtime();
 	mm_cache_init();
 	execmem_init();
+	cpa_init();
 }
