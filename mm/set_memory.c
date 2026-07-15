@@ -13,7 +13,7 @@
  */
 static DEFINE_SPINLOCK(cpa_lock);
 
-static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
+unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {
 	if (cpa->flags & CPA_PAGES_ARRAY) {
 		struct page *page = cpa->pages[idx];
@@ -70,7 +70,7 @@ static int __change_page_attr(struct cpa_data *cpa, int primary)
 	pte_t *kpte, old_pte;
 	bool nx, rw;
 
-	address = __cpa_addr(cpa, cpa->curpage);
+	address = cpa_addr(cpa, cpa->curpage);
 repeat:
 	kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
 	if (!kpte)
@@ -139,7 +139,7 @@ int __change_page_attr_set_clr(struct cpa_data *cpa, int primary)
 			goto out;
 
 		if (primary && !(cpa->flags & CPA_NO_CHECK_ALIAS) &&
-		    cpa_should_update_alias(__cpa_addr(cpa, cpa->curpage), cpa->pfn)) {
+		    cpa_should_update_alias(cpa_addr(cpa, cpa->curpage), cpa->pfn)) {
 			ret = arch_cpa_process_alias(cpa);
 			if (ret)
 				goto out;
