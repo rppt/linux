@@ -567,6 +567,8 @@ static phys_addr_t __pgd_pgtable_alloc(struct mm_struct *mm, gfp_t gfp,
 		pagetable_p4d_ctor(ptdesc);
 		break;
 	case PGTABLE_LEVEL_PGD:
+	case PGTABLE_LEVEL_NONE:
+	case PGTABLE_LEVEL_NUM:
 		VM_WARN_ON(1);
 		break;
 	}
