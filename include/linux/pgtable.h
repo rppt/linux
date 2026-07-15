@@ -2364,6 +2364,38 @@ static inline const char *pgtable_level_to_str(enum pgtable_level level)
 	}
 }
 
+/*
+ * Return the size of the memory area mapped by a single entry at @level.
+ *
+ * @kpte points at the entry so that architectures that support variable
+ * sized mappings at a given level, such as arm64 contiguous entries, can
+ * derive the actual mapping size from it.
+ */
+#ifndef pgtable_level_size
+static inline unsigned long pgtable_level_size(pte_t *kpte, enum pgtable_level level)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return PAGE_SIZE;
+	case PGTABLE_LEVEL_PMD:
+		return PMD_SIZE;
+	case PGTABLE_LEVEL_PUD:
+		return PUD_SIZE;
+	case PGTABLE_LEVEL_P4D:
+		return P4D_SIZE;
+	default:
+		return PGDIR_SIZE;
+	}
+}
+#endif
+
+#ifndef pgtable_level_mask
+static inline unsigned long pgtable_level_mask(pte_t *kpte, enum pgtable_level level)
+{
+	return ~(pgtable_level_size(kpte, level) - 1);
+}
+#endif
+
 #endif /* !__ASSEMBLY__ */
 
 #if !defined(MAX_POSSIBLE_PHYSMEM_BITS) && !defined(CONFIG_64BIT)
