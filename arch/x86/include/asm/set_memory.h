@@ -43,6 +43,23 @@ static inline bool pfn_is_kernel(unsigned long pfn)
 #define set_memory_rox set_memory_rox
 int set_memory_rox(unsigned long addr, int numpages);
 
+/* Whether the CPA leaf at @vaddr / @pfn has an alias that also needs updating. */
+#define cpa_should_update_alias cpa_should_update_alias
+static inline bool cpa_should_update_alias(unsigned long vaddr, unsigned long pfn)
+{
+	/* Primary is not in the direct map: its direct-map alias needs update. */
+	if (vaddr < PAGE_OFFSET ||
+	    vaddr >= PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT))
+		return true;
+
+	/* Direct-map page that is also part of the kernel image: highmap alias. */
+	if ((vaddr < (unsigned long)_text || vaddr >= _brk_end) &&
+	    pfn_is_kernel(pfn))
+		return true;
+
+	return false;
+}
+
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:
