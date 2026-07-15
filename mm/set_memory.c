@@ -44,6 +44,116 @@ unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 	return *cpa->vaddr + idx * PAGE_SIZE;
 }
 
+/*
+ * Lookup the page table entry for a virtual address in a specific pgd.
+ * Return a pointer to the entry (or NULL if the entry does not exist),
+ * the level of the entry, and the effective NX and RW bits of all
+ * page table levels.
+ */
+pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
+				  unsigned int *level,
+				  bool *ret_nx, bool *ret_rw)
+{
+	unsigned long rw = _PAGE_RW;
+	unsigned long nx = 0;
+	pte_t *pte = NULL;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	*level = PGTABLE_LEVEL_PGD;
+	if (pgd_none(*pgd))
+		goto out;
+
+	*level = PGTABLE_LEVEL_P4D;
+	nx |= !pgd_exec(*pgd);
+	rw &= pgd_write(*pgd);
+
+	p4d = p4d_offset(pgd, address);
+	if (p4d_none(*p4d))
+		goto out;
+
+	if (p4d_leaf(*p4d) || !p4d_present(*p4d)) {
+		pte = (pte_t *)p4d;
+		goto out;
+	}
+
+	*level = PGTABLE_LEVEL_PUD;
+	nx |= !p4d_exec(*p4d);
+	rw &= p4d_write(*p4d);
+
+	pud = pud_offset(p4d, address);
+	if (pud_none(*pud))
+		goto out;
+
+	if (pud_leaf(*pud) || !pud_present(*pud)) {
+		pte = (pte_t *)pud;
+		goto out;
+	}
+
+	*level = PGTABLE_LEVEL_PMD;
+	nx |= !pud_exec(*pud);
+	rw &= pud_write(*pud);
+
+	pmd = pmd_offset(pud, address);
+	if (pmd_none(*pmd))
+		goto out;
+
+	if (pmd_leaf(*pmd) || !pmd_present(*pmd)) {
+		pte = (pte_t *)pmd;
+		goto out;
+	}
+
+	*level = PGTABLE_LEVEL_PTE;
+	nx |= !pmd_exec(*pmd);
+	rw &= pmd_write(*pmd);
+	pte = pte_offset_kernel(pmd, address);
+
+out:
+	*ret_nx = !!nx;
+	*ret_rw = !!rw;
+
+	return pte;
+}
+
+/*
+ * Lookup the page table entry for a virtual address in a specific pgd.
+ * Return a pointer to the entry and the level of the mapping.
+ */
+pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
+			     unsigned int *level)
+{
+	bool nx, rw;
+
+	return lookup_address_in_pgd_attr(pgd, address, level, &nx, &rw);
+}
+
+/*
+ * Lookup the page table entry for a virtual address. Return a pointer
+ * to the entry and the level of the mapping.
+ *
+ * Note: the function returns p4d, pud or pmd either when the entry is marked
+ * large or when the present bit is not set. Otherwise it returns NULL.
+ */
+pte_t *lookup_address(unsigned long address, unsigned int *level)
+{
+	return lookup_address_in_pgd(pgd_offset_k(address), address, level);
+}
+EXPORT_SYMBOL_GPL(lookup_address);
+
+pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+			   unsigned int *level, bool *nx, bool *rw)
+{
+	pgd_t *pgd;
+
+	if (!cpa->pgd)
+		pgd = pgd_offset_k(address);
+	else
+		pgd = cpa->pgd + pgd_index(address);
+
+	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
+}
+
 static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
