@@ -95,6 +95,24 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 #define pgtable_entry_rw(val)	true
 #endif
 
+/*
+ * Whether the primary leaf just updated may have an alias mapping (e.g. the
+ * linear-map alias of a vmalloc page, or the high kernel map of a direct-map
+ * kernel-image page) that also needs updating. This runs per page in the CPA
+ * loop as an inlinable fast path so that the common case, where no alias exists,
+ * avoids the out-of-line arch_cpa_process_alias() call. Architectures must
+ * report true whenever arch_cpa_process_alias() would do work; the generic
+ * default is conservative and always processes aliases.
+ */
+#ifndef cpa_alias_needs_update
+static inline bool cpa_alias_needs_update(unsigned long vaddr, unsigned long pfn,
+					  pgprot_t mask_set, pgprot_t mask_clr)
+{
+	return true;
+}
+#define cpa_alias_needs_update cpa_alias_needs_update
+#endif
+
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
 #define CPA_PAGES_ARRAY 4
