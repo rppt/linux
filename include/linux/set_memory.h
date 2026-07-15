@@ -93,6 +93,18 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 #define CPA_COLLAPSE 16 /* try to collapse large pages */
 
 /*
+ * Whether the CPA leaf at @vaddr / @pfn has an alias that also needs updating.
+ * The generic default is conservative and always processes aliases.
+ */
+#ifndef cpa_should_update_alias
+#define cpa_should_update_alias cpa_should_update_alias
+static inline bool cpa_should_update_alias(unsigned long vaddr, unsigned long pfn)
+{
+	return true;
+}
+#endif
+
+/*
  * The current flushing context - we pass it instead of 5 arguments:
  */
 struct cpa_data {
