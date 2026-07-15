@@ -3,11 +3,30 @@
 #define _ASM_X86_SET_MEMORY_H
 
 #include <asm/page.h>
+#include <asm/sections.h>
 #include <asm-generic/set_memory.h>
 #include <asm/pgtable.h>
 
 #define set_memory_rox set_memory_rox
 int set_memory_rox(unsigned long addr, int numpages);
+
+/*
+ * Kernel text has an alias mapping at a high address ("highmap"); a direct-map
+ * page that is part of the kernel image therefore has a highmap alias.
+ */
+static inline bool cpa_pfn_in_highmap(unsigned long pfn)
+{
+#ifdef CONFIG_X86_64
+	unsigned long spfn = __pa_symbol(_text) >> PAGE_SHIFT;
+	/* Do not reference a physical address outside the kernel. */
+	unsigned long epfn = __pa_symbol(roundup(_brk_end, PMD_SIZE) - 1) >> PAGE_SHIFT;
+
+	return pfn >= spfn && pfn <= epfn;
+#else
+	/* There is no highmap on 32-bit */
+	return false;
+#endif
+}
 
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
