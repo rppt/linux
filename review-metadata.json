@@ -1,0 +1,8 @@
+{
+  "author": "Mike Rapoport (Microsoft) <rppt@kernel.org>",
+  "sha": "uncommitted-working-tree",
+  "subject": "set_memory: factor large page handling out of __change_page_attr()",
+  "issues-found": 0,
+  "issue-severity-score": "none",
+  "issue-severity-explanation": "none"
+}

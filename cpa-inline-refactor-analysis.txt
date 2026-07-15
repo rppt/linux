@@ -1,0 +1,361 @@
+================================================================================
+Feasibility analysis: re-inlining the generic CPA / set_memory hot path
+================================================================================
+Tree:   v7.2-rc1 + 30 (direct-map/x86-cpa-based/v0.1, 6260173169bc)
+Author: analysis for @rppt
+Scope:  arch/x86/mm/pat/set_memory.c, mm/set_memory.c,
+        arch/{riscv,arm64}/mm/pageattr.c, include/linux/set_memory.h,
+        include/linux/pgtable.h, arch/*/include/asm/*.h
+
+
+0. WHY THIS MATTERS (recap of the measured regression)
+--------------------------------------------------------------------------------
+The consolidation moved the CPA loop into mm/set_memory.c and turned the
+previously-static x86 per-entry helpers into out-of-line hooks:
+
+    generic __change_page_attr()            [mm/set_memory.c]
+        -> arch_change_pte()                [arch/x86/.../set_memory.c]  per PTE
+        -> arch_should_split_large_page()   [arch/x86/.../set_memory.c]  per lp
+        -> arch_split_large_page()          [arch/x86/.../set_memory.c]  per split
+
+With CONFIG_LTO_NONE=y these are real cross-translation-unit calls that the
+compiler cannot inline. The cpa-test microbenchmark measured ~+25..33% on the
+change_page_attr path, ~+9 ns per PTE, dominated by the per-PTE out-of-line
+call to arch_change_pte() (arg marshalling, call/ret, spilled cpa state, plus
+an __fentry__ site because CONFIG_FUNCTION_TRACER=y).
+
+Goal of these four points: shrink / relocate the arch-specific work so the
+hot path is once again inlinable by the generic core.
+
+
+1. THE ONE MECHANISM THAT ACTUALLY RECOVERS INLINING
+--------------------------------------------------------------------------------
+Without kernel-wide LTO, the ONLY way for code in mm/set_memory.o to inline
+arch code is for that arch code to be visible as a static inline (or macro) in
+a HEADER that mm/set_memory.c includes -- or to become generic code -- or to be
+expressed as DATA the generic code walks.
+
+This pattern already exists in this very path: canon_pgprot.
+
+    include/linux/pgtable.h:2479   #ifndef canon_pgprot
+                                    #define canon_pgprot(prot) (prot)   <- fallback
+    arch/x86/include/asm/pgtable.h:867
+                                    #define canon_pgprot(p) __pgprot(massage_pgprot(p))
+    mm/set_memory.c:324             mask_set = canon_pgprot(mask_set);   <- inlined
+
+So every one of the four points below is, at bottom, "turn an out-of-line
+arch_* hook into (generic code) + (small arch static-inline in a header) +
+(optional arch data in struct cpa_arch_info)".  The canon_pgprot precedent is
+the template and the proof that it builds and links per-arch.
+
+(Alternative worth stating: enabling CONFIG_LTO_CLANG would let the linker
+inline the existing hooks with almost no source churn, but it is not universally
+available, changes build time / debuggability globally, and is a policy change
+rather than a targeted fix.  Recommended only as a complementary measure.)
+
+
+2. WHAT IS ALREADY GENERIC vs ARCH TODAY
+--------------------------------------------------------------------------------
+Generic (mm/set_memory.c):
+  - the walk: lookup_address_in_pgd_attr() incl. effective nx/rw accumulation
+  - _lookup_address_cpa(), cpa_addr()
+  - __change_page_attr(), __change_page_attr_set_clr(), change_page_attr_set_clr()
+  - should_split_large_page()/split_large_page() WRAPPERS (locking + race recheck)
+  - struct cpa_data, struct cpa_arch_info
+
+Arch (out-of-line hooks):
+  - arch_change_pte()                 x86: mask + static_protections + verify_rwx
+                                           + protnone; riscv/arm64: just mask+set
+  - arch_should_split_large_page()    x86: heavy; riscv/arm64: light, no W^X/statprot
+  - arch_split_large_page()           x86/riscv: real; arm64: WARN stub (pre-splits)
+  - arch_cpa_process_fault/alias/flush, cpa_arch_setup()
+
+Cross-arch observation (important): riscv arch_change_pte and arm64
+arch_change_pte are *only* "newval = (val & ~mask_clr) | mask_set; set if
+changed".  The ENTIRE reason arch_change_pte is a hook and not generic code is
+x86's static_protections() + verify_rwx() + protnone/PAT handling.  Points 1,2,4
+are exactly about removing those three x86-only pieces from the hook.
+
+
+3. POINT-BY-POINT ANALYSIS
+================================================================================
+
+--------------------------------------------------------------------------------
+POINT 1 -- Make verify_rwx() arch independent (assume pXd_write()/pXd_exec()
+           exist for every level on every arch)
+--------------------------------------------------------------------------------
+What it is today (arch/x86/mm/pat/set_memory.c:621-660, ~40 lines):
+  W^X validator. Returns "new" unless the new leaf would be simultaneously
+  writable AND executable given the effective nx/rw from the upper levels, in
+  which case it WARN_ONCE()s. Uses raw x86 bits: _PAGE_RW, _PAGE_NX,
+  __supported_pte_mask, and an IS_ENABLED(CONFIG_X86_32) exemption.
+
+Can it be generic?  YES, mostly.  It already receives the two hardest inputs in
+arch-neutral form: nx and rw are computed generically in
+lookup_address_in_pgd_attr() via pgtable_entry_nx()/pgtable_entry_rw().  The
+remaining x86 bit tests map cleanly to per-level predicates:
+
+    (pgprot & (_PAGE_RW|_PAGE_NX)) == _PAGE_RW      -> pXd_write(e) && pXd_exec(e)
+    (old ^ new) & (_PAGE_RW|_PAGE_NX)               -> writability or exec changed
+
+Because verify_rwx is also called on LARGE-page prot (not only PTE-level), the
+generic form must be *level aware* -- this is precisely why the ask specifies
+pXd_write/pXd_exec "for every level", not just pte_*.  On x86 the RW/NX bits are
+position-invariant across levels so the current code gets away with pgprot bit
+tests; a portable version cannot assume that.
+
+Three arch quirks must be parameterized (small):
+  a) CONFIG_X86_32 W+X exemption            -> gate the whole check behind an
+                                               arch opt-in (Kconfig or a bool in
+                                               cpa_arch_info: want_wx_check).
+  b) "__supported_pte_mask & _PAGE_NX"      -> runtime "does this CPU enforce NX"
+     (NX can be off via noexec= or no HW).    Store a bool in cpa_arch_info at
+                                               cpa_arch_setup() time (it is fixed
+                                               before CPA runs).
+  c) the WARN_ONCE wording / policy         -> keep generic; identical for all.
+
+Precondition cost (the assumption): pXd_write is basically there --
+pte_write() is universal, pmd_write()/pud_write() have generic fallbacks
+(include/linux/pgtable.h:2091-2106).  pXd_exec is NOT: pte_exec() is defined in
+only 7 of 22 arches, there is no pmd_exec()/pud_exec() and no generic fallback.
+BUT W^X enforcement is only meaningful on arches that both have an execute-
+permission bit and opt in (x86, arm64, riscv today).  So the realistic
+precondition is "add pte/pmd/pud_exec() to the handful of W^X arches", not to
+all 22; elsewhere verify_rwx is compiled out via the opt-in gate.
+
+Churn:  MODERATE.
+  - Refactor proper: ~1 function (~40 lines) relocated x86 -> generic, + a
+    want_wx_check / has_nx bool in cpa_arch_info, + call-site updates.
+    ~120-180 LoC, 3-4 files (mm/set_memory.c, include/linux/set_memory.h,
+    arch/x86 set_memory.c, one Kconfig).
+  - Precondition (pXd_exec on W^X arches, if not already assumed done):
+    add ~2-3 small inlines to ~3 arch pgtable headers  (LOW-MODERATE, +generic
+    fallbacks in include/linux/pgtable.h).
+Risk:   MEDIUM.  It is a security invariant (no W+X kernel mappings).  Must
+        preserve x86 semantics bit-for-bit: 32-bit exemption, NX-support
+        gating, warn-once, and the "effective nx/rw from upper levels" input.
+
+
+--------------------------------------------------------------------------------
+POINT 2 -- Express static_protections() as an array of ranges carried in
+           cpa_arch_info (x86 fills it, other arches leave it empty)
+--------------------------------------------------------------------------------
+What it is today (arch/x86/.../set_memory.c:573-620 + helpers 450-540):
+  Given [start, start+npg*PAGE_SIZE) and pfn range, OR together "forbidden"
+  bits and clear them from prot.  Four contributors:
+    - protect_kernel_text()      : forbid _PAGE_NX in [_text, _etext)     (vaddr)
+    - protect_rodata()           : forbid _PAGE_RW in rodata, gated by
+                                   kernel_set_to_readonly                  (pfn)
+    - protect_pci_bios()         : forbid _PAGE_NX in BIOS area, gated by
+                                   pcibios_enabled                         (pfn)
+    - protect_kernel_text_ro()   : forbid _PAGE_RW in [_text,
+                                   __end_rodata_hpage_align), ONLY when not
+                                   covering a full large page (lpsize gate) AND
+                                   only if the current mapping is already 4K
+                                   (calls lookup_address!)                 (vaddr)
+  Plus check_conflict() diagnostics with warn levels CONFLICT/DETECT/PROTECT.
+
+Can it be data?  MOSTLY, with one stubborn case.
+  The first three collapse cleanly to array entries:
+     struct cpa_static_prot {
+         unsigned long start, end;     /* addr- or pfn-based           */
+         pgprotval_t   forbidden;      /* bits to strip                */
+         u8            flags;          /* PFN_BASED | ...              */
+         const bool   *enable;         /* &kernel_set_to_readonly etc. */
+     };
+  A generic apply loop (walk array, overlaps() test, OR forbidden, mask out)
+  lives in the core and is inlinable.  x86 populates ~3 entries in
+  cpa_arch_info; riscv/arm64 leave the pointer NULL and the loop is a no-op.
+  The runtime gates (kernel_set_to_readonly, pcibios_enabled) become a
+  "const bool *enable" dereferenced by the generic loop (both flip once at boot).
+
+  The awkward one is protect_kernel_text_ro(): it is NOT a static range->bits
+  rule.  It depends on (a) the lpsize argument (only enforced when the request
+  does NOT cover a full large page) and (b) the CURRENT mapping granularity via
+  lookup_address().  That is control flow, not data.  Options:
+     - keep it as a small residual arch hook arch_extra_static_prot() called
+       from the generic loop (cleanest), OR
+     - fold its intent into the large-page preserve/split decision (point 3),
+       where the mapping level is already known.
+  Either way it does not vanish into the array.
+
+  check_conflict() diagnostics: the generic loop would need to carry warnlvl and
+  emit the warning (or drop the diagnostics -- a debuggability regression only).
+
+Churn:  MODERATE-to-HIGH.
+  - New struct + generic apply loop (~40-70 LoC) in the core/header.
+  - x86: convert protect_* into a static table + keep protect_kernel_text_ro as
+    a residual hook; wire runtime enable flags. ~80-120 LoC net, mostly moved.
+  - riscv/arm64: zero (NULL table).
+  ~2-4 files.
+Risk:   MEDIUM.  static_protections is a correctness/security guard (kernel text
+        stays NX-executable, rodata stays RO).  The lpsize + mapping-level
+        special case and the "operate on 4K-format prot" detail must be
+        preserved.  Losing check_conflict warnings is acceptable but a change.
+
+
+--------------------------------------------------------------------------------
+POINT 3 -- A core handle_large_page() that calls should_split_large_page() and
+           split_large_page(), passing state in a struct; and move most of
+           arch_should_split_large_page() into common code
+--------------------------------------------------------------------------------
+Today the large-page path double-works:
+  __change_page_attr(): should_split_large_page() {arch_lock; recheck via
+      _lookup_address_cpa; arch_should_split_large_page()} then, if split needed,
+      split_large_page() {alloc; arch_lock; recheck via _lookup_address_cpa
+      AGAIN; arch_split_large_page()}.
+So the leaf is looked up under the lock twice, and level/old_pfn/old_prot/psize/
+pmask/numpages are recomputed in each arch hook.
+
+handle_large_page(cpa, kpte, address, level, nx, rw):  YES, feasible and
+synergistic.  Introduce a small context, e.g.
+
+     struct cpa_large { pte_t *kpte; unsigned long address, old_pfn, lpaddr;
+                        pgprot_t old_prot; unsigned int level;
+                        unsigned long psize, pmask, numpages; bool nx, rw; };
+
+  computed ONCE under the lock, then reused by both the "can we preserve?" and
+  the "split" steps.  This removes the second _lookup_address_cpa() race-recheck
+  and the recomputation -- a real micro-win independent of inlining.
+
+"A lot of arch_should_split_large_page() can move to common": TRUE, and this is
+where points 1,2,4 pay off.  Split the current x86 function into:
+  GENERIC (identical for x86/riscv/arm64):
+    - numpages/lpaddr math from level+psize+pmask
+    - the "req_prot == old_prot  => preserve, return 0" fast path
+    - the "range does not cover the whole large page => split" test
+    - the static-protections conflict check (point 2, generic loop)
+    - the verify_rwx W^X check (point 1, generic)
+    - the preserve-in-place decision
+  ARCH (tiny inlines, point 4):
+    - read old_prot/old_pfn from a leaf at `level` (pmd_pgprot/pud_pfn ...)
+    - large<->4K prot format conversion (x86 PAT; else identity)
+    - protnone-bit fixup (x86; else identity)
+    - build + install the large leaf (__set_pmd_pte / set_pmd / set_pud) with
+      the arch's atomicity/BBM rules
+    - stats (cpa_inc_*)
+  Evidence this is right-sized: riscv/arm64 arch_should_split_large_page() are
+  ALREADY basically the generic skeleton with none of the x86 extras -- a
+  generic core + tiny arch inlines would REPLACE all three copies.
+
+Must-respect constraints:
+  - arm64 does NOT live-split (arch_split_large_page is a WARN stub; it pre-splits
+    via split_kernel_leaf_mapping with break-before-make).  handle_large_page
+    must keep an arch escape hatch (return "already handled"/"cannot split here").
+  - riscv sets cpa->force_flush_all on split; x86 sets force_static_prot for the
+    split_set_pte() fixup path (couples to point 2).  These flags stay in the
+    generic cpa_data and are set by the (now generic or arch-inline) code.
+
+Churn:  HIGH (largest structural change) but net line-count neutral-to-negative
+        because it DELETES three arch copies of the split-decision logic.
+        Touches mm/set_memory.c + all 3 arch pageattr.c + headers. Best done
+        AFTER 1,2,4 land.
+Risk:   MEDIUM-HIGH.  This is the large-page preserve/split correctness core;
+        the locking/recheck reshuffle and the arm64 BBM / no-live-split path are
+        the delicate parts.
+
+
+--------------------------------------------------------------------------------
+POINT 4 -- Per-arch static inlines for the actual pgprot calculation
+--------------------------------------------------------------------------------
+This is the concrete instantiation of Section 1 and the lowest-risk, highest-
+leverage item.  Provide, in arch headers, small static inlines with generic
+identity fallbacks in include/linux/pgtable.h, so the generic core inlines the
+per-PTE and per-large-page pgprot math with NO cross-TU call:
+
+    arch primitive (proposed)         x86 impl                 riscv/arm64 fallback
+    --------------------------------  -----------------------  --------------------
+    cpa_prot_4k_from_large(prot)      pgprot_large_2_4k()*     identity
+    cpa_prot_large_from_4k(prot)      pgprot_4k_2_large()*     identity
+    cpa_prot_fixup(prot)              pgprot_clear_protnone*   identity
+    cpa_leaf_set(kpte,addr,pte,level) __set_pmd_pte()/set_pte  set_pmd/set_pud/set_pte
+    cpa_prot_of_leaf(kpte,level)      pmd_pgprot/pud_pgprot    __pgprot(val&~PFN_MASK)
+
+    (*) pgprot_4k_2_large/large_2_4k are ALREADY header static inlines in
+        arch/x86/include/asm/pgtable_types.h:500-516.  canon_pgprot already
+        follows the #ifndef fallback pattern (include/linux/pgtable.h:2479).
+        __set_pmd_pte on x86_64 is just set_pte_atomic() (the loop is X86_32).
+
+The mask-apply itself ("(val & ~mask_clr) | mask_set", clear-before-set) is
+already arch-neutral -- arm64 and riscv both do exactly this on the raw value.
+So the generic 4K path becomes, fully inlined:
+
+    newval = (pte_val(old) & ~mask_clr) | mask_set;   // generic
+    prot   = cpa_prot_fixup(__prot(newval));          // arch inline (x86 protnone)
+    prot   = apply_static_protections(prot, ...);     // generic loop  (point 2)
+    prot   = verify_rwx(old, prot, ..., level, nx,rw);// generic       (point 1)
+    if (changed) cpa_leaf_set(kpte, addr, mk(pfn,prot), PTE_LEVEL); // arch inline
+
+i.e. arch_change_pte() disappears as a hook -- exactly the per-PTE cross-TU call
+that dominated the regression.
+
+Churn:  LOW-to-MODERATE, mostly mechanical relocation of existing x86 inlines
+        into a named arch API + identity fallbacks + a couple of tiny riscv/arm64
+        inlines.  ~2 x86 files + include/linux/pgtable.h + 2 arch headers.
+Risk:   LOW.  Mirrors the proven canon_pgprot mechanism; bodies are unchanged.
+
+
+4. WHAT STAYS IRREDUCIBLY ARCH-SPECIFIC (and that's fine -- it inlines)
+--------------------------------------------------------------------------------
+  - the leaf read/write with correct atomicity & TLB/BBM semantics
+    (set_pte_atomic, __set_pmd_pte, arm64 break-before-make + __set_pte,
+     riscv smp_wmb ordering), paravirt_alloc_pte()
+  - PAT large/4K bit juggling (x86), protnone/_PAGE_GLOBAL (x86)
+  - cpa_inc_* stats (x86 debug counters) -> make them arch-overridable no-op
+    macros with a generic empty fallback
+  - arch_cpa_process_fault/alias/flush and cpa_arch_setup() (already hooks; not
+    on the per-PTE hot path, so out-of-line is fine)
+All of the above are small enough to live as header inlines, so they do not
+reintroduce a hot-path cross-TU call.
+
+
+5. SUGGESTED ORDER (each step independently testable)
+--------------------------------------------------------------------------------
+  1. POINT 4  (pgprot inlines + identity fallbacks)          LOW risk, foundational
+  2. POINT 1  (generic verify_rwx + opt-in/has_nx flag)      MED
+  3. POINT 2  (static_protections as data + residual RO hook) MED
+  4. POINT 3  (core handle_large_page + fold arch_should_split) HIGH, last
+  (optional) evaluate CONFIG_LTO_CLANG as a complementary/interim measure.
+
+After 4+1+2, arch_change_pte() (the per-PTE hot path, ~+9 ns/PTE regression)
+becomes inlinable generic code -> most of the measured regression should be
+recovered.  Point 3 removes the redundant re-lookup/recompute on the split path
+and deletes three arch copies.
+
+Re-measure with the cpa-test microbenchmark (see /home/mike/tmp/cpa-timing,
+deterministic workload, nokaslr, min-across-runs) after each step; the CLEAR
+phase is the cleanest per-PTE signal.
+
+
+6. CHURN SUMMARY
+--------------------------------------------------------------------------------
+  Point 4  pgprot inlines .............. LOW-MOD   ~4-5 files   low risk
+  Point 1  generic verify_rwx .......... MODERATE  ~3-4 files   med risk (+precond:
+                                                   pXd_exec on W^X arches)
+  Point 2  static_protections data ..... MOD-HIGH  ~2-4 files   med risk (1 residual
+                                                   hook remains)
+  Point 3  core handle_large_page ...... HIGH      core+3 arch  med-high risk
+                                                   (net LoC ~neutral/negative)
+
+  All four are feasible.  Points 1,2,4 are the ones that directly kill the
+  per-PTE cross-TU call and therefore the bulk of the regression; point 3 is a
+  structural cleanup that also removes a redundant locked re-lookup.
+
+  The whole plan rests on one already-proven idea in this codebase (canon_pgprot):
+  move arch specifics into headers-as-inlines or into data, so the single
+  generic core object can inline them without LTO.
+
+
+7. OPEN QUESTIONS / RISKS TO SETTLE BEFORE CODING
+--------------------------------------------------------------------------------
+  - verify_rwx level-awareness: confirm every W^X arch has (or will get)
+    pmd_exec()/pud_exec() with the correct semantics for block/leaf entries
+    (arm64 contiguous bits!).  Without them, keep verify_rwx PTE-level only and
+    leave the large-page W^X check as a thin arch hook.
+  - static_protections: decide the fate of protect_kernel_text_ro() (residual
+    hook vs. fold into point 3) and whether to keep check_conflict() diagnostics.
+  - arm64 break-before-make: handle_large_page() must not assume live split is
+    legal; keep the "arch declines to split here" contract.
+  - stats: convert cpa_inc_* to generic-overridable no-ops so moving the large-
+    page logic to the core does not drag x86 debug counters into generic code.
+================================================================================
