@@ -8,6 +8,7 @@
 #include <linux/export.h>
 #include <linux/io.h>
 #include <linux/kexec.h>
+#include <linux/pgtable.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -1042,7 +1043,7 @@ static void tdx_kexec_finish(void)
 		pte_t *pte;
 
 		pte = lookup_address(addr, &level);
-		size = page_level_size(level);
+		size = pgtable_level_size(level);
 
 		if (pte && pte_decrypted(*pte)) {
 			int pages = size / PAGE_SIZE;

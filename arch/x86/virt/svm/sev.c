@@ -883,7 +883,7 @@ void snp_dump_hva_rmpentry(unsigned long hva)
 		return;
 	}
 
-	paddr = PFN_PHYS(pte_pfn(*pte)) | (hva & ~page_level_mask(level));
+	paddr = PFN_PHYS(pte_pfn(*pte)) | (hva & ~pgtable_level_mask(level));
 	dump_rmpentry(PHYS_PFN(paddr));
 }
 
@@ -975,7 +975,7 @@ static int adjust_direct_map(u64 pfn, int rmp_level)
 	if (!pte || pte_none(*pte))
 		return 0;
 
-	if (level == PG_LEVEL_4K)
+	if (level == PGTABLE_LEVEL_PTE)
 		return 0;
 
 	npages = page_level_size(rmp_level) / PAGE_SIZE;

@@ -298,7 +298,7 @@ static void __init pti_setup_vsyscall(void)
 	unsigned int level;
 
 	pte = lookup_address(VSYSCALL_ADDR, &level);
-	if (!pte || WARN_ON(level != PG_LEVEL_4K) || pte_none(*pte))
+	if (!pte || WARN_ON(level != PGTABLE_LEVEL_PTE) || pte_none(*pte))
 		return;
 
 	target_pte = pti_user_pagetable_walk_pte(VSYSCALL_ADDR, false);

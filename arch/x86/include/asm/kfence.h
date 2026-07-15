@@ -12,6 +12,7 @@
 
 #include <linux/bug.h>
 #include <linux/kfence.h>
+#include <linux/pgtable.h>
 
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
@@ -30,7 +31,7 @@ static inline bool arch_kfence_init_pool(void)
 		if (!lookup_address(addr, &level))
 			return false;
 
-		if (level != PG_LEVEL_4K)
+		if (level != PGTABLE_LEVEL_PTE)
 			set_memory_4k(addr, 1);
 	}
 
@@ -44,7 +45,7 @@ static inline bool kfence_protect_page(unsigned long addr, bool protect)
 	pte_t *pte = lookup_address(addr, &level);
 	pteval_t val, new;
 
-	if (WARN_ON(!pte || level != PG_LEVEL_4K))
+	if (WARN_ON(!pte || level != PGTABLE_LEVEL_PTE))
 		return false;
 
 	val = pte_val(*pte);

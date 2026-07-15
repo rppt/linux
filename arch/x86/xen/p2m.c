@@ -71,6 +71,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/acpi.h>
+#include <linux/pgtable.h>
 
 #include <asm/cache.h>
 #include <asm/setup.h>
@@ -237,7 +238,7 @@ void __ref xen_build_mfn_list_list(void)
 		mid_mfn_p = p2m_top_mfn_p[topidx];
 		ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn),
 				      &level);
-		BUG_ON(!ptep || level != PG_LEVEL_4K);
+		BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 		mfn = pte_mfn(*ptep);
 		ptep = (pte_t *)((unsigned long)ptep & ~(PAGE_SIZE - 1));
 
@@ -435,7 +436,7 @@ unsigned long get_phys_to_machine(unsigned long pfn)
 	}
 
 	ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn), &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 
 	/*
 	 * The INVALID_P2M_ENTRY is filled in both p2m_*identity
@@ -529,7 +530,7 @@ int xen_alloc_p2m_entry(unsigned long pfn)
 	unsigned long p2m_pfn;
 
 	ptep = lookup_address(addr, &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 	pte_pg = (pte_t *)((unsigned long)ptep & ~(PAGE_SIZE - 1));
 
 	if (pte_pg == p2m_missing_pte || pte_pg == p2m_identity_pte) {
@@ -653,7 +654,7 @@ bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 		return true;
 
 	ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn), &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 
 	if (pte_pfn(*ptep) == PFN_DOWN(__pa(p2m_missing)))
 		return mfn == INVALID_P2M_ENTRY;
