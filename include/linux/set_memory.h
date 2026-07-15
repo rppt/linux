@@ -93,6 +93,24 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 #define CPA_COLLAPSE 16 /* try to collapse large pages */
 
 /*
+ * Whether the primary leaf just updated may have an alias mapping (e.g. the
+ * linear-map alias of a vmalloc page, or the high kernel map of a direct-map
+ * kernel-image page) that also needs updating.  This runs per page in the CPA
+ * loop as an inlinable fast path so that the common case, where no alias
+ * exists, avoids the out-of-line arch_cpa_process_alias() call.  Architectures
+ * must report true whenever arch_cpa_process_alias() would do work; the generic
+ * default is conservative and always processes aliases.
+ */
+#ifndef cpa_alias_needs_update
+#define cpa_alias_needs_update cpa_alias_needs_update
+static inline bool cpa_alias_needs_update(unsigned long vaddr, unsigned long pfn,
+					  pgprot_t mask_set, pgprot_t mask_clr)
+{
+	return true;
+}
+#endif
+
+/*
  * The current flushing context - we pass it instead of 5 arguments:
  */
 struct cpa_data {
