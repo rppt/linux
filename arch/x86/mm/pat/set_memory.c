@@ -597,116 +597,6 @@ static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long star
 }
 
 /*
- * Lookup the page table entry for a virtual address in a specific pgd.
- * Return a pointer to the entry (or NULL if the entry does not exist),
- * the level of the entry, and the effective NX and RW bits of all
- * page table levels.
- */
-pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
-				  unsigned int *level,
-				  bool *ret_nx, bool *ret_rw)
-{
-	unsigned long rw = _PAGE_RW;
-	unsigned int exec = 1;
-	pte_t *pte = NULL;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-
-	*level = PGTABLE_LEVEL_PGD;
-	if (pgd_none(*pgd))
-		goto out;
-
-	*level = PGTABLE_LEVEL_P4D;
-	exec &= pgd_exec(*pgd);
-	rw &= pgd_write(*pgd);
-
-	p4d = p4d_offset(pgd, address);
-	if (p4d_none(*p4d))
-		goto out;
-
-	if (p4d_leaf(*p4d) || !p4d_present(*p4d)) {
-		pte = (pte_t *)p4d;
-		goto out;
-	}
-
-	*level = PGTABLE_LEVEL_PUD;
-	exec &= p4d_exec(*p4d);
-	rw &= p4d_write(*p4d);
-
-	pud = pud_offset(p4d, address);
-	if (pud_none(*pud))
-		goto out;
-
-	if (pud_leaf(*pud) || !pud_present(*pud)) {
-		pte = (pte_t *)pud;
-		goto out;
-	}
-
-	*level = PGTABLE_LEVEL_PMD;
-	exec &= pud_exec(*pud);
-	rw &= pud_write(*pud);
-
-	pmd = pmd_offset(pud, address);
-	if (pmd_none(*pmd))
-		goto out;
-
-	if (pmd_leaf(*pmd) || !pmd_present(*pmd)) {
-		pte = (pte_t *)pmd;
-		goto out;
-	}
-
-	*level = PGTABLE_LEVEL_PTE;
-	exec &= pmd_exec(*pmd);
-	rw &= pmd_write(*pmd);
-	pte = pte_offset_kernel(pmd, address);
-
-out:
-	*ret_nx = !exec;
-	*ret_rw = !!rw;
-
-	return pte;
-}
-
-/*
- * Lookup the page table entry for a virtual address in a specific pgd.
- * Return a pointer to the entry and the level of the mapping.
- */
-pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
-			     unsigned int *level)
-{
-	bool nx, rw;
-
-	return lookup_address_in_pgd_attr(pgd, address, level, &nx, &rw);
-}
-
-/*
- * Lookup the page table entry for a virtual address. Return a pointer
- * to the entry and the level of the mapping.
- *
- * Note: the function returns p4d, pud or pmd either when the entry is marked
- * large or when the present bit is not set. Otherwise it returns NULL.
- */
-pte_t *lookup_address(unsigned long address, unsigned int *level)
-{
-	return lookup_address_in_pgd(pgd_offset_k(address), address, level);
-}
-EXPORT_SYMBOL_GPL(lookup_address);
-
-pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-			   unsigned int *level, bool *nx, bool *rw)
-{
-	pgd_t *pgd;
-
-	if (!cpa->pgd)
-		pgd = pgd_offset_k(address);
-	else
-		pgd = cpa->pgd + pgd_index(address);
-
-	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
-}
-
-/*
  * Lookup the PMD entry for a virtual address. Return a pointer to the entry
  * or NULL if not present.
  */
@@ -825,21 +715,12 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 }
 
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa)
+				 struct cpa_data *cpa, unsigned int level,
+				 bool nx, bool rw)
 {
 	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
-	pte_t new_pte, *tmp;
-	unsigned int level;
-	bool nx, rw;
-
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
-		return 1;
+	pte_t new_pte;
 
 	switch (level) {
 	case PGTABLE_LEVEL_PMD:
@@ -1007,26 +888,14 @@ set:
 }
 
 int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, struct ptdesc *ptdesc)
+			  unsigned long address, unsigned int level,
+			  struct ptdesc *ptdesc)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
-	unsigned int i, level;
+	unsigned int i;
 	pgprot_t ref_prot;
-	bool nx, rw;
-	pte_t *tmp;
-
-	spin_lock(&pgd_lock);
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte) {
-		spin_unlock(&pgd_lock);
-		return 1;
-	}
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
@@ -1059,7 +928,6 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		break;
 
 	default:
-		spin_unlock(&pgd_lock);
 		return 1;
 	}
 
@@ -1107,7 +975,6 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 * just split large page entry.
 	 */
 	flush_tlb_all();
-	spin_unlock(&pgd_lock);
 
 	return 0;
 }
@@ -2448,6 +2315,15 @@ int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
 	__flush_tlb_all();
 
 	return retval;
+}
+
+static struct cpa_arch_info cpa_arch_info = {
+	.lock = &pgd_lock,
+};
+
+struct cpa_arch_info *cpa_arch_setup(void)
+{
+	return &cpa_arch_info;
 }
 
 /*

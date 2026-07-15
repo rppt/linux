@@ -60,10 +60,6 @@ static inline bool cpa_should_update_alias(unsigned long vaddr, unsigned long pf
 	return false;
 }
 
-struct cpa_data;
-pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-			   unsigned int *level, bool *nx, bool *rw);
-
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:

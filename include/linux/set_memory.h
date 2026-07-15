@@ -110,6 +110,15 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+struct cpa_arch_info {
+	/* serializes large page splits against parallel walks, or NULL */
+	spinlock_t *lock;
+};
+
+struct cpa_arch_info *cpa_arch_setup(void);
+
+void cpa_init(void);
+
 struct ptdesc;
 
 unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx);
@@ -118,9 +127,11 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			   int primary);
 int arch_cpa_process_alias(struct cpa_data *cpa);
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa);
+				 struct cpa_data *cpa, unsigned int level,
+				 bool nx, bool rw);
 int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, struct ptdesc *ptdesc);
+			  unsigned long address, unsigned int level,
+			  struct ptdesc *ptdesc);
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
 void arch_cpa_flush(struct cpa_data *cpa, int err);
@@ -158,6 +169,10 @@ static inline int cpa_clear_pages_array(struct page **pages, int numpages,
 	return change_page_attr_set_clr(NULL, numpages, __pgprot(0), mask, 0,
 		CPA_PAGES_ARRAY, pages);
 }
+
+#else /* !CONFIG_GENERIC_SET_MEMORY */
+
+static inline void cpa_init(void) { }
 
 #endif /* CONFIG_GENERIC_SET_MEMORY */
 
