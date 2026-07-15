@@ -2457,6 +2457,15 @@ int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
 	return retval;
 }
 
+static struct cpa_arch_info cpa_arch_info = {
+	.lock = &pgd_lock,
+};
+
+struct cpa_arch_info *cpa_arch_setup(void)
+{
+	return &cpa_arch_info;
+}
+
 /*
  * The testcases use internal knowledge of the implementation that shouldn't
  * be exposed to the rest of the kernel. Include these directly here.

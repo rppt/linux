@@ -13,6 +13,20 @@
  */
 static DEFINE_SPINLOCK(cpa_lock);
 
+static struct cpa_arch_info *cpa_arch_info;
+
+static inline void arch_lock(void)
+{
+	if (cpa_arch_info->lock)
+		spin_lock(cpa_arch_info->lock);
+}
+
+static inline void arch_unlock(void)
+{
+	if (cpa_arch_info->lock)
+		spin_unlock(cpa_arch_info->lock);
+}
+
 unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {
 	if (cpa->flags & CPA_PAGES_ARRAY) {
@@ -38,9 +52,9 @@ static int should_split_large_page(pte_t *kpte, unsigned long address,
 	if (cpa->force_split)
 		return 1;
 
-	spin_lock(&pgd_lock);
+	arch_lock();
 	do_split = arch_should_split_large_page(kpte, address, cpa);
-	spin_unlock(&pgd_lock);
+	arch_unlock();
 
 	return do_split;
 }
@@ -231,4 +245,9 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 
 out:
 	return err;
+}
+
+void __init cpa_init(void)
+{
+	cpa_arch_info = cpa_arch_setup();
 }
