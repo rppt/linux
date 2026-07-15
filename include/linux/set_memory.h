@@ -127,9 +127,11 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			   int primary);
 int arch_cpa_process_alias(struct cpa_data *cpa);
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa);
+				 struct cpa_data *cpa, unsigned int level,
+				 bool nx, bool rw);
 int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, struct ptdesc *ptdesc);
+			  unsigned long address, unsigned int level,
+			  struct ptdesc *ptdesc);
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
 void arch_cpa_flush(struct cpa_data *cpa, int err);
