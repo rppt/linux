@@ -141,8 +141,8 @@ pte_t *lookup_address(unsigned long address, unsigned int *level)
 }
 EXPORT_SYMBOL_GPL(lookup_address);
 
-pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-			   unsigned int *level, bool *nx, bool *rw)
+static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+				  unsigned int *level, bool *nx, bool *rw)
 {
 	pgd_t *pgd;
 
@@ -157,13 +157,27 @@ pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 static int should_split_large_page(pte_t *kpte, unsigned long address,
 				   struct cpa_data *cpa)
 {
+	unsigned int level;
 	int do_split;
+	bool nx, rw;
+	pte_t *tmp;
 
 	if (cpa->force_split)
 		return 1;
 
 	arch_lock();
-	do_split = arch_should_split_large_page(kpte, address, cpa);
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up already:
+	 */
+	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	if (tmp != kpte) {
+		arch_unlock();
+		return 1;
+	}
+
+	do_split = arch_should_split_large_page(kpte, address, cpa, level,
+						nx, rw);
 	arch_unlock();
 
 	return do_split;
@@ -173,6 +187,9 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 			    unsigned long address)
 {
 	struct ptdesc *ptdesc;
+	unsigned int level;
+	bool nx, rw;
+	pte_t *tmp;
 
 	spin_unlock(&cpa_lock);
 	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
@@ -180,8 +197,21 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	if (!ptdesc)
 		return -ENOMEM;
 
-	if (arch_split_large_page(cpa, kpte, address, ptdesc))
+	arch_lock();
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up for us already:
+	 */
+	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	if (tmp != kpte) {
 		pagetable_free(ptdesc);
+		arch_unlock();
+		return 0;
+	}
+
+	if (arch_split_large_page(cpa, kpte, address, level, ptdesc))
+		pagetable_free(ptdesc);
+	arch_unlock();
 
 	return 0;
 }
