@@ -721,21 +721,12 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 }
 
 int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa)
+				 struct cpa_data *cpa, unsigned int level,
+				 bool nx, bool rw)
 {
 	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
-	pte_t new_pte, *tmp;
-	unsigned int level;
-	bool nx, rw;
-
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
-		return 1;
+	pte_t new_pte;
 
 	switch (level) {
 	case PGTABLE_LEVEL_PMD:
@@ -904,26 +895,14 @@ set:
 }
 
 int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, struct ptdesc *ptdesc)
+			  unsigned long address, unsigned int level,
+			  struct ptdesc *ptdesc)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
-	unsigned int i, level;
+	unsigned int i;
 	pgprot_t ref_prot;
-	bool nx, rw;
-	pte_t *tmp;
-
-	spin_lock(&pgd_lock);
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte) {
-		spin_unlock(&pgd_lock);
-		return 1;
-	}
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
@@ -956,7 +935,6 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		break;
 
 	default:
-		spin_unlock(&pgd_lock);
 		return 1;
 	}
 
@@ -1004,7 +982,6 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 * just split large page entry.
 	 */
 	flush_tlb_all();
-	spin_unlock(&pgd_lock);
 
 	return 0;
 }
