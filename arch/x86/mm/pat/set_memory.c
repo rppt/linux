@@ -208,23 +208,6 @@ static inline unsigned long fix_addr(unsigned long addr)
 #endif
 }
 
-static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
-{
-	if (cpa->flags & CPA_PAGES_ARRAY) {
-		struct page *page = cpa->pages[idx];
-
-		if (unlikely(PageHighMem(page)))
-			return 0;
-
-		return (unsigned long)page_address(page);
-	}
-
-	if (cpa->flags & CPA_ARRAY)
-		return cpa->vaddr[idx];
-
-	return *cpa->vaddr + idx * PAGE_SIZE;
-}
-
 /*
  * Flushing functions
  */
@@ -310,7 +293,7 @@ static void __cpa_flush_tlb(void *data)
 	unsigned int i;
 
 	for (i = 0; i < cpa->numpages; i++)
-		flush_tlb_one_kernel(fix_addr(__cpa_addr(cpa, i)));
+		flush_tlb_one_kernel(fix_addr(cpa_addr(cpa, i)));
 }
 
 static int collapse_large_pages(unsigned long addr, struct list_head *pgtables);
@@ -325,10 +308,10 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	if (cpa->flags & (CPA_PAGES_ARRAY | CPA_ARRAY)) {
 		for (i = 0; i < cpa->numpages; i++)
-			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
+			collapsed += collapse_large_pages(cpa_addr(cpa, i),
 							  &pgtables);
 	} else {
-		addr = __cpa_addr(cpa, 0);
+		addr = cpa_addr(cpa, 0);
 		start = addr & PMD_MASK;
 		end = addr + PAGE_SIZE * cpa->numpages;
 
@@ -368,7 +351,7 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 
 	mb();
 	for (i = 0; i < cpa->numpages; i++) {
-		unsigned long addr = __cpa_addr(cpa, i);
+		unsigned long addr = cpa_addr(cpa, i);
 		unsigned int level;
 
 		pte_t *pte = lookup_address(addr, &level);
@@ -1773,7 +1756,7 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 	 * No need to redo, when the primary call touched the direct
 	 * mapping already:
 	 */
-	vaddr = __cpa_addr(cpa, cpa->curpage);
+	vaddr = cpa_addr(cpa, cpa->curpage);
 	if (!(within(vaddr, PAGE_OFFSET,
 		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT)))) {
 
