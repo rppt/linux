@@ -7,6 +7,9 @@
 #define _ASM_RISCV_SET_MEMORY_H
 
 #ifndef __ASSEMBLER__
+
+#include <asm/page.h>
+
 /*
  * Functions to change memory attributes.
  */
@@ -26,6 +29,14 @@ static __always_inline int set_kernel_memory(char *startp, char *endp,
 
 	return set_memory(start, num_pages);
 }
+
+static inline bool cpa_alias_needs_update(unsigned long vaddr, unsigned long pfn,
+					  pgprot_t mask_set, pgprot_t mask_clr)
+{
+	/* No alias when the primary target is in the linear map. */
+	return !is_linear_mapping(vaddr);
+}
+#define cpa_alias_needs_update cpa_alias_needs_update
 #else
 static inline int set_memory_ro(unsigned long addr, int numpages) { return 0; }
 static inline int set_memory_rw(unsigned long addr, int numpages) { return 0; }
