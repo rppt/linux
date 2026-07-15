@@ -29,6 +29,30 @@ static inline bool cpa_pfn_in_highmap(unsigned long pfn)
 }
 
 /*
+ * Whether the CPA primary leaf just updated at @vaddr / @pfn may have an alias
+ * mapping (the direct map, or the high kernel map of a direct-map kernel-image
+ * page) that also needs updating.  Evaluated per page in the CPA loop as an
+ * inlinable fast path, so that the common case where no alias update is needed
+ * avoids the out-of-line alias processing entirely.
+ */
+#define cpa_alias_needs_update cpa_alias_needs_update
+static inline bool cpa_alias_needs_update(unsigned long vaddr, unsigned long pfn,
+					  pgprot_t mask_set, pgprot_t mask_clr)
+{
+	/* Primary is not in the direct map: its direct-map alias needs update. */
+	if (vaddr < PAGE_OFFSET ||
+	    vaddr >= PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT))
+		return true;
+
+	/* Direct-map page that is also part of the kernel image: highmap alias. */
+	if ((vaddr < (unsigned long)_text || vaddr >= _brk_end) &&
+	    cpa_pfn_in_highmap(pfn))
+		return true;
+
+	return false;
+}
+
+/*
  * The set_memory_* API can be used to change various attributes of a virtual
  * address range. The attributes include:
  * Cacheability  : UnCached, WriteCombining, WriteThrough, WriteBack

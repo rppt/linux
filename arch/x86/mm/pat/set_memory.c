@@ -1968,7 +1968,9 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int primary)
 		if (ret)
 			goto out;
 
-		if (primary && !(cpa->flags & CPA_NO_CHECK_ALIAS)) {
+		if (primary && !(cpa->flags & CPA_NO_CHECK_ALIAS) &&
+		    cpa_alias_needs_update(__cpa_addr(cpa, cpa->curpage), cpa->pfn,
+					   cpa->mask_set, cpa->mask_clr)) {
 			ret = cpa_process_alias(cpa);
 			if (ret)
 				goto out;
