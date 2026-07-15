@@ -710,7 +710,7 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 				  bool *ret_nx, bool *ret_rw)
 {
 	unsigned long rw = _PAGE_RW;
-	unsigned long nx = 0;
+	unsigned int exec = 1;
 	pte_t *pte = NULL;
 	p4d_t *p4d;
 	pud_t *pud;
@@ -721,8 +721,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 		goto out;
 
 	*level = PGTABLE_LEVEL_P4D;
-	nx |= pgd_flags(*pgd) & _PAGE_NX;
-	rw &= pgd_flags(*pgd) & _PAGE_RW;
+	exec &= pgd_exec(*pgd);
+	rw &= pgd_write(*pgd);
 
 	p4d = p4d_offset(pgd, address);
 	if (p4d_none(*p4d))
@@ -734,8 +734,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	}
 
 	*level = PGTABLE_LEVEL_PUD;
-	nx |= p4d_flags(*p4d) & _PAGE_NX;
-	rw &= p4d_flags(*p4d) & _PAGE_RW;
+	exec &= p4d_exec(*p4d);
+	rw &= p4d_write(*p4d);
 
 	pud = pud_offset(p4d, address);
 	if (pud_none(*pud))
@@ -747,8 +747,8 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	}
 
 	*level = PGTABLE_LEVEL_PMD;
-	nx |= pud_flags(*pud) & _PAGE_NX;
-	rw &= pud_flags(*pud) & _PAGE_RW;
+	exec &= pud_exec(*pud);
+	rw &= pud_write(*pud);
 
 	pmd = pmd_offset(pud, address);
 	if (pmd_none(*pmd))
@@ -760,12 +760,12 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 	}
 
 	*level = PGTABLE_LEVEL_PTE;
-	nx |= pmd_flags(*pmd) & _PAGE_NX;
-	rw &= pmd_flags(*pmd) & _PAGE_RW;
+	exec &= pmd_exec(*pmd);
+	rw &= pmd_write(*pmd);
 	pte = pte_offset_kernel(pmd, address);
 
 out:
-	*ret_nx = !!nx;
+	*ret_nx = !exec;
 	*ret_rw = !!rw;
 
 	return pte;
