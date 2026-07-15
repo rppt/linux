@@ -139,54 +139,47 @@ static inline void collapse_page_count(int level) { }
 
 #ifdef CONFIG_X86_CPA_STATISTICS
 
-static unsigned long cpa_1g_checked;
-static unsigned long cpa_1g_sameprot;
-static unsigned long cpa_1g_preserved;
-static unsigned long cpa_2m_checked;
-static unsigned long cpa_2m_sameprot;
-static unsigned long cpa_2m_preserved;
-static unsigned long cpa_4k_install;
+static unsigned long cpa_checked[PGTABLE_LEVEL_NUM];
+static unsigned long cpa_sameprot[PGTABLE_LEVEL_NUM];
+static unsigned long cpa_preserved[PGTABLE_LEVEL_NUM];
+static unsigned long cpa_pte_install;
 
-static inline void cpa_inc_1g_checked(void)
+static inline void cpa_inc_checked(int level)
 {
-	cpa_1g_checked++;
+	cpa_checked[level]++;
 }
 
-static inline void cpa_inc_2m_checked(void)
+static inline void cpa_inc_pte_install(void)
 {
-	cpa_2m_checked++;
-}
-
-static inline void cpa_inc_4k_install(void)
-{
-	data_race(cpa_4k_install++);
+	/* Statistics are best-effort, a concurrent update racing is harmless. */
+	data_race(cpa_pte_install++);
 }
 
 static inline void cpa_inc_lp_sameprot(int level)
 {
-	if (level == PGTABLE_LEVEL_PUD)
-		cpa_1g_sameprot++;
-	else
-		cpa_2m_sameprot++;
+	cpa_sameprot[level]++;
 }
 
 static inline void cpa_inc_lp_preserved(int level)
 {
-	if (level == PGTABLE_LEVEL_PUD)
-		cpa_1g_preserved++;
-	else
-		cpa_2m_preserved++;
+	cpa_preserved[level]++;
 }
 
 static int cpastats_show(struct seq_file *m, void *p)
 {
-	seq_printf(m, "1G pages checked:     %16lu\n", cpa_1g_checked);
-	seq_printf(m, "1G pages sameprot:    %16lu\n", cpa_1g_sameprot);
-	seq_printf(m, "1G pages preserved:   %16lu\n", cpa_1g_preserved);
-	seq_printf(m, "2M pages checked:     %16lu\n", cpa_2m_checked);
-	seq_printf(m, "2M pages sameprot:    %16lu\n", cpa_2m_sameprot);
-	seq_printf(m, "2M pages preserved:   %16lu\n", cpa_2m_preserved);
-	seq_printf(m, "4K pages set-checked: %16lu\n", cpa_4k_install);
+	enum pgtable_level level;
+
+	for (level = PGTABLE_LEVEL_PMD; level <= PGTABLE_LEVEL_PUD; level++) {
+		const char *name = pgtable_level_to_str(level);
+
+		seq_printf(m, "%s pages checked:     %16lu\n",
+			   name, cpa_checked[level]);
+		seq_printf(m, "%s pages sameprot:    %16lu\n",
+			   name, cpa_sameprot[level]);
+		seq_printf(m, "%s pages preserved:   %16lu\n",
+			   name, cpa_preserved[level]);
+	}
+	seq_printf(m, "pte pages set-checked: %16lu\n", cpa_pte_install);
 	return 0;
 }
 
@@ -210,9 +203,8 @@ static int __init cpa_stats_init(void)
 }
 late_initcall(cpa_stats_init);
 #else
-static inline void cpa_inc_1g_checked(void) { }
-static inline void cpa_inc_2m_checked(void) { }
-static inline void cpa_inc_4k_install(void) { }
+static inline void cpa_inc_checked(int level) { }
+static inline void cpa_inc_pte_install(void) { }
 static inline void cpa_inc_lp_sameprot(int level) { }
 static inline void cpa_inc_lp_preserved(int level) { }
 #endif
@@ -945,12 +937,12 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	case PGTABLE_LEVEL_PMD:
 		old_prot = pmd_pgprot(*(pmd_t *)kpte);
 		old_pfn = pmd_pfn(*(pmd_t *)kpte);
-		cpa_inc_2m_checked();
+		cpa_inc_checked(level);
 		break;
 	case PGTABLE_LEVEL_PUD:
 		old_prot = pud_pgprot(*(pud_t *)kpte);
 		old_pfn = pud_pfn(*(pud_t *)kpte);
-		cpa_inc_1g_checked();
+		cpa_inc_checked(level);
 		break;
 	default:
 		return -EINVAL;
@@ -1869,7 +1861,7 @@ repeat:
 		pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
 		pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
 
-		cpa_inc_4k_install();
+		cpa_inc_pte_install();
 		/* Hand in lpsize = 0 to enforce the protection mechanism */
 		new_prot = static_protections(new_prot, address, pfn, 1, 0,
 					      CPA_PROTECT);
