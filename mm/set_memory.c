@@ -54,7 +54,14 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 				  unsigned int *level,
 				  bool *ret_nx, bool *ret_rw)
 {
-	unsigned long rw = _PAGE_RW;
+	/*
+	 * Accumulate the effective write and execute permissions across the
+	 * walked levels.  rw starts with all bits set and is masked with the
+	 * raw write bit returned by pXd_write() at each level, so it stays in
+	 * the architecture's native bit position and is normalized to a bool
+	 * on the way out; exec accumulates the boolean pXd_exec() results.
+	 */
+	unsigned long rw = ~0UL;
 	unsigned int exec = 1;
 	pte_t *pte = NULL;
 	p4d_t *p4d;

@@ -3,94 +3,26 @@
  * Copyright (C) 2019 SiFive
  */
 
-#include <linux/pagewalk.h>
+#include <linux/mm.h>
 #include <linux/pgtable.h>
-#include <linux/vmalloc.h>
+#include <linux/set_memory.h>
 #include <asm/tlbflush.h>
-#include <asm/bitops.h>
 #include <asm/set_memory.h>
 
-struct pageattr_masks {
-	pgprot_t set_mask;
-	pgprot_t clear_mask;
+static struct cpa_arch_info riscv_cpa_info = {
+	/*
+	 * No arch specific lock is needed: the generic CPA loop already
+	 * serializes set_memory() operations with cpa_lock, and unlike x86
+	 * (pgd_lock) RISC-V has no concurrent non-CPA writer of the kernel
+	 * linear map to serialize the large page split against.
+	 */
+	.lock = NULL,
 };
 
-static unsigned long set_pageattr_masks(unsigned long val, struct mm_walk *walk)
+struct cpa_arch_info *cpa_arch_setup(void)
 {
-	struct pageattr_masks *masks = walk->private;
-	unsigned long new_val = val;
-
-	new_val &= ~(pgprot_val(masks->clear_mask));
-	new_val |= (pgprot_val(masks->set_mask));
-
-	return new_val;
+	return &riscv_cpa_info;
 }
-
-static int pageattr_p4d_entry(p4d_t *p4d, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	p4d_t val = p4dp_get(p4d);
-
-	if (p4d_leaf(val)) {
-		val = __p4d(set_pageattr_masks(p4d_val(val), walk));
-		set_p4d(p4d, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pud_entry(pud_t *pud, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pud_t val = pudp_get(pud);
-
-	if (pud_leaf(val)) {
-		val = __pud(set_pageattr_masks(pud_val(val), walk));
-		set_pud(pud, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pmd_entry(pmd_t *pmd, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pmd_t val = pmdp_get(pmd);
-
-	if (pmd_leaf(val)) {
-		val = __pmd(set_pageattr_masks(pmd_val(val), walk));
-		set_pmd(pmd, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pte_entry(pte_t *pte, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pte_t val = ptep_get(pte);
-
-	val = __pte(set_pageattr_masks(pte_val(val), walk));
-	set_pte(pte, val);
-
-	return 0;
-}
-
-static int pageattr_pte_hole(unsigned long addr, unsigned long next,
-			     int depth, struct mm_walk *walk)
-{
-	/* Nothing to do here */
-	return 0;
-}
-
-static const struct mm_walk_ops pageattr_ops = {
-	.p4d_entry = pageattr_p4d_entry,
-	.pud_entry = pageattr_pud_entry,
-	.pmd_entry = pageattr_pmd_entry,
-	.pte_entry = pageattr_pte_entry,
-	.pte_hole = pageattr_pte_hole,
-	.walk_lock = PGWALK_RDLOCK,
-};
 
 #ifdef CONFIG_64BIT
 static int __split_linear_mapping_pmd(pud_t *pudp,
@@ -259,135 +191,163 @@ static int split_linear_mapping(unsigned long start, unsigned long end)
 }
 #endif	/* CONFIG_64BIT */
 
-static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask,
-			pgprot_t clear_mask)
+int arch_should_split_large_page(pte_t *kpte, unsigned long address,
+				 struct cpa_data *cpa, unsigned int level,
+				 bool nx, bool rw)
 {
-	int ret;
-	unsigned long start = addr;
-	unsigned long end = start + PAGE_SIZE * numpages;
-	unsigned long __maybe_unused lm_start;
-	unsigned long __maybe_unused lm_end;
-	struct pageattr_masks masks = {
-		.set_mask = set_mask,
-		.clear_mask = clear_mask
-	};
+	/* Split any large mapping down to the PTE level and update the PTE. */
+	return 1;
+}
 
-	if (!numpages)
+int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
+			  unsigned long address, unsigned int level,
+			  struct ptdesc *ptdesc)
+{
+	/*
+	 * split_linear_mapping() allocates the intermediate tables itself, so
+	 * the page table preallocated by the generic code is not used and gets
+	 * freed by the caller when a non-zero value is returned.
+	 */
+#ifdef CONFIG_64BIT
+	unsigned long start = address & PAGE_MASK;
+
+	if (!split_linear_mapping(start, start + PAGE_SIZE)) {
+		cpa->flags |= CPA_FLUSHTLB;
+		cpa->force_flush_all = 1;
+	}
+#else
+	WARN_ON_ONCE(1);
+#endif
+	return 1;
+}
+
+void arch_change_pte(struct cpa_data *cpa, unsigned long address,
+		     pte_t *kpte, pte_t old_pte, bool nx, bool rw)
+{
+	pgprot_t new_prot = __pgprot(pte_val(old_pte) & ~_PAGE_PFN_MASK);
+	unsigned long pfn = pte_pfn(old_pte);
+	pte_t new_pte;
+
+	pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
+	pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
+
+	new_pte = pfn_pte(pfn, new_prot);
+	cpa->pfn = pfn;
+
+	if (pte_val(old_pte) != pte_val(new_pte)) {
+		set_pte(kpte, new_pte);
+		cpa->flags |= CPA_FLUSHTLB;
+	}
+}
+
+int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
+			   int primary)
+{
+	cpa->numpages = 1;
+
+	if (!primary)
 		return 0;
 
-	mmap_write_lock(&init_mm);
-
-#ifdef CONFIG_64BIT
-	/*
-	 * We are about to change the permissions of a kernel mapping, we must
-	 * apply the same changes to its linear mapping alias, which may imply
-	 * splitting a huge mapping.
-	 */
-
-	if (is_vmalloc_or_module_addr((void *)start)) {
-		struct vm_struct *area = NULL;
-		int i, page_start;
-
-		area = find_vm_area((void *)start);
-		page_start = (start - (unsigned long)area->addr) >> PAGE_SHIFT;
-
-		for (i = page_start; i < page_start + numpages; ++i) {
-			lm_start = (unsigned long)page_address(area->pages[i]);
-			lm_end = lm_start + PAGE_SIZE;
-
-			ret = split_linear_mapping(lm_start, lm_end);
-			if (ret)
-				goto unlock;
-
-			ret = walk_kernel_page_table_range(lm_start, lm_end,
-						    &pageattr_ops, NULL, &masks);
-			if (ret)
-				goto unlock;
-		}
-	} else if (is_kernel_mapping(start) || is_linear_mapping(start)) {
-		if (is_kernel_mapping(start)) {
-			lm_start = (unsigned long)lm_alias(start);
-			lm_end = (unsigned long)lm_alias(end);
-		} else {
-			lm_start = start;
-			lm_end = end;
-		}
-
-		ret = split_linear_mapping(lm_start, lm_end);
-		if (ret)
-			goto unlock;
-
-		ret = walk_kernel_page_table_range(lm_start, lm_end,
-					    &pageattr_ops, NULL, &masks);
-		if (ret)
-			goto unlock;
+	/* The linear map is expected to have holes */
+	if (is_linear_mapping(vaddr)) {
+		cpa->pfn = PFN_DOWN(__pa(vaddr));
+		return 0;
 	}
 
-	ret =  walk_kernel_page_table_range(start, end, &pageattr_ops, NULL,
-				     &masks);
+	WARN(1, "CPA: called for zero pte. vaddr = %lx cpa->vaddr = %lx\n",
+	     vaddr, *cpa->vaddr);
 
-unlock:
-	mmap_write_unlock(&init_mm);
+	return -EFAULT;
+}
 
-	/*
-	 * We can't use flush_tlb_kernel_range() here as we may have split a
-	 * hugepage that is larger than that, so let's flush everything.
-	 */
-	flush_tlb_all();
-#else
-	ret =  walk_kernel_page_table_range(start, end, &pageattr_ops, NULL,
-				     &masks);
+int arch_cpa_process_alias(struct cpa_data *cpa)
+{
+	unsigned long vaddr = cpa_addr(cpa, cpa->curpage);
+	struct cpa_data alias_cpa;
+	unsigned long laddr;
 
-	mmap_write_unlock(&init_mm);
+	/* The primary target already is the linear map, there is no alias */
+	if (is_linear_mapping(vaddr))
+		return 0;
 
-	flush_tlb_kernel_range(start, end);
-#endif
+	if (!pfn_valid(cpa->pfn))
+		return 0;
 
-	return ret;
+	laddr = (unsigned long)__va(PFN_PHYS(cpa->pfn));
+
+	alias_cpa = *cpa;
+	alias_cpa.vaddr = &laddr;
+	alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
+	alias_cpa.curpage = 0;
+
+	/* The linear map alias must never be made executable */
+	alias_cpa.mask_set = __pgprot(pgprot_val(alias_cpa.mask_set) & ~_PAGE_EXEC);
+	alias_cpa.mask_clr = __pgprot(pgprot_val(alias_cpa.mask_clr) & ~_PAGE_EXEC);
+
+	cpa->force_flush_all = 1;
+
+	return __change_page_attr_set_clr(&alias_cpa, 0);
+}
+
+void arch_cpa_flush(struct cpa_data *cpa, int err)
+{
+	if (err || cpa->force_flush_all ||
+	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
+		flush_tlb_all();
+		return;
+	}
+
+	flush_tlb_kernel_range(*cpa->vaddr,
+			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
 }
 
 int set_memory_rw_nx(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(_PAGE_READ | _PAGE_WRITE),
-			    __pgprot(_PAGE_EXEC));
+	return change_page_attr_set_clr(&addr, numpages,
+					__pgprot(_PAGE_READ | _PAGE_WRITE),
+					__pgprot(_PAGE_EXEC), 0, 0, NULL);
 }
 
 int set_memory_ro(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(_PAGE_READ),
-			    __pgprot(_PAGE_WRITE));
+	return change_page_attr_set_clr(&addr, numpages, __pgprot(_PAGE_READ),
+					__pgprot(_PAGE_WRITE), 0, 0, NULL);
 }
 
 int set_memory_rw(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(_PAGE_READ | _PAGE_WRITE),
-			    __pgprot(0));
+	return change_page_attr_set(&addr, numpages,
+				    __pgprot(_PAGE_READ | _PAGE_WRITE), 0);
 }
 
 int set_memory_x(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(_PAGE_EXEC), __pgprot(0));
+	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
 }
 
 int set_memory_nx(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_EXEC));
+	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
 }
 
 int set_direct_map_invalid_noflush(struct page *page)
 {
-	return __set_memory((unsigned long)page_address(page), 1,
-			    __pgprot(0), __pgprot(_PAGE_PRESENT));
+	unsigned long start = (unsigned long)page_address(page);
+
+	return change_page_attr_clear(&start, 1, __pgprot(_PAGE_PRESENT), 0);
 }
 
 int set_direct_map_default_noflush(struct page *page)
 {
-	return __set_memory((unsigned long)page_address(page), 1,
-			    PAGE_KERNEL, __pgprot(_PAGE_EXEC));
+	unsigned long start = (unsigned long)page_address(page);
+
+	return change_page_attr_set_clr(&start, 1, PAGE_KERNEL,
+					__pgprot(_PAGE_EXEC), 0, 0, NULL);
 }
 
 int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 {
+	unsigned long start = (unsigned long)page_address(page);
 	pgprot_t set, clear;
 
 	if (valid) {
@@ -398,7 +358,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 		clear = __pgprot(_PAGE_PRESENT);
 	}
 
-	return __set_memory((unsigned long)page_address(page), nr, set, clear);
+	return change_page_attr_set_clr(&start, nr, set, clear, 0, 0, NULL);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
@@ -435,36 +395,11 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 bool kernel_page_present(struct page *page)
 {
 	unsigned long addr = (unsigned long)page_address(page);
-	pgd_t *pgd;
-	pud_t *pud;
-	p4d_t *p4d;
-	pmd_t *pmd;
-	pte_t *pte;
+	unsigned int level;
+	pte_t *pte = lookup_address(addr, &level);
 
-	pgd = pgd_offset_k(addr);
-	if (!pgd_present(pgdp_get(pgd)))
+	if (!pte)
 		return false;
-	if (pgd_leaf(pgdp_get(pgd)))
-		return true;
 
-	p4d = p4d_offset(pgd, addr);
-	if (!p4d_present(p4dp_get(p4d)))
-		return false;
-	if (p4d_leaf(p4dp_get(p4d)))
-		return true;
-
-	pud = pud_offset(p4d, addr);
-	if (!pud_present(pudp_get(pud)))
-		return false;
-	if (pud_leaf(pudp_get(pud)))
-		return true;
-
-	pmd = pmd_offset(pud, addr);
-	if (!pmd_present(pmdp_get(pmd)))
-		return false;
-	if (pmd_leaf(pmdp_get(pmd)))
-		return true;
-
-	pte = pte_offset_kernel(pmd, addr);
 	return pte_present(ptep_get(pte));
 }
