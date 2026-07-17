@@ -223,13 +223,36 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	return 0;
 }
 
+static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
+				  unsigned long address)
+{
+	int do_split, err;
+
+	/*
+	 * Check whether the large page can be kept intact and just the pte
+	 * needs to be changed:
+	 */
+	do_split = should_split_large_page(kpte, address, cpa);
+	if (do_split <= 0)
+		return do_split;
+
+	/*
+	 * We have to split the large page:
+	 */
+	err = split_large_page(cpa, kpte, address);
+	if (err)
+		return err;
+
+	return 1;
+}
+
 static int __change_page_attr(struct cpa_data *cpa, int primary)
 {
 	unsigned long address;
-	int do_split, err;
 	unsigned int level;
 	pte_t *kpte, old_pte;
 	bool nx, rw;
+	int ret;
 
 	address = cpa_addr(cpa, cpa->curpage);
 repeat:
@@ -248,26 +271,14 @@ repeat:
 	}
 
 	/*
-	 * Check, whether we can keep the large page intact
-	 * and just change the pte:
+	 * The address maps a large page. Try to keep it, otherwise split it
+	 * up and retry on the freshly installed smaller mapping.
 	 */
-	do_split = should_split_large_page(kpte, address, cpa);
-	/*
-	 * When the range fits into the existing large page,
-	 * return. cpa->numpages and cpa->tlbflush have been updated in
-	 * try_large_page:
-	 */
-	if (do_split <= 0)
-		return do_split;
-
-	/*
-	 * We have to split the large page:
-	 */
-	err = split_large_page(cpa, kpte, address);
-	if (!err)
+	ret = change_large_page_attr(cpa, kpte, address);
+	if (ret == 1)
 		goto repeat;
 
-	return err;
+	return ret;
 }
 
 int __change_page_attr_set_clr(struct cpa_data *cpa, int primary)
