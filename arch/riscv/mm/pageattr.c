@@ -191,16 +191,14 @@ static int split_linear_mapping(unsigned long start, unsigned long end)
 }
 #endif	/* CONFIG_64BIT */
 
-int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa, unsigned int level,
-				 bool nx, bool rw)
+int arch_should_split_large_page(struct cpa_data *cpa,
+				 struct cpa_split_data *sd, bool nx, bool rw)
 {
 	/* Split any large mapping down to the PTE level and update the PTE. */
 	return 1;
 }
 
-int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, unsigned int level,
+int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd,
 			  struct ptdesc *ptdesc)
 {
 	/*
@@ -209,7 +207,7 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 * freed by the caller when a non-zero value is returned.
 	 */
 #ifdef CONFIG_64BIT
-	unsigned long start = address & PAGE_MASK;
+	unsigned long start = sd->address & PAGE_MASK;
 
 	if (!split_linear_mapping(start, start + PAGE_SIZE)) {
 		cpa->flags |= CPA_FLUSHTLB;

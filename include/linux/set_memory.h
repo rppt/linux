@@ -161,11 +161,9 @@ pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			   int primary);
 int arch_cpa_process_alias(struct cpa_data *cpa);
-int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa, unsigned int level,
-				 bool nx, bool rw);
-int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, unsigned int level,
+int arch_should_split_large_page(struct cpa_data *cpa,
+				 struct cpa_split_data *sd, bool nx, bool rw);
+int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd,
 			  struct ptdesc *ptdesc);
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);

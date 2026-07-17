@@ -714,39 +714,22 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
-int arch_should_split_large_page(pte_t *kpte, unsigned long address,
-				 struct cpa_data *cpa, unsigned int level,
-				 bool nx, bool rw)
+int arch_should_split_large_page(struct cpa_data *cpa,
+				 struct cpa_split_data *sd, bool nx, bool rw)
 {
-	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
-	pgprot_t old_prot, new_prot, req_prot, chk_prot;
+	unsigned long old_pfn = sd->old_pfn, psize = sd->psize, pmask = sd->pmask;
+	pte_t *kpte = sd->kpte;
+	unsigned long address = sd->address;
+	unsigned int level = sd->level;
+	pgprot_t old_prot = sd->old_prot, new_prot, req_prot, chk_prot;
+	unsigned long numpages, lpaddr;
 	pte_t new_pte;
 
-	switch (level) {
-	case PGTABLE_LEVEL_PMD:
-		old_prot = pmd_pgprot(*(pmd_t *)kpte);
-		old_pfn = pmd_pfn(*(pmd_t *)kpte);
-		break;
-	case PGTABLE_LEVEL_PUD:
-		old_prot = pud_pgprot(*(pud_t *)kpte);
-		old_pfn = pud_pfn(*(pud_t *)kpte);
-		break;
-	default:
+	if (WARN_ON_ONCE(level != PGTABLE_LEVEL_PMD &&
+			 level != PGTABLE_LEVEL_PUD))
 		return -EINVAL;
-	}
+
 	cpa_inc_checked(level);
-
-	psize = pgtable_level_size(kpte, level);
-	pmask = pgtable_level_mask(kpte, level);
-
-	/*
-	 * Calculate the number of pages, which fit into this large
-	 * page starting at address:
-	 */
-	lpaddr = (address + psize) & pmask;
-	numpages = (lpaddr - address) >> PAGE_SHIFT;
-	if (numpages < cpa->numpages)
-		cpa->numpages = numpages;
 
 	/*
 	 * We are safe now. Check whether the new pgprot is the same:
@@ -769,13 +752,6 @@ int arch_should_split_large_page(pte_t *kpte, unsigned long address,
 	req_prot = pgprot_clear_protnone_bits(req_prot);
 	if (pgprot_val(req_prot) & _PAGE_PRESENT)
 		pgprot_val(req_prot) |= _PAGE_PSE;
-
-	/*
-	 * old_pfn points to the large page base pfn. So we need to add the
-	 * offset of the virtual address:
-	 */
-	pfn = old_pfn + ((address & (psize - 1)) >> PAGE_SHIFT);
-	cpa->pfn = pfn;
 
 	/*
 	 * Calculate the large page base address and the number of 4K pages
@@ -887,34 +863,32 @@ set:
 	set_pte(pte, pfn_pte(pfn, ref_prot));
 }
 
-int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			  unsigned long address, unsigned int level,
+int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd,
 			  struct ptdesc *ptdesc)
 {
-	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
+	unsigned long lpaddr, lpinc, ref_pfn = sd->old_pfn, pfn, pfninc = 1;
 	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
+	pte_t *kpte = sd->kpte;
+	unsigned long address = sd->address;
 	unsigned int i;
 	pgprot_t ref_prot;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
-	switch (level) {
+	switch (sd->level) {
 	case PGTABLE_LEVEL_PMD:
-		ref_prot = pmd_pgprot(*(pmd_t *)kpte);
 		/*
 		 * Clear PSE (aka _PAGE_PAT) and move
 		 * PAT bit to correct position.
 		 */
-		ref_prot = pgprot_large_2_4k(ref_prot);
-		ref_pfn = pmd_pfn(*(pmd_t *)kpte);
+		ref_prot = pgprot_large_2_4k(sd->old_prot);
 		lpaddr = address & PMD_MASK;
 		lpinc = PAGE_SIZE;
 		break;
 
 	case PGTABLE_LEVEL_PUD:
-		ref_prot = pud_pgprot(*(pud_t *)kpte);
-		ref_pfn = pud_pfn(*(pud_t *)kpte);
+		ref_prot = sd->old_prot;
 		pfninc = PMD_SIZE >> PAGE_SHIFT;
 		lpaddr = address & PUD_MASK;
 		lpinc = PMD_SIZE;
@@ -944,7 +918,7 @@ int arch_split_large_page(struct cpa_data *cpa, pte_t *kpte,
 		unsigned long pfn = PFN_DOWN(__pa(address));
 
 		if (pfn_range_is_mapped(pfn, pfn + 1))
-			split_page_count(level);
+			split_page_count(sd->level);
 	}
 
 	/*
