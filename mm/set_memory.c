@@ -161,8 +161,8 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
 }
 
-static int should_split_large_page(pte_t *kpte, unsigned long address,
-				   struct cpa_data *cpa)
+static int should_split_large_page(struct cpa_data *cpa,
+				   struct cpa_split_data *sd)
 {
 	unsigned int level;
 	int do_split;
@@ -177,21 +177,20 @@ static int should_split_large_page(pte_t *kpte, unsigned long address,
 	 * Check for races, another CPU might have split this page
 	 * up already:
 	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte) {
+	tmp = _lookup_address_cpa(cpa, sd->address, &level, &nx, &rw);
+	if (tmp != sd->kpte) {
 		arch_unlock();
 		return 1;
 	}
 
-	do_split = arch_should_split_large_page(kpte, address, cpa, level,
-						nx, rw);
+	do_split = arch_should_split_large_page(sd->kpte, sd->address, cpa,
+						level, nx, rw);
 	arch_unlock();
 
 	return do_split;
 }
 
-static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			    unsigned long address)
+static int split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
 	struct ptdesc *ptdesc;
 	unsigned int level;
@@ -209,14 +208,14 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 * Check for races, another CPU might have split this page
 	 * up for us already:
 	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte) {
+	tmp = _lookup_address_cpa(cpa, sd->address, &level, &nx, &rw);
+	if (tmp != sd->kpte) {
 		pagetable_free(ptdesc);
 		arch_unlock();
 		return 0;
 	}
 
-	if (arch_split_large_page(cpa, kpte, address, level, ptdesc))
+	if (arch_split_large_page(cpa, sd->kpte, sd->address, level, ptdesc))
 		pagetable_free(ptdesc);
 	arch_unlock();
 
@@ -226,20 +225,24 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 				  unsigned long address)
 {
+	struct cpa_split_data sd = {
+		.kpte = kpte,
+		.address = address,
+	};
 	int do_split, err;
 
 	/*
 	 * Check whether the large page can be kept intact and just the pte
 	 * needs to be changed:
 	 */
-	do_split = should_split_large_page(kpte, address, cpa);
+	do_split = should_split_large_page(cpa, &sd);
 	if (do_split <= 0)
 		return do_split;
 
 	/*
 	 * We have to split the large page:
 	 */
-	err = split_large_page(cpa, kpte, address);
+	err = split_large_page(cpa, &sd);
 	if (err)
 		return err;
 

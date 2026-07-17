@@ -122,6 +122,23 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+/*
+ * Describes the large mapping a split operates on.  It is filled by the
+ * common code once the large page has been looked up and is shared between
+ * should_split_large_page(), split_large_page() and the architecture split
+ * hooks, so it is not opaque to the arch code.
+ */
+struct cpa_split_data {
+	pte_t		*kpte;
+	unsigned long	address;
+	unsigned int	level;
+	pgprot_t	old_prot;
+	pgprot_t	new_prot;
+	unsigned long	old_pfn;
+	unsigned long	psize;
+	unsigned long	pmask;
+};
+
 struct cpa_arch_info {
 	/* serializes large page splits against parallel walks, or NULL */
 	spinlock_t *lock;
