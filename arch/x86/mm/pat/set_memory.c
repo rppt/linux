@@ -60,8 +60,13 @@ struct cpa_data {
  */
 struct cpa_split_data {
 	unsigned long	address;
+	unsigned long	psize;
+	unsigned long	pmask;
 	pte_t		*kpte;
 	pte_t		*pbase;
+	enum pgtable_level level;
+	bool		nx;
+	bool		rw;
 };
 
 enum cpa_warn {
@@ -901,6 +906,49 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
+/*
+ * The caller holds cpa_lock and pgd_lock through revalidation and the
+ * subsequent page table update. Return 1 if the lookup must be retried.
+ * If cpa->init_mm_read_locked, the init_mm read lock is also held.
+ */
+static int cpa_revalidate_mapping(struct cpa_data *cpa,
+				  struct cpa_split_data *sd)
+{
+	pte_t *tmp;
+
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up already:
+	 */
+	tmp = _lookup_address_cpa(cpa, sd->address, &sd->level, &sd->nx, &sd->rw);
+	return tmp != sd->kpte;
+}
+
+static int cpa_prepare_split(struct cpa_data *cpa, struct cpa_split_data *sd)
+{
+	unsigned long address = sd->address;
+	unsigned long numpages, lpaddr;
+	int ret;
+
+	ret = cpa_revalidate_mapping(cpa, sd);
+	if (ret)
+		return ret;
+
+	sd->psize = pgtable_level_size(sd->level);
+	sd->pmask = pgtable_level_mask(sd->level);
+
+	/*
+	 * Calculate the number of pages, which fit into this large
+	 * page starting at address:
+	 */
+	lpaddr = (address + sd->psize) & sd->pmask;
+	numpages = (lpaddr - address) >> PAGE_SHIFT;
+	if (numpages < cpa->numpages)
+		cpa->numpages = numpages;
+
+	return 0;
+}
+
 static int __should_split_large_page(struct cpa_data *cpa,
 				     struct cpa_split_data *sd)
 {
@@ -909,16 +957,17 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	unsigned long address = sd->address;
 	enum pgtable_level level;
 	pte_t *kpte = sd->kpte;
-	pte_t new_pte, *tmp;
-	bool nx, rw;
+	pte_t new_pte;
+	int ret;
 
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
-		return 1;
+	guard(spinlock)(&pgd_lock);
+	ret = cpa_prepare_split(cpa, sd);
+	if (ret)
+		return ret;
+
+	level = sd->level;
+	psize = sd->psize;
+	pmask = sd->pmask;
 
 	switch (level) {
 	case PGTABLE_LEVEL_PMD:
@@ -934,18 +983,6 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	default:
 		return -EINVAL;
 	}
-
-	psize = pgtable_level_size(level);
-	pmask = pgtable_level_mask(level);
-
-	/*
-	 * Calculate the number of pages, which fit into this large
-	 * page starting at address:
-	 */
-	lpaddr = (address + psize) & pmask;
-	numpages = (lpaddr - address) >> PAGE_SHIFT;
-	if (numpages < cpa->numpages)
-		cpa->numpages = numpages;
 
 	/*
 	 * We are safe now. Check whether the new pgprot is the same:
@@ -1028,7 +1065,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 				      psize, CPA_DETECT);
 
 	new_prot = verify_rwx(old_prot, new_prot, lpaddr, old_pfn, numpages,
-			      nx, rw);
+			      sd->nx, sd->rw);
 
 	/*
 	 * If there is a conflict, split the large page.
@@ -1056,7 +1093,6 @@ static int should_split_large_page(struct cpa_data *cpa,
 	if (cpa->force_split)
 		return 1;
 
-	guard(spinlock)(&pgd_lock);
 	return __should_split_large_page(cpa, sd);
 }
 
@@ -1105,17 +1141,14 @@ static int __split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 	pte_t *kpte = sd->kpte;
 	unsigned int i, level;
 	pgprot_t ref_prot;
-	bool nx, rw;
-	pte_t *tmp;
+	int ret;
 
 	guard(spinlock)(&pgd_lock);
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
-		return 1;
+	ret = cpa_revalidate_mapping(cpa, sd);
+	if (ret)
+		return ret;
+
+	level = sd->level;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
