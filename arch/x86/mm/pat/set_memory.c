@@ -1009,6 +1009,16 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	return 0;
 }
 
+static int should_split_large_page(pte_t *kpte, unsigned long address,
+				   struct cpa_data *cpa, unsigned int level,
+				   bool nx, bool rw)
+{
+	if (cpa->force_split)
+		return 1;
+
+	return __should_split_large_page(kpte, address, cpa, level, nx, rw);
+}
+
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 			  pgprot_t ref_prot, unsigned long address,
 			  unsigned long size)
@@ -1169,9 +1179,7 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 	if (tmp != kpte)
 		goto out;
 
-	if (!cpa->force_split)
-		do_split = __should_split_large_page(kpte, address, cpa,
-						     level, nx, rw);
+	do_split = should_split_large_page(kpte, address, cpa, level, nx, rw);
 
 	if (do_split > 0 &&
 	    __split_large_page(cpa, kpte, address, level, ptdesc) == 0)
