@@ -128,6 +128,8 @@ struct cpa_split_data {
 	struct ptdesc	*ptdesc;
 };
 
+unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx);
+
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			   int primary);
 int arch_cpa_process_alias(struct cpa_data *cpa);
