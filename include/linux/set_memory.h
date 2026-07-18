@@ -128,6 +128,15 @@ struct cpa_split_data {
 	struct ptdesc	*ptdesc;
 };
 
+struct cpa_arch_info {
+	/* serializes large page splits against parallel walks, or NULL */
+	spinlock_t *lock;
+};
+
+struct cpa_arch_info *cpa_arch_setup(void);
+
+void cpa_init(void);
+
 unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx);
 
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
@@ -173,6 +182,10 @@ static inline int cpa_clear_pages_array(struct page **pages, int numpages,
 	return change_page_attr_set_clr(NULL, numpages, __pgprot(0), mask, 0,
 		CPA_PAGES_ARRAY, pages);
 }
+
+#else /* !CONFIG_GENERIC_SET_MEMORY */
+
+static inline void cpa_init(void) { }
 
 #endif /* CONFIG_GENERIC_SET_MEMORY */
 
