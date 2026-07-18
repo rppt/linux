@@ -55,6 +55,15 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+/*
+ * context for checking for a split a large page and splitting it if required.
+ */
+struct cpa_split_data {
+	unsigned long	address;
+	pte_t		*kpte;
+	pte_t		*pbase;
+};
+
 enum cpa_warn {
 	CPA_CONFLICT,
 	CPA_PROTECT,
@@ -907,12 +916,14 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
-static int __should_split_large_page(pte_t *kpte, unsigned long address,
-				     struct cpa_data *cpa)
+static int __should_split_large_page(struct cpa_data *cpa,
+				     struct cpa_split_data *sd)
 {
 	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
+	unsigned long address = sd->address;
 	enum pgtable_level level;
+	pte_t *kpte = sd->kpte;
 	pte_t new_pte, *tmp;
 	bool nx, rw;
 
@@ -1054,14 +1065,14 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int should_split_large_page(pte_t *kpte, unsigned long address,
-				   struct cpa_data *cpa)
+static int should_split_large_page(struct cpa_data *cpa,
+				   struct cpa_split_data *sd)
 {
 	if (cpa->force_split)
 		return 1;
 
 	guard(spinlock)(&pgd_lock);
-	return __should_split_large_page(kpte, address, cpa);
+	return __should_split_large_page(cpa, sd);
 }
 
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
@@ -1100,12 +1111,13 @@ set:
 	set_pte(pte, pfn_pte(pfn, ref_prot));
 }
 
-static int
-__split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
-		   pte_t *pbase)
+static int __split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
+	pte_t *pbase = sd->pbase;
 	struct page *base = virt_to_page(pbase);
+	unsigned long address = sd->address;
+	pte_t *kpte = sd->kpte;
 	unsigned int i, level;
 	pgprot_t ref_prot;
 	bool nx, rw;
@@ -1202,23 +1214,20 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			    unsigned long address)
+static int split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
-	pte_t *pte;
-
 	spin_unlock(&cpa_lock);
 	if (cpa->init_mm_read_locked)
 		mmap_read_unlock(&init_mm);
-	pte = pte_alloc_one_kernel(&init_mm);
+	sd->pbase = pte_alloc_one_kernel(&init_mm);
 	if (cpa->init_mm_read_locked)
 		mmap_read_lock(&init_mm);
 	spin_lock(&cpa_lock);
-	if (!pte)
+	if (!sd->pbase)
 		return -ENOMEM;
 
-	if (__split_large_page(cpa, kpte, address, pte))
-		pte_free_kernel(&init_mm, pte);
+	if (__split_large_page(cpa, sd))
+		pte_free_kernel(&init_mm, sd->pbase);
 
 	return 0;
 }
@@ -1226,13 +1235,17 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 static int cpa_handle_large_page(struct cpa_data *cpa, pte_t *kpte,
 				  unsigned long address)
 {
+	struct cpa_split_data sd = {
+		.address = address,
+		.kpte = kpte,
+	};
 	int do_split, err;
 
 	/*
 	 * Check, whether we can keep the large page intact
 	 * and just change the pte:
 	 */
-	do_split = should_split_large_page(kpte, address, cpa);
+	do_split = should_split_large_page(cpa, &sd);
 	/*
 	 * When the range fits into the existing large page, no split is
 	 * required.
@@ -1245,7 +1258,7 @@ static int cpa_handle_large_page(struct cpa_data *cpa, pte_t *kpte,
 	/*
 	 * We have to split the large page:
 	 */
-	err = split_large_page(cpa, kpte, address);
+	err = split_large_page(cpa, &sd);
 	if (err)
 		return err;
 
