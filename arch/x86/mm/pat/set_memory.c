@@ -873,21 +873,12 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 }
 
 static int __should_split_large_page(pte_t *kpte, unsigned long address,
-				     struct cpa_data *cpa)
+				     struct cpa_data *cpa, unsigned int level,
+				     bool nx, bool rw)
 {
 	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
-	pte_t new_pte, *tmp;
-	unsigned int level;
-	bool nx, rw;
-
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte)
-		return 1;
+	pte_t new_pte;
 
 	switch (level) {
 	case PGTABLE_LEVEL_PMD:
@@ -1018,21 +1009,6 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int should_split_large_page(pte_t *kpte, unsigned long address,
-				   struct cpa_data *cpa)
-{
-	int do_split;
-
-	if (cpa->force_split)
-		return 1;
-
-	spin_lock(&pgd_lock);
-	do_split = __should_split_large_page(kpte, address, cpa);
-	spin_unlock(&pgd_lock);
-
-	return do_split;
-}
-
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 			  pgprot_t ref_prot, unsigned long address,
 			  unsigned long size)
@@ -1041,7 +1017,7 @@ static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 	pgprot_t prot;
 
 	/*
-	 * If should_split_large_page() discovered an inconsistent mapping,
+	 * If __should_split_large_page() discovered an inconsistent mapping,
 	 * remove the invalid protection in the split mapping.
 	 */
 	if (!cpa->force_static_prot)
@@ -1056,7 +1032,7 @@ static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 	/*
 	 * If this is splitting a PMD, fix it up. PUD splits cannot be
 	 * fixed trivially as that would require to rescan the newly
-	 * installed PMD mappings after returning from split_large_page()
+	 * installed PMD mappings after returning from __split_large_page()
 	 * so an eventual further split can allocate the necessary PTE
 	 * pages. Warn for now and revisit it in case this actually
 	 * happens.
@@ -1071,26 +1047,13 @@ set:
 
 static int
 __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
-		   struct ptdesc *ptdesc)
+		   unsigned int level, struct ptdesc *ptdesc)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
-	unsigned int i, level;
+	unsigned int i;
 	pgprot_t ref_prot;
-	bool nx, rw;
-	pte_t *tmp;
-
-	spin_lock(&pgd_lock);
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (tmp != kpte) {
-		spin_unlock(&pgd_lock);
-		return 1;
-	}
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
@@ -1123,7 +1086,6 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 		break;
 
 	default:
-		spin_unlock(&pgd_lock);
 		return 1;
 	}
 
@@ -1171,29 +1133,24 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	 * just split large page entry.
 	 */
 	flush_tlb_all();
-	spin_unlock(&pgd_lock);
 
 	return 0;
-}
-
-static void split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			     unsigned long address, struct ptdesc **ptdesc)
-{
-	if (__split_large_page(cpa, kpte, address, *ptdesc) == 0)
-		*ptdesc = NULL;
 }
 
 static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 				  unsigned long address)
 {
 	struct ptdesc *ptdesc;
-	int do_split;
+	unsigned int level;
+	bool nx, rw;
+	pte_t *tmp;
+	int do_split = 1;
 
 	/*
-	 * Preallocate the page table for a potential split before taking any
-	 * lock, so that split_large_page() does not have to drop cpa_lock to
-	 * allocate.  cpa_lock is dropped here because pagetable_alloc() may
-	 * sleep.
+	 * Preallocate the page table for a potential split before taking the
+	 * pgd_lock.  pagetable_alloc() may sleep, so cpa_lock is dropped for
+	 * the allocation and retaken before the lookup, keeping the whole
+	 * keep-or-split sequence under a single, stable lookup.
 	 */
 	spin_unlock(&cpa_lock);
 	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
@@ -1201,15 +1158,28 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 	if (!ptdesc)
 		return -ENOMEM;
 
-	/*
-	 * Check whether the large page can be kept intact and just the pte
-	 * needs to be changed, otherwise split it up.
-	 */
-	do_split = should_split_large_page(kpte, address, cpa);
-	if (do_split > 0)
-		split_large_page(cpa, kpte, address, &ptdesc);
+	spin_lock(&pgd_lock);
 
-	/* Free the preallocated page table if the split did not consume it. */
+	/*
+	 * Re-check under the lock: another CPU might have split this page up
+	 * already.  A single lookup serves both the keep-or-split decision and
+	 * the split itself, which now share one lock acquisition.
+	 */
+	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	if (tmp != kpte)
+		goto out;
+
+	if (!cpa->force_split)
+		do_split = __should_split_large_page(kpte, address, cpa,
+						     level, nx, rw);
+
+	if (do_split > 0 &&
+	    __split_large_page(cpa, kpte, address, level, ptdesc) == 0)
+		ptdesc = NULL;
+
+out:
+	spin_unlock(&pgd_lock);
+
 	if (ptdesc)
 		pagetable_free(ptdesc);
 
