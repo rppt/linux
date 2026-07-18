@@ -496,6 +496,49 @@ static inline pud_t pte_pud(pte_t pte)
 	return __pud(pte_val(pte));
 }
 
+/*
+ * Effective write/execute permission accessors for the generic page table
+ * walk in lookup_address_in_pgd_attr().  They are only evaluated on non-leaf
+ * table descriptors, where privileged execution is limited by the hierarchical
+ * PXNTable bit.  arm64's set_memory implementation does not consume the
+ * accumulated nx/rw, but the generic walk needs these to exist for every level.
+ */
+#define pgd_write pgd_write
+static inline int pgd_write(pgd_t pgd)
+{
+	return pte_write(pgd_pte(pgd));
+}
+
+#define p4d_write p4d_write
+static inline int p4d_write(p4d_t p4d)
+{
+	return pte_write(p4d_pte(p4d));
+}
+
+#define pgd_exec pgd_exec
+static inline int pgd_exec(pgd_t pgd)
+{
+	return !(pgd_val(pgd) & P4D_TABLE_PXN);
+}
+
+#define p4d_exec p4d_exec
+static inline int p4d_exec(p4d_t p4d)
+{
+	return !(p4d_val(p4d) & P4D_TABLE_PXN);
+}
+
+#define pud_exec pud_exec
+static inline int pud_exec(pud_t pud)
+{
+	return !(pud_val(pud) & PUD_TABLE_PXN);
+}
+
+#define pmd_exec pmd_exec
+static inline int pmd_exec(pmd_t pmd)
+{
+	return !(pmd_val(pmd) & PMD_TABLE_PXN);
+}
+
 static inline pmd_t pud_pmd(pud_t pud)
 {
 	return __pmd(pud_val(pud));

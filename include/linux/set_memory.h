@@ -143,6 +143,12 @@ struct cpa_split_data {
 struct cpa_arch_info {
 	/* serializes large page splits against parallel walks, or NULL */
 	spinlock_t *lock;
+	/*
+	 * The architecture large page split may sleep (e.g. it takes a mutex
+	 * or allocates page tables itself) and serializes itself, so it must
+	 * run outside cpa_lock and does not use the preallocated split table.
+	 */
+	bool split_may_sleep;
 };
 
 struct cpa_arch_info *cpa_arch_setup(void);
