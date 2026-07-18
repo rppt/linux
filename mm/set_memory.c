@@ -161,90 +161,51 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
 }
 
-static int should_split_large_page(struct cpa_data *cpa,
-				   struct cpa_split_data *sd)
-{
-	unsigned int level;
-	int do_split;
-	bool nx, rw;
-	pte_t *tmp;
-
-	if (cpa->force_split)
-		return 1;
-
-	arch_lock();
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, sd->address, &level, &nx, &rw);
-	if (tmp != sd->kpte) {
-		arch_unlock();
-		return 1;
-	}
-
-	do_split = arch_should_split_large_page(sd->kpte, sd->address, cpa,
-						level, nx, rw);
-	arch_unlock();
-
-	return do_split;
-}
-
-static void split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
-{
-	unsigned int level;
-	bool nx, rw;
-	pte_t *tmp;
-
-	arch_lock();
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, sd->address, &level, &nx, &rw);
-	if (tmp != sd->kpte) {
-		arch_unlock();
-		return;
-	}
-
-	if (arch_split_large_page(cpa, sd->kpte, sd->address, level,
-				  sd->ptdesc) == 0)
-		sd->ptdesc = NULL;
-	arch_unlock();
-}
-
 static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 				  unsigned long address)
 {
-	struct cpa_split_data sd = {
-		.kpte = kpte,
-		.address = address,
-	};
-	int do_split;
+	struct ptdesc *ptdesc;
+	unsigned int level;
+	bool nx, rw;
+	pte_t *tmp;
+	int do_split = 1;
 
 	/*
-	 * Preallocate the page table for a potential split before taking any
-	 * lock, so that split_large_page() does not have to drop cpa_lock to
-	 * allocate.  cpa_lock is dropped here because pagetable_alloc() may
-	 * sleep.
+	 * Preallocate the page table for a potential split before taking the
+	 * arch lock.  pagetable_alloc() may sleep, so cpa_lock is dropped for
+	 * the allocation and retaken before the lookup, keeping the whole
+	 * keep-or-split sequence under a single, stable lookup.
 	 */
 	spin_unlock(&cpa_lock);
-	sd.ptdesc = pagetable_alloc(GFP_KERNEL, 0);
+	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
 	spin_lock(&cpa_lock);
-	if (!sd.ptdesc)
+	if (!ptdesc)
 		return -ENOMEM;
 
-	/*
-	 * Check whether the large page can be kept intact and just the pte
-	 * needs to be changed, otherwise split it up.
-	 */
-	do_split = should_split_large_page(cpa, &sd);
-	if (do_split > 0)
-		split_large_page(cpa, &sd);
+	arch_lock();
 
-	/* Free the preallocated page table if the split did not consume it. */
-	if (sd.ptdesc)
-		pagetable_free(sd.ptdesc);
+	/*
+	 * Re-check under the lock: another CPU might have split this page up
+	 * already.  A single lookup serves both the keep-or-split decision and
+	 * the split itself, which now share one lock acquisition.
+	 */
+	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	if (tmp != kpte)
+		goto out;
+
+	if (!cpa->force_split)
+		do_split = arch_should_split_large_page(kpte, address, cpa,
+							level, nx, rw);
+
+	if (do_split > 0 &&
+	    arch_split_large_page(cpa, kpte, address, level, ptdesc) == 0)
+		ptdesc = NULL;
+
+out:
+	arch_unlock();
+
+	if (ptdesc)
+		pagetable_free(ptdesc);
 
 	return do_split <= 0 ? do_split : 1;
 }

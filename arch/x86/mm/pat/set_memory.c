@@ -859,7 +859,7 @@ static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 	pgprot_t prot;
 
 	/*
-	 * If should_split_large_page() discovered an inconsistent mapping,
+	 * If arch_should_split_large_page() discovered an inconsistent mapping,
 	 * remove the invalid protection in the split mapping.
 	 */
 	if (!cpa->force_static_prot)
@@ -874,7 +874,7 @@ static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 	/*
 	 * If this is splitting a PMD, fix it up. PUD splits cannot be
 	 * fixed trivially as that would require to rescan the newly
-	 * installed PMD mappings after returning from split_large_page()
+	 * installed PMD mappings after returning from arch_split_large_page()
 	 * so an eventual further split can allocate the necessary PTE
 	 * pages. Warn for now and revisit it in case this actually
 	 * happens.
