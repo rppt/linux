@@ -53,6 +53,23 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+/*
+ * Context for a single large page keep-or-split operation.  It bundles the
+ * looked-up large mapping with its geometry and the preallocated split page
+ * table, so these do not have to be threaded individually through the split
+ * path below change_large_page_attr().
+ */
+struct cpa_split_data {
+	pte_t		*kpte;
+	unsigned long	address;
+	unsigned int	level;
+	bool		nx;
+	bool		rw;
+	unsigned long	psize;
+	unsigned long	pmask;
+	struct ptdesc	*ptdesc;
+};
+
 enum cpa_warn {
 	CPA_CONFLICT,
 	CPA_PROTECT,
@@ -872,11 +889,16 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
-static int __should_split_large_page(pte_t *kpte, unsigned long address,
-				     struct cpa_data *cpa, unsigned int level,
-				     bool nx, bool rw, unsigned long psize,
-				     unsigned long pmask)
+static int __should_split_large_page(struct cpa_data *cpa,
+				     struct cpa_split_data *sd)
 {
+	pte_t *kpte = sd->kpte;
+	unsigned long address = sd->address;
+	unsigned int level = sd->level;
+	unsigned long psize = sd->psize;
+	unsigned long pmask = sd->pmask;
+	bool nx = sd->nx;
+	bool rw = sd->rw;
 	unsigned long numpages, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
 	pte_t new_pte;
@@ -998,29 +1020,27 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int should_split_large_page(pte_t *kpte, unsigned long address,
-				   struct cpa_data *cpa, unsigned int level,
-				   bool nx, bool rw)
+static int should_split_large_page(struct cpa_data *cpa,
+				   struct cpa_split_data *sd)
 {
-	unsigned long numpages, pmask, psize, lpaddr;
+	unsigned long numpages, lpaddr;
 
 	if (cpa->force_split)
 		return 1;
 
-	psize = pgtable_level_size(kpte, level);
-	pmask = pgtable_level_mask(kpte, level);
+	sd->psize = pgtable_level_size(sd->kpte, sd->level);
+	sd->pmask = pgtable_level_mask(sd->kpte, sd->level);
 
 	/*
 	 * Calculate the number of pages, which fit into this large
 	 * page starting at address:
 	 */
-	lpaddr = (address + psize) & pmask;
-	numpages = (lpaddr - address) >> PAGE_SHIFT;
+	lpaddr = (sd->address + sd->psize) & sd->pmask;
+	numpages = (lpaddr - sd->address) >> PAGE_SHIFT;
 	if (numpages < cpa->numpages)
 		cpa->numpages = numpages;
 
-	return __should_split_large_page(kpte, address, cpa, level, nx, rw,
-					 psize, pmask);
+	return __should_split_large_page(cpa, sd);
 }
 
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
@@ -1060,9 +1080,12 @@ set:
 }
 
 static int
-__split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
-		   unsigned int level, struct ptdesc *ptdesc)
+__split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
+	pte_t *kpte = sd->kpte;
+	unsigned long address = sd->address;
+	unsigned int level = sd->level;
+	struct ptdesc *ptdesc = sd->ptdesc;
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
@@ -1154,9 +1177,10 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 				  unsigned long address)
 {
-	struct ptdesc *ptdesc;
-	unsigned int level;
-	bool nx, rw;
+	struct cpa_split_data sd = {
+		.kpte = kpte,
+		.address = address,
+	};
 	pte_t *tmp;
 	int do_split = 1;
 
@@ -1167,9 +1191,9 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 	 * keep-or-split sequence under a single, stable lookup.
 	 */
 	spin_unlock(&cpa_lock);
-	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
+	sd.ptdesc = pagetable_alloc(GFP_KERNEL, 0);
 	spin_lock(&cpa_lock);
-	if (!ptdesc)
+	if (!sd.ptdesc)
 		return -ENOMEM;
 
 	spin_lock(&pgd_lock);
@@ -1179,21 +1203,25 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 	 * already.  A single lookup serves both the keep-or-split decision and
 	 * the split itself, which now share one lock acquisition.
 	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	tmp = _lookup_address_cpa(cpa, address, &sd.level, &sd.nx, &sd.rw);
 	if (tmp != kpte)
-		goto out;
+		goto out_free_ptdesc;
 
-	do_split = should_split_large_page(kpte, address, cpa, level, nx, rw);
+	do_split = should_split_large_page(cpa, &sd);
+	if (do_split <= 0)
+		goto out_free_ptdesc;
 
-	if (do_split > 0 &&
-	    __split_large_page(cpa, kpte, address, level, ptdesc) == 0)
-		ptdesc = NULL;
+	/*
+	 * Split the large page.  On success the preallocated page table is
+	 * installed in the page tables and must not be freed.
+	 */
+	if (__split_large_page(cpa, &sd) == 0)
+		goto out_unlock;
 
-out:
+out_free_ptdesc:
+	pagetable_free(sd.ptdesc);
+out_unlock:
 	spin_unlock(&pgd_lock);
-
-	if (ptdesc)
-		pagetable_free(ptdesc);
 
 	return do_split;
 }
