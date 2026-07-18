@@ -84,4 +84,102 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 }
 #endif /* CONFIG_ARCH_HAS_MEM_ENCRYPT */
 
+#ifdef CONFIG_GENERIC_SET_MEMORY
+
+#include <linux/pgtable.h>
+#include <linux/spinlock.h>
+
+#define CPA_FLUSHTLB		0x01
+#define CPA_ARRAY		0x02
+#define CPA_PAGES_ARRAY		0x04
+#define CPA_NO_CHECK_ALIAS	0x08 /* Do not search for aliases */
+#define CPA_COLLAPSE		0x10 /* try to collapse large pages */
+#define CPA_DEBUG_PAGEALLOC	0x20
+
+extern spinlock_t cpa_lock;
+
+/*
+ * The current flushing context - we pass it instead of 5 arguments:
+ */
+struct cpa_data {
+	unsigned long	*vaddr;
+	pgd_t		*pgd;
+	pgprot_t	mask_set;
+	pgprot_t	mask_clr;
+	unsigned long	numpages;
+	unsigned long	curpage;
+	unsigned long	pfn;
+	unsigned int	flags;
+	unsigned int	force_split		: 1,
+			force_static_prot	: 1,
+			force_flush_all		: 1;
+	struct page	**pages;
+};
+
+/*
+ * context for checking for a split a large page and splitting it if required.
+ */
+struct ptdesc;
+struct cpa_split_data {
+	unsigned long	address;
+	unsigned long	psize;
+	unsigned long	pmask;
+	pte_t		*kpte;
+	struct ptdesc	*ptdesc;
+	enum pgtable_level level;
+	bool		nx;
+	bool		rw;
+};
+
+unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx);
+int cpa_revalidate_mapping(struct cpa_data *cpa, struct cpa_split_data *sd);
+int cpa_prepare_split(struct cpa_data *cpa, struct cpa_split_data *sd);
+
+int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
+			   int primary);
+int arch_cpa_process_alias(struct cpa_data *cpa);
+int arch_should_split_large_page(struct cpa_data *cpa,
+				 struct cpa_split_data *sd);
+/* A zero return consumes sd->ptdesc; nonzero leaves it for the caller to free. */
+int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd);
+void arch_change_pte(struct cpa_data *cpa, unsigned long address,
+		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
+void arch_cpa_flush(struct cpa_data *cpa, int err);
+
+int __change_page_attr_set_clr(struct cpa_data *cpa, int primary);
+int change_page_attr_set_clr(unsigned long *addr, int numpages,
+			     pgprot_t mask_set, pgprot_t mask_clr,
+			     int force_split, int in_flag,
+			     struct page **pages);
+
+static inline int change_page_attr_set(unsigned long *addr, int numpages,
+				       pgprot_t mask, int array)
+{
+	return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0), 0,
+		(array ? CPA_ARRAY : 0), NULL);
+}
+
+static inline int change_page_attr_clear(unsigned long *addr, int numpages,
+					 pgprot_t mask, int array)
+{
+	return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask, 0,
+		(array ? CPA_ARRAY : 0), NULL);
+}
+
+static inline int cpa_set_pages_array(struct page **pages, int numpages,
+				      pgprot_t mask)
+{
+	return change_page_attr_set_clr(NULL, numpages, mask, __pgprot(0), 0,
+		CPA_PAGES_ARRAY, pages);
+}
+
+static inline int cpa_clear_pages_array(struct page **pages, int numpages,
+					pgprot_t mask)
+{
+	return change_page_attr_set_clr(NULL, numpages, __pgprot(0), mask, 0,
+		CPA_PAGES_ARRAY, pages);
+}
+
+#endif /* CONFIG_GENERIC_SET_MEMORY */
+
 #endif /* _LINUX_SET_MEMORY_H_ */
