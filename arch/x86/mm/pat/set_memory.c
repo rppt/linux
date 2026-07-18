@@ -1176,44 +1176,44 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	return 0;
 }
 
-static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
-			    unsigned long address)
+static void split_large_page(struct cpa_data *cpa, pte_t *kpte,
+			     unsigned long address, struct ptdesc **ptdesc)
+{
+	if (__split_large_page(cpa, kpte, address, *ptdesc) == 0)
+		*ptdesc = NULL;
+}
+
+static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
+				  unsigned long address)
 {
 	struct ptdesc *ptdesc;
+	int do_split;
 
+	/*
+	 * Preallocate the page table for a potential split before taking any
+	 * lock, so that split_large_page() does not have to drop cpa_lock to
+	 * allocate.  cpa_lock is dropped here because pagetable_alloc() may
+	 * sleep.
+	 */
 	spin_unlock(&cpa_lock);
 	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
 	spin_lock(&cpa_lock);
 	if (!ptdesc)
 		return -ENOMEM;
 
-	if (__split_large_page(cpa, kpte, address, ptdesc))
-		pagetable_free(ptdesc);
-
-	return 0;
-}
-
-static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
-				  unsigned long address)
-{
-	int do_split, err;
-
 	/*
 	 * Check whether the large page can be kept intact and just the pte
-	 * needs to be changed:
+	 * needs to be changed, otherwise split it up.
 	 */
 	do_split = should_split_large_page(kpte, address, cpa);
-	if (do_split <= 0)
-		return do_split;
+	if (do_split > 0)
+		split_large_page(cpa, kpte, address, &ptdesc);
 
-	/*
-	 * We have to split the large page:
-	 */
-	err = split_large_page(cpa, kpte, address);
-	if (err)
-		return err;
+	/* Free the preallocated page table if the split did not consume it. */
+	if (ptdesc)
+		pagetable_free(ptdesc);
 
-	return 1;
+	return do_split;
 }
 
 static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
