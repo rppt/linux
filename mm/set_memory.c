@@ -272,15 +272,16 @@ repeat:
 	if (pte_none(old_pte))
 		return arch_cpa_process_fault(cpa, address, primary);
 
-	if (level == PGTABLE_LEVEL_PTE) {
+	if (level == PGTABLE_LEVEL_PTE && !arch_cont_pte(kpte)) {
 		arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
 		cpa->numpages = 1;
 		return 0;
 	}
 
 	/*
-	 * The address maps a large page. Try to keep it, otherwise split it
-	 * up and retry on the freshly installed smaller mapping.
+	 * The address maps a large page, or a contiguous PTE that has to be
+	 * broken up.  Try to keep it, otherwise split it up and retry on the
+	 * freshly installed smaller mapping.
 	 */
 	ret = change_large_page_attr(cpa, kpte, address);
 	if (ret == 1)

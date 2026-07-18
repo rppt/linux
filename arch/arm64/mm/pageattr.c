@@ -88,21 +88,10 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 	cpa->pfn = pte_pfn(old_pte);
 
 	/*
-	 * A contiguous PTE must be changed as a unit.  Break the contpte block
-	 * into ordinary PTEs first so this single entry can be updated on its
-	 * own.  This only clears the contiguous bit on the sibling entries and
-	 * never allocates, so it is safe under cpa_lock; BBML2, which is
-	 * required whenever the kernel map uses contiguous entries, tolerates
-	 * the transient mix of contiguous and ordinary TLB entries.
-	 */
-	if (pte_cont(old_pte)) {
-		split_contpte(kpte);
-		old_pte = __ptep_get(kpte);
-	}
-
-	/*
-	 * Some bits alias each other (e.g. PTE_NG and PTE_PRESENT_INVALID), so
-	 * always clear before setting, as the old set_pageattr_masks() did.
+	 * Contiguous PTEs are reported by arch_cont_pte() and broken up through
+	 * the split path before reaching this point, so the entry is always an
+	 * ordinary page here.  Some bits alias each other (e.g. PTE_NG and
+	 * PTE_PRESENT_INVALID), so always clear before setting.
 	 */
 	val = pte_val(old_pte);
 	val &= ~pgprot_val(cpa->mask_clr);

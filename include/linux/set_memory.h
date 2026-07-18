@@ -105,6 +105,21 @@ static inline bool cpa_should_update_alias(unsigned long vaddr, unsigned long pf
 #endif
 
 /*
+ * Whether @kpte, already looked up at PTE level, is a contiguous PTE that maps
+ * more than one page as a unit.  Such an entry cannot be updated on its own and
+ * is treated like a large mapping: the generic loop routes it through the split
+ * path so the architecture can break the contiguous block first.  The default
+ * is for architectures that have no contiguous PTEs.
+ */
+#ifndef arch_cont_pte
+#define arch_cont_pte arch_cont_pte
+static inline bool arch_cont_pte(pte_t *kpte)
+{
+	return false;
+}
+#endif
+
+/*
  * The current flushing context - we pass it instead of 5 arguments:
  */
 struct cpa_data {

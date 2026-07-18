@@ -593,7 +593,7 @@ pgd_pgtable_alloc_special_mm(enum pgtable_level pgtable_level)
 	return  __pgd_pgtable_alloc(NULL, GFP_PGTABLE_KERNEL, pgtable_level);
 }
 
-void split_contpte(pte_t *ptep)
+static void split_contpte(pte_t *ptep)
 {
 	int i;
 
