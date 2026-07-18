@@ -128,6 +128,7 @@ struct cpa_data {
  * should_split_large_page(), split_large_page() and the architecture split
  * hooks, so it is not opaque to the arch code.
  */
+struct ptdesc;
 struct cpa_split_data {
 	pte_t		*kpte;
 	unsigned long	address;
@@ -137,6 +138,7 @@ struct cpa_split_data {
 	unsigned long	old_pfn;
 	unsigned long	psize;
 	unsigned long	pmask;
+	struct ptdesc	*ptdesc;
 };
 
 struct cpa_arch_info {

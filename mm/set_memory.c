@@ -190,18 +190,11 @@ static int should_split_large_page(struct cpa_data *cpa,
 	return do_split;
 }
 
-static int split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
+static void split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
-	struct ptdesc *ptdesc;
 	unsigned int level;
 	bool nx, rw;
 	pte_t *tmp;
-
-	spin_unlock(&cpa_lock);
-	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
-	spin_lock(&cpa_lock);
-	if (!ptdesc)
-		return -ENOMEM;
 
 	arch_lock();
 	/*
@@ -210,16 +203,14 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 	 */
 	tmp = _lookup_address_cpa(cpa, sd->address, &level, &nx, &rw);
 	if (tmp != sd->kpte) {
-		pagetable_free(ptdesc);
 		arch_unlock();
-		return 0;
+		return;
 	}
 
-	if (arch_split_large_page(cpa, sd->kpte, sd->address, level, ptdesc))
-		pagetable_free(ptdesc);
+	if (arch_split_large_page(cpa, sd->kpte, sd->address, level,
+				  sd->ptdesc) == 0)
+		sd->ptdesc = NULL;
 	arch_unlock();
-
-	return 0;
 }
 
 static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
@@ -229,24 +220,33 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 		.kpte = kpte,
 		.address = address,
 	};
-	int do_split, err;
+	int do_split;
+
+	/*
+	 * Preallocate the page table for a potential split before taking any
+	 * lock, so that split_large_page() does not have to drop cpa_lock to
+	 * allocate.  cpa_lock is dropped here because pagetable_alloc() may
+	 * sleep.
+	 */
+	spin_unlock(&cpa_lock);
+	sd.ptdesc = pagetable_alloc(GFP_KERNEL, 0);
+	spin_lock(&cpa_lock);
+	if (!sd.ptdesc)
+		return -ENOMEM;
 
 	/*
 	 * Check whether the large page can be kept intact and just the pte
-	 * needs to be changed:
+	 * needs to be changed, otherwise split it up.
 	 */
 	do_split = should_split_large_page(cpa, &sd);
-	if (do_split <= 0)
-		return do_split;
+	if (do_split > 0)
+		split_large_page(cpa, &sd);
 
-	/*
-	 * We have to split the large page:
-	 */
-	err = split_large_page(cpa, &sd);
-	if (err)
-		return err;
+	/* Free the preallocated page table if the split did not consume it. */
+	if (sd.ptdesc)
+		pagetable_free(sd.ptdesc);
 
-	return 1;
+	return do_split <= 0 ? do_split : 1;
 }
 
 static int __change_page_attr(struct cpa_data *cpa, int primary)
