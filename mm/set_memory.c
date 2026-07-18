@@ -161,31 +161,9 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
 }
 
-static void cpa_get_split_data(struct cpa_split_data *sd, unsigned int level)
-{
-	pte_t *kpte = sd->kpte;
-
-	sd->level = level;
-
-	switch (level) {
-	case PGTABLE_LEVEL_PMD:
-		sd->old_prot = pmd_pgprot(*(pmd_t *)kpte);
-		sd->old_pfn = pmd_pfn(*(pmd_t *)kpte);
-		break;
-	case PGTABLE_LEVEL_PUD:
-		sd->old_prot = pud_pgprot(*(pud_t *)kpte);
-		sd->old_pfn = pud_pfn(*(pud_t *)kpte);
-		break;
-	}
-
-	sd->psize = pgtable_level_size(kpte, level);
-	sd->pmask = pgtable_level_mask(kpte, level);
-}
-
 static int should_split_large_page(struct cpa_data *cpa,
 				   struct cpa_split_data *sd)
 {
-	unsigned long lpaddr, numpages;
 	unsigned int level;
 	int do_split;
 	bool nx, rw;
@@ -205,24 +183,8 @@ static int should_split_large_page(struct cpa_data *cpa,
 		return 1;
 	}
 
-	cpa_get_split_data(sd, level);
-
-	/*
-	 * Calculate the number of pages, which fit into this large page
-	 * starting at address:
-	 */
-	lpaddr = (sd->address + sd->psize) & sd->pmask;
-	numpages = (lpaddr - sd->address) >> PAGE_SHIFT;
-	if (numpages < cpa->numpages)
-		cpa->numpages = numpages;
-
-	/*
-	 * old_pfn points to the large page base pfn, so add the offset of the
-	 * virtual address within the large page:
-	 */
-	cpa->pfn = sd->old_pfn + ((sd->address & (sd->psize - 1)) >> PAGE_SHIFT);
-
-	do_split = arch_should_split_large_page(cpa, sd, nx, rw);
+	do_split = arch_should_split_large_page(sd->kpte, sd->address, cpa,
+						level, nx, rw);
 	arch_unlock();
 
 	return do_split;
@@ -253,14 +215,7 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 		return 0;
 	}
 
-	/*
-	 * The recheck guarantees the same entry and level, but a concurrent
-	 * update that kept the large page could have changed its protections
-	 * while cpa_lock was dropped, so refresh the geometry.
-	 */
-	cpa_get_split_data(sd, level);
-
-	if (arch_split_large_page(cpa, sd, ptdesc))
+	if (arch_split_large_page(cpa, sd->kpte, sd->address, level, ptdesc))
 		pagetable_free(ptdesc);
 	arch_unlock();
 
