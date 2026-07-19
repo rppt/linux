@@ -196,23 +196,6 @@ static int change_large_page_attr(struct cpa_data *cpa, pte_t *kpte,
 	int do_split = 1;
 
 	/*
-	 * Some architectures (e.g. arm64) split large kernel mappings with a
-	 * helper that serializes itself and may sleep (mutex, page table
-	 * allocation).  Such a split must not run under cpa_lock and does not
-	 * use the preallocated split table: drop cpa_lock, run the split, and
-	 * let __change_page_attr() retry on the freshly installed mapping.
-	 */
-	if (cpa_arch_info->split_may_sleep) {
-		int ret;
-
-		spin_unlock(&cpa_lock);
-		ret = arch_split_large_page(cpa, &sd);
-		spin_lock(&cpa_lock);
-
-		return ret ? ret : 1;
-	}
-
-	/*
 	 * Preallocate the page table for a potential split before taking the
 	 * pgd_lock.  pagetable_alloc() may sleep, so cpa_lock is dropped for
 	 * the allocation and retaken before the lookup, keeping the whole

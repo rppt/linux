@@ -37,17 +37,11 @@ bool can_set_direct_map(void)
 static struct cpa_arch_info arm64_cpa_info = {
 	/*
 	 * No arch specific lock is needed: the generic CPA loop serializes
-	 * set_memory() with cpa_lock, and arm64 splits large kernel mappings
-	 * with split_kernel_leaf_mapping(), which serializes itself with its
-	 * own mutex and relies on BBML2 to avoid TLB conflicts.
+	 * set_memory() with cpa_lock, which also covers the large page split.
+	 * arm64 relies on BBML2 to change live block mappings without TLB
+	 * conflicts, so no break-before-make serialization is required either.
 	 */
 	.lock = NULL,
-	/*
-	 * split_kernel_leaf_mapping() takes a mutex and allocates its own page
-	 * tables, so the split has to run outside cpa_lock in a context that
-	 * may sleep.
-	 */
-	.split_may_sleep = true,
 };
 
 struct cpa_arch_info *cpa_arch_setup(void)
@@ -57,26 +51,94 @@ struct cpa_arch_info *cpa_arch_setup(void)
 
 int arch_should_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
+	pte_t *kpte = sd->kpte;
+	unsigned long old_pfn, lpaddr, numpages;
+	pteval_t oldval, newval;
+	bool cont;
+
+	switch (sd->level) {
+	case PGTABLE_LEVEL_PTE:
+		/*
+		 * Only contiguous PTEs are routed here (see arch_cont_pte());
+		 * they must be broken apart before a single page can change.
+		 */
+		cpa->pfn = pte_pfn(__ptep_get(kpte));
+		return 1;
+	case PGTABLE_LEVEL_PMD: {
+		pmd_t pmd = pmdp_get((pmd_t *)kpte);
+
+		oldval = pmd_val(pmd);
+		old_pfn = pmd_pfn(pmd);
+		cont = pmd_cont(pmd);
+		break;
+	}
+	case PGTABLE_LEVEL_PUD: {
+		pud_t pud = pudp_get((pud_t *)kpte);
+
+		oldval = pud_val(pud);
+		old_pfn = pud_pfn(pud);
+		cont = false;			/* arm64 has no contiguous PUDs */
+		break;
+	}
+	default:
+		return -EINVAL;
+	}
+
 	/*
-	 * arm64 always breaks a large mapping down to the requested
-	 * granularity rather than updating it in place.  The split runs from
-	 * change_large_page_attr()'s sleepable window (see .split_may_sleep),
-	 * which does not call this hook, so it only exists to satisfy the
-	 * generic interface.
+	 * Record the pfn mapped at sd->address so the alias check can locate
+	 * the matching linear map entry.
 	 */
-	return 1;
+	cpa->pfn = old_pfn + ((sd->address & (sd->psize - 1)) >> PAGE_SHIFT);
+
+	/*
+	 * A contiguous block maps its span as a unit, so it has to be split
+	 * into ordinary blocks before any single entry can change.
+	 */
+	if (cont)
+		return 1;
+
+	/*
+	 * The permission masks are in PTE format; arm64 uses the same bit
+	 * positions at every level, so they apply directly to the block entry.
+	 */
+	newval = oldval;
+	newval &= ~pgprot_val(cpa->mask_clr);
+	newval |= pgprot_val(cpa->mask_set);
+
+	/* If the protections do not change, keep the large mapping. */
+	if (newval == oldval)
+		return 0;
+
+	/* If the request does not cover the whole mapping, split it. */
+	lpaddr = sd->address & sd->pmask;
+	numpages = sd->psize >> PAGE_SHIFT;
+	if (sd->address != lpaddr || cpa->numpages != numpages)
+		return 1;
+
+	/* The whole mapping is covered: update it in place. */
+	if (sd->level == PGTABLE_LEVEL_PMD)
+		set_pmd((pmd_t *)kpte, __pmd(newval));
+	else
+		set_pud((pud_t *)kpte, __pud(newval));
+	cpa->flags |= CPA_FLUSHTLB;
+
+	return 0;
 }
 
 int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 {
+	int ret;
+
 	/*
-	 * Split the large mapping so that the page at sd->address becomes a
-	 * leaf of its own; the generic loop then retries the lookup and updates
-	 * the freshly exposed PTE.  split_kernel_leaf_mapping() takes its own
-	 * mutex and may allocate page tables, hence it runs with cpa_lock
-	 * dropped.
+	 * Split one level of the large mapping using the page table the core
+	 * preallocated.  On BBML2 the freshly installed table can go live
+	 * without break-before-make, and the range flush at the end of the CPA
+	 * operation evicts the stale large TLB entry for the page that changes.
 	 */
-	return split_kernel_leaf_mapping(sd->address, sd->address + PAGE_SIZE);
+	ret = split_kernel_leaf_pgtable(sd->kpte, sd->level, sd->ptdesc);
+	cpa->flags |= CPA_FLUSHTLB;
+
+	return ret;
 }
 
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,

@@ -602,19 +602,13 @@ static void split_contpte(pte_t *ptep)
 		__set_pte(ptep, pte_mknoncont(__ptep_get(ptep)));
 }
 
-static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
+static void __split_pmd(pmd_t *pmdp, pmd_t pmd, phys_addr_t pte_phys, bool to_cont)
 {
 	pmdval_t tableprot = PMD_TYPE_TABLE | PMD_TABLE_UXN | PMD_TABLE_AF;
 	unsigned long pfn = pmd_pfn(pmd);
 	pgprot_t prot = pmd_pgprot(pmd);
-	phys_addr_t pte_phys;
-	pte_t *ptep;
+	pte_t *ptep = (pte_t *)phys_to_virt(pte_phys);
 	int i;
-
-	pte_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PTE, gfp);
-	if (pte_phys == INVALID_PHYS_ADDR)
-		return -ENOMEM;
-	ptep = (pte_t *)phys_to_virt(pte_phys);
 
 	if (pgprot_val(prot) & PMD_SECT_PXN)
 		tableprot |= PMD_TABLE_PXN;
@@ -635,6 +629,16 @@ static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
 	 */
 	dsb(ishst);
 	__pmd_populate(pmdp, pte_phys, tableprot);
+}
+
+static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
+{
+	phys_addr_t pte_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PTE, gfp);
+
+	if (pte_phys == INVALID_PHYS_ADDR)
+		return -ENOMEM;
+
+	__split_pmd(pmdp, pmd, pte_phys, to_cont);
 
 	return 0;
 }
@@ -648,20 +652,14 @@ static void split_contpmd(pmd_t *pmdp)
 		set_pmd(pmdp, pmd_mknoncont(pmdp_get(pmdp)));
 }
 
-static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
+static void __split_pud(pud_t *pudp, pud_t pud, phys_addr_t pmd_phys, bool to_cont)
 {
 	pudval_t tableprot = PUD_TYPE_TABLE | PUD_TABLE_UXN | PUD_TABLE_AF;
 	unsigned int step = PMD_SIZE >> PAGE_SHIFT;
 	unsigned long pfn = pud_pfn(pud);
 	pgprot_t prot = pud_pgprot(pud);
-	phys_addr_t pmd_phys;
-	pmd_t *pmdp;
+	pmd_t *pmdp = (pmd_t *)phys_to_virt(pmd_phys);
 	int i;
-
-	pmd_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PMD, gfp);
-	if (pmd_phys == INVALID_PHYS_ADDR)
-		return -ENOMEM;
-	pmdp = (pmd_t *)phys_to_virt(pmd_phys);
 
 	if (pgprot_val(prot) & PMD_SECT_PXN)
 		tableprot |= PUD_TABLE_PXN;
@@ -682,99 +680,57 @@ static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
 	 */
 	dsb(ishst);
 	__pud_populate(pudp, pmd_phys, tableprot);
+}
+
+static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
+{
+	phys_addr_t pmd_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PMD, gfp);
+
+	if (pmd_phys == INVALID_PHYS_ADDR)
+		return -ENOMEM;
+
+	__split_pud(pudp, pud, pmd_phys, to_cont);
 
 	return 0;
 }
 
-static int split_kernel_leaf_mapping_locked(unsigned long addr)
+/*
+ * Split a single large kernel leaf mapping for change_page_attr().  It splits
+ * one level at a time and reuses a page table that the CPA core preallocated,
+ * so it never sleeps and can run under the CPA spinlock.  The generic loop
+ * retries the lookup and descends until it reaches the target page.
+ *
+ * A contiguous block only needs its contiguous bit cleared, which does not
+ * consume the preallocated table: return 1 in that case so the caller frees
+ * it, and 0 when @ptdesc has been installed as a new page table.
+ */
+int split_kernel_leaf_pgtable(pte_t *kpte, unsigned int level,
+			      struct ptdesc *ptdesc)
 {
-	pgd_t *pgdp, pgd;
-	p4d_t *p4dp, p4d;
-	pud_t *pudp, pud;
-	pmd_t *pmdp, pmd;
-	pte_t *ptep, pte;
-	int ret = 0;
+	phys_addr_t table_phys = page_to_phys(ptdesc_page(ptdesc));
 
-	/*
-	 * PGD: If addr is PGD aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split.
-	 */
-	if (ALIGN_DOWN(addr, PGDIR_SIZE) == addr)
-		goto out;
-	pgdp = pgd_offset_k(addr);
-	pgd = pgdp_get(pgdp);
-	if (!pgd_present(pgd))
-		goto out;
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		/* Only contiguous PTEs are routed to the split path. */
+		split_contpte(kpte);
+		return 1;
+	case PGTABLE_LEVEL_PMD: {
+		pmd_t pmd = pmdp_get((pmd_t *)kpte);
 
-	/*
-	 * P4D: If addr is P4D aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split.
-	 */
-	if (ALIGN_DOWN(addr, P4D_SIZE) == addr)
-		goto out;
-	p4dp = p4d_offset(pgdp, addr);
-	p4d = p4dp_get(p4dp);
-	if (!p4d_present(p4d))
-		goto out;
-
-	/*
-	 * PUD: If addr is PUD aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split. Otherwise,
-	 * if we have a pud leaf, split to contpmd.
-	 */
-	if (ALIGN_DOWN(addr, PUD_SIZE) == addr)
-		goto out;
-	pudp = pud_offset(p4dp, addr);
-	pud = pudp_get(pudp);
-	if (!pud_present(pud))
-		goto out;
-	if (pud_leaf(pud)) {
-		ret = split_pud(pudp, pud, GFP_PGTABLE_KERNEL, true);
-		if (ret)
-			goto out;
+		if (pmd_cont(pmd)) {
+			split_contpmd((pmd_t *)kpte);
+			return 1;
+		}
+		__split_pmd((pmd_t *)kpte, pmd, table_phys, false);
+		return 0;
 	}
-
-	/*
-	 * CONTPMD: If addr is CONTPMD aligned then addr already describes a
-	 * leaf boundary. If not present then there is nothing to split.
-	 * Otherwise, if we have a contpmd leaf, split to pmd.
-	 */
-	if (ALIGN_DOWN(addr, CONT_PMD_SIZE) == addr)
-		goto out;
-	pmdp = pmd_offset(pudp, addr);
-	pmd = pmdp_get(pmdp);
-	if (!pmd_present(pmd))
-		goto out;
-	if (pmd_leaf(pmd)) {
-		if (pmd_cont(pmd))
-			split_contpmd(pmdp);
-		/*
-		 * PMD: If addr is PMD aligned then addr already describes a
-		 * leaf boundary. Otherwise, split to contpte.
-		 */
-		if (ALIGN_DOWN(addr, PMD_SIZE) == addr)
-			goto out;
-		ret = split_pmd(pmdp, pmd, GFP_PGTABLE_KERNEL, true);
-		if (ret)
-			goto out;
+	case PGTABLE_LEVEL_PUD:
+		__split_pud((pud_t *)kpte, pudp_get((pud_t *)kpte),
+			    table_phys, false);
+		return 0;
+	default:
+		return 1;
 	}
-
-	/*
-	 * CONTPTE: If addr is CONTPTE aligned then addr already describes a
-	 * leaf boundary. If not present then there is nothing to split.
-	 * Otherwise, if we have a contpte leaf, split to pte.
-	 */
-	if (ALIGN_DOWN(addr, CONT_PTE_SIZE) == addr)
-		goto out;
-	ptep = pte_offset_kernel(pmdp, addr);
-	pte = __ptep_get(ptep);
-	if (!pte_present(pte))
-		goto out;
-	if (pte_cont(pte))
-		split_contpte(ptep);
-
-out:
-	return ret;
 }
 
 static inline bool force_pte_mapping(void)
@@ -791,84 +747,6 @@ static inline bool force_pte_mapping(void)
 
 static DEFINE_MUTEX(pgtable_split_lock);
 static bool linear_map_requires_bbml2;
-
-int split_kernel_leaf_mapping(unsigned long start, unsigned long end)
-{
-	int ret;
-
-	/*
-	 * If the region is within a pte-mapped area, there is no need to try to
-	 * split. Additionally, CONFIG_DEBUG_PAGEALLOC and CONFIG_KFENCE may
-	 * change permissions from atomic context so for those cases (which are
-	 * always pte-mapped), we must not go any further because taking the
-	 * mutex below may sleep. Do not call force_pte_mapping() here because
-	 * it could return a confusing result if called from a secondary cpu
-	 * prior to finalizing caps. Instead, linear_map_requires_bbml2 gives us
-	 * what we need.
-	 */
-	if (!linear_map_requires_bbml2 || is_kfence_address((void *)start))
-		return 0;
-
-	if (!system_supports_bbml2_noabort()) {
-		/*
-		 * !BBML2_NOABORT systems should not be trying to change
-		 * permissions on anything that is not pte-mapped in the first
-		 * place. Just return early and let the permission change code
-		 * raise a warning if not already pte-mapped.
-		 */
-		if (system_capabilities_finalized())
-			return 0;
-
-		/*
-		 * Boot-time: split_kernel_leaf_mapping_locked() allocates from
-		 * page allocator. Can't split until it's available.
-		 */
-		if (WARN_ON(!page_alloc_available))
-			return -EBUSY;
-
-		/*
-		 * Boot-time: Started secondary cpus but don't know if they
-		 * support BBML2_NOABORT yet. Can't allow splitting in this
-		 * window in case they don't.
-		 */
-		if (WARN_ON(num_online_cpus() > 1))
-			return -EBUSY;
-	}
-
-	/*
-	 * Ensure start and end are at least page-aligned since this is the
-	 * finest granularity we can split to.
-	 */
-	if (start != PAGE_ALIGN(start) || end != PAGE_ALIGN(end))
-		return -EINVAL;
-
-	mutex_lock(&pgtable_split_lock);
-	lazy_mmu_mode_enable();
-
-	/*
-	 * The split_kernel_leaf_mapping_locked() may sleep, it is not a
-	 * problem for ARM64 since ARM64's lazy MMU implementation allows
-	 * sleeping.
-	 *
-	 * Optimize for the common case of splitting out a single page from a
-	 * larger mapping. Here we can just split on the "least aligned" of
-	 * start and end and this will guarantee that there must also be a split
-	 * on the more aligned address since the both addresses must be in the
-	 * same contpte block and it must have been split to ptes.
-	 */
-	if (end - start == PAGE_SIZE) {
-		start = __ffs(start) < __ffs(end) ? start : end;
-		ret = split_kernel_leaf_mapping_locked(start);
-	} else {
-		ret = split_kernel_leaf_mapping_locked(start);
-		if (!ret)
-			ret = split_kernel_leaf_mapping_locked(end);
-	}
-
-	lazy_mmu_mode_disable();
-	mutex_unlock(&pgtable_split_lock);
-	return ret;
-}
 
 static int split_to_ptes_pud_entry(pud_t *pudp, unsigned long addr,
 				   unsigned long next, struct mm_walk *walk)

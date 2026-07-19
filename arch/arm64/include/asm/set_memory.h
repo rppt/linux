@@ -26,8 +26,8 @@ static inline bool cpa_should_update_alias(unsigned long vaddr, unsigned long pf
 /*
  * A contiguous PTE maps CONT_PTES pages that must all hold the same value, so a
  * single-page permission change has to break the contiguous block first.  Report
- * it so the generic loop routes the entry through the split path
- * (split_kernel_leaf_mapping()) instead of updating one entry in place.
+ * it so the generic loop routes the entry through the split path instead of
+ * updating one entry in place.
  */
 #define arch_cont_pte arch_cont_pte
 static inline bool arch_cont_pte(pte_t *kpte)
