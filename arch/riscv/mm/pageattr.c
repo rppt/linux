@@ -6,6 +6,7 @@
 #include <linux/mm.h>
 #include <linux/pgtable.h>
 #include <linux/set_memory.h>
+#include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/set_memory.h>
 
@@ -219,35 +220,81 @@ int set_memory_nx(unsigned long addr, int numpages)
 	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
 }
 
+#ifdef CONFIG_64BIT
+static void flush_new_direct_map(struct cpa_data *cpa)
+{
+	/* Publish the PTEs before notifying the fault retry path. */
+	smp_wmb();
+	mark_new_valid_map();
+}
+#else
+static void flush_new_direct_map(struct cpa_data *cpa)
+{
+	/* RV32 has no fault retry path for the direct map. */
+	flush_tlb_kernel_range(*cpa->vaddr,
+			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
+}
+#endif
+
+static int set_direct_map_noflush(struct cpa_data *cpa)
+{
+	int ret = __change_page_attr_set_clr(cpa, 1);
+
+	if (!(cpa->flags & CPA_FLUSHTLB))
+		return ret;
+
+	/* With alias checks disabled, force_flush_all records a split. */
+	if (ret || cpa->force_flush_all)
+		flush_tlb_all();
+	else if (pgprot_val(cpa->mask_set) & _PAGE_PRESENT)
+		flush_new_direct_map(cpa);
+
+	return ret;
+}
+
 int set_direct_map_invalid_noflush(struct page *page)
 {
 	unsigned long start = (unsigned long)page_address(page);
+	struct cpa_data cpa = { .vaddr = &start,
+				.pgd = NULL,
+				.numpages = 1,
+				.mask_set = __pgprot(0),
+				.mask_clr = __pgprot(_PAGE_PRESENT),
+				.flags = CPA_NO_CHECK_ALIAS };
 
-	return change_page_attr_clear(&start, 1, __pgprot(_PAGE_PRESENT), 0);
+	return set_direct_map_noflush(&cpa);
 }
 
 int set_direct_map_default_noflush(struct page *page)
 {
 	unsigned long start = (unsigned long)page_address(page);
+	struct cpa_data cpa = { .vaddr = &start,
+				.pgd = NULL,
+				.numpages = 1,
+				.mask_set = PAGE_KERNEL,
+				.mask_clr = __pgprot(_PAGE_EXEC),
+				.flags = CPA_NO_CHECK_ALIAS };
 
-	return change_page_attr_set_clr(&start, 1, PAGE_KERNEL,
-					__pgprot(_PAGE_EXEC), 0, 0, NULL);
+	return set_direct_map_noflush(&cpa);
 }
 
 int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 {
 	unsigned long start = (unsigned long)page_address(page);
-	pgprot_t set, clear;
+	struct cpa_data cpa = { .vaddr = &start,
+				.pgd = NULL,
+				.numpages = nr,
+				.flags = CPA_NO_CHECK_ALIAS };
 
 	if (valid) {
-		set = PAGE_KERNEL;
-		clear = __pgprot(_PAGE_EXEC);
+		cpa.mask_set = PAGE_KERNEL;
+		cpa.mask_clr = __pgprot(_PAGE_EXEC);
 	} else {
-		set = __pgprot(0);
-		clear = __pgprot(_PAGE_PRESENT);
+		cpa.mask_set = __pgprot(0);
+		cpa.mask_clr = __pgprot(_PAGE_PRESENT);
 	}
 
-	return change_page_attr_set_clr(&start, nr, set, clear, 0, 0, NULL);
+	return set_direct_map_noflush(&cpa);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
