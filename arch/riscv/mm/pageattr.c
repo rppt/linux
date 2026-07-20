@@ -6,6 +6,7 @@
 #include <linux/mm.h>
 #include <linux/pgtable.h>
 #include <linux/set_memory.h>
+#include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/set_memory.h>
 
@@ -218,19 +219,62 @@ int set_memory_nx(unsigned long addr, int numpages)
 	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
 }
 
+#ifdef CONFIG_64BIT
+static void flush_new_direct_map(struct cpa_data *cpa)
+{
+	/* Publish the PTEs before notifying the fault retry path. */
+	smp_wmb();
+	mark_new_valid_map();
+}
+#else
+static void flush_new_direct_map(struct cpa_data *cpa)
+{
+	/* RV32 has no fault retry path for the direct map. */
+	flush_tlb_kernel_range(*cpa->vaddr,
+			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
+}
+#endif
+
+static int set_direct_map_noflush(struct cpa_data *cpa)
+{
+	int ret = __change_page_attr_set_clr(cpa);
+
+	if (!(cpa->state & CPA_FLUSHTLB))
+		return ret;
+
+	/* With alias checks disabled, CPA_FORCE_FLUSH_ALL records a split. */
+	if (ret || (cpa->state & CPA_FORCE_FLUSH_ALL))
+		flush_tlb_all();
+	else if (pgprot_val(cpa->mask_set) & _PAGE_PRESENT)
+		flush_new_direct_map(cpa);
+
+	return ret;
+}
+
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
 {
 	unsigned long start = (unsigned long)page_address(page);
+	struct cpa_data cpa = { .vaddr = &start,
+				.pgd = NULL,
+				.numpages = nr,
+				.mask_set = __pgprot(0),
+				.mask_clr = __pgprot(_PAGE_PRESENT),
+				.flags = CPA_NO_CHECK_ALIAS };
 
-	return change_page_attr_clear(&start, nr, __pgprot(_PAGE_PRESENT), 0);
+	return set_direct_map_noflush(&cpa);
 }
 
 int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 {
 	unsigned long start = (unsigned long)page_address(page);
+	struct cpa_data cpa = { .vaddr = &start,
+				.pgd = NULL,
+				.numpages = nr,
+				.mask_set = PAGE_KERNEL,
+				.mask_clr = __pgprot(_PAGE_EXEC),
+				.flags = CPA_NO_CHECK_ALIAS };
 
-	return change_page_attr_set_clr(&start, nr, PAGE_KERNEL,
-					__pgprot(_PAGE_EXEC), 0, NULL);
+	return set_direct_map_noflush(&cpa);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
