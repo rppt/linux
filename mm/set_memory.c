@@ -444,3 +444,11 @@ int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 	return cpa_change_direct_map(page, nr, CPA_SET_DEFAULT);
 }
 #endif
+
+/*
+ * The testcases use internal knowledge of the implementation that shouldn't
+ * be exposed to the rest of the kernel. Include these directly here.
+ */
+#ifdef CONFIG_CPA_DEBUG
+#include "cpa-test.c"
+#endif
