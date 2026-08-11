@@ -3124,20 +3124,6 @@ EXPORT_SYMBOL(vm_map_ram);
 
 static struct vm_struct *vmlist __initdata;
 
-static inline unsigned int vm_area_page_order(struct vm_struct *vm)
-{
-#ifdef CONFIG_HAVE_ARCH_HUGE_VMALLOC
-	return vm->page_order;
-#else
-	return 0;
-#endif
-}
-
-unsigned int get_vm_area_page_order(struct vm_struct *vm)
-{
-	return vm_area_page_order(vm);
-}
-
 static inline void set_vm_area_page_order(struct vm_struct *vm, unsigned int order)
 {
 #ifdef CONFIG_HAVE_ARCH_HUGE_VMALLOC

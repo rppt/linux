@@ -1072,7 +1072,7 @@ int kho_preserve_vmalloc(void *ptr, struct kho_vmalloc *preservation)
 		return -EOPNOTSUPP;
 
 	flags = vmalloc_flags_to_kho(vm->flags);
-	order = get_vm_area_page_order(vm);
+	order = vm_area_page_order(vm);
 
 	chunk = new_vmalloc_chunk(NULL);
 	if (!chunk)

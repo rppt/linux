@@ -115,7 +115,7 @@ static inline unsigned long mas_range_len(struct ma_state *mas)
 
 static int execmem_set_direct_map_valid(struct vm_struct *vm, bool valid)
 {
-	unsigned int nr = (1 << get_vm_area_page_order(vm));
+	unsigned int nr = (1 << vm_area_page_order(vm));
 	unsigned int updated = 0;
 	int err = 0;
 
