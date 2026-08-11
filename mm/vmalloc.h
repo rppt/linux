@@ -6,6 +6,7 @@
 #define __MM_VMALLOC_H
 
 #include <linux/vmalloc.h>
+#include <linux/set_memory.h>
 
 #ifdef CONFIG_MMU
 void __init vmalloc_init(void);
@@ -20,6 +21,30 @@ static inline unsigned int vm_area_page_order(const struct vm_struct *vm)
 #else
 	return 0;
 #endif
+}
+
+static inline void vm_area_set_direct_map(const struct vm_struct *area,
+		int (*set_direct_map)(struct page *page, unsigned int nr))
+{
+	unsigned int nr = (1U << vm_area_page_order(area));
+
+	for (unsigned long i = 0; i < area->nr_pages; i += nr) {
+		if (page_address(area->pages[i])) {
+			int err = set_direct_map(area->pages[i], nr);
+
+			WARN_ON_ONCE(err);
+		}
+	}
+}
+
+static inline void vm_area_set_direct_map_invalid(const struct vm_struct *vm)
+{
+	vm_area_set_direct_map(vm, set_direct_map_invalid_noflush);
+}
+
+static inline void vm_area_set_direct_map_default(const struct vm_struct *vm)
+{
+	vm_area_set_direct_map(vm, set_direct_map_default_noflush);
 }
 #else
 static inline void vmalloc_init(void) {}

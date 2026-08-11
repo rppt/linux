@@ -3343,21 +3343,6 @@ struct vm_struct *remove_vm_area(const void *addr)
 	return vm;
 }
 
-static inline void set_area_direct_map(const struct vm_struct *area,
-				       int (*set_direct_map)(struct page *page,
-							     unsigned int nr))
-{
-	unsigned int nr = (1U << vm_area_page_order(area));
-
-	for (unsigned long i = 0; i < area->nr_pages; i += nr) {
-		if (page_address(area->pages[i])) {
-			int err = set_direct_map(area->pages[i], nr);
-
-			WARN_ON_ONCE(err);
-		}
-	}
-}
-
 /*
  * Flush the vm mapping and reset the direct map.
  */
@@ -3390,9 +3375,9 @@ static void vm_reset_perms(struct vm_struct *area)
 	 * there are any accesses after the TLB flush, then flush the TLB and
 	 * reset the direct map permissions to the default.
 	 */
-	set_area_direct_map(area, set_direct_map_invalid_noflush);
+	vm_area_set_direct_map_invalid(area);
 	_vm_unmap_aliases(start, end, flush_dmap);
-	set_area_direct_map(area, set_direct_map_default_noflush);
+	vm_area_set_direct_map_default(area);
 }
 
 static void delayed_vfree_work(struct work_struct *w)
