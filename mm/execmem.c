@@ -146,9 +146,10 @@ static void execmem_cache_clean(struct work_struct *work)
 		struct vm_struct *vm = find_vm_area(area);
 		size_t size = mas_range_len(&mas);
 
-		if (vm && get_vm_area_size(vm) == size &&
-		    IS_ALIGNED(size, PMD_SIZE) &&
-		    IS_ALIGNED(mas.index, PMD_SIZE)) {
+		if (vm && get_vm_area_size(vm) == size) {
+			VM_WARN_ON_ONCE(!IS_ALIGNED(mas.index, PMD_SIZE) ||
+					!IS_ALIGNED(size, PMD_SIZE));
+
 			/* preallocate to ensure mas_store does not fail */
 			if (mas_preallocate(&mas, NULL, GFP_KERNEL))
 				continue;
@@ -288,19 +289,13 @@ err_free_mem:
 
 static void *execmem_cache_populate_alloc(struct execmem_range *range, size_t size)
 {
-	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
+	unsigned long vm_flags = VM_REQUIRE_HUGE_VMAP;
+	size_t alloc_size = round_up(size, PMD_SIZE);
 	struct mutex *mutex = &execmem_cache.mutex;
-	size_t alloc_size;
 	int err;
 	void *p;
 
-	alloc_size = round_up(size, PMD_SIZE);
 	p = execmem_vmalloc_rox(range, alloc_size, vm_flags);
-	if (!p) {
-		alloc_size = size;
-		p = execmem_vmalloc_rox(range, alloc_size, vm_flags);
-	}
-
 	if (!p)
 		return NULL;
 
