@@ -260,37 +260,49 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 	return execmem_cache_alloc_locked(range, size);
 }
 
+static void *execmem_vmalloc_rox(struct execmem_range *range, size_t size,
+				 unsigned long vm_flags)
+{
+	int err;
+	void *p;
+
+	p = execmem_vmalloc(range, size, PAGE_KERNEL, vm_flags);
+	if (!p)
+		return NULL;
+
+	/* fill memory with instructions that will trap */
+	execmem_fill_trapping_insns(p, size);
+
+	set_vm_flush_reset_perms(p);
+
+	err = set_memory_rox((unsigned long)p, size >> PAGE_SHIFT);
+	if (err)
+		goto err_free_mem;
+
+	return p;
+
+err_free_mem:
+	vfree(p);
+	return NULL;
+}
+
 static void *execmem_cache_populate_alloc(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
 	struct mutex *mutex = &execmem_cache.mutex;
-	struct vm_struct *vm;
 	size_t alloc_size;
-	int err = -ENOMEM;
+	int err;
 	void *p;
 
 	alloc_size = round_up(size, PMD_SIZE);
-	p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags);
+	p = execmem_vmalloc_rox(range, alloc_size, vm_flags);
 	if (!p) {
 		alloc_size = size;
-		p = execmem_vmalloc(range, alloc_size, PAGE_KERNEL, vm_flags);
+		p = execmem_vmalloc_rox(range, alloc_size, vm_flags);
 	}
 
 	if (!p)
 		return NULL;
-
-	vm = find_vm_area(p);
-	if (!vm)
-		goto err_free_mem;
-
-	/* fill memory with instructions that will trap */
-	execmem_fill_trapping_insns(p, alloc_size);
-
-	set_vm_flush_reset_perms(p);
-
-	err = set_memory_rox((unsigned long)p, vm->nr_pages);
-	if (err)
-		goto err_free_mem;
 
 	/*
 	 * New memory blocks must be allocated and added to the cache
@@ -311,6 +323,11 @@ static void *execmem_cache_populate_alloc(struct execmem_range *range, size_t si
 err_free_mem:
 	vfree(p);
 	return NULL;
+}
+
+static void *execmem_alloc_rox(struct execmem_range *range, size_t size)
+{
+	return execmem_vmalloc_rox(range, size, 0);
 }
 
 static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
@@ -440,6 +457,11 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 	return NULL;
 }
 
+static void *execmem_alloc_rox(struct execmem_range *range, size_t size)
+{
+	return NULL;
+}
+
 static bool execmem_cache_free(void *ptr)
 {
 	return false;
@@ -449,16 +471,19 @@ static bool execmem_cache_free(void *ptr)
 void *execmem_alloc(enum execmem_type type, size_t size)
 {
 	struct execmem_range *range = &execmem_info->ranges[type];
-	bool use_cache = range->flags & EXECMEM_ROX_CACHE;
+	bool use_rox_cache = range->flags & EXECMEM_ROX_CACHE;
 	pgprot_t pgprot = range->pgprot;
 	void *p = NULL;
 
 	size = PAGE_ALIGN(size);
 
-	if (use_cache)
+	if (use_rox_cache) {
 		p = execmem_cache_alloc(range, size);
-	else
+		if (!p)
+			p = execmem_alloc_rox(range, size);
+	} else {
 		p = execmem_vmalloc(range, size, pgprot, VM_FLUSH_RESET_PERMS);
+	}
 
 	return kasan_reset_tag(p);
 }
