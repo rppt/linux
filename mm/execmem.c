@@ -263,7 +263,7 @@ static void *__execmem_cache_alloc(struct execmem_range *range, size_t size)
 static void *execmem_vmalloc_rox(struct execmem_range *range, size_t size,
 				 unsigned long vm_flags)
 {
-	void *p = execmem_vmalloc(range, size, PAGE_KERNEL, vm_flags);
+	void *p __free(vfree) = execmem_vmalloc(range, size, PAGE_KERNEL, vm_flags);
 	int err;
 
 	if (!p)
@@ -274,22 +274,17 @@ static void *execmem_vmalloc_rox(struct execmem_range *range, size_t size,
 	set_vm_flush_reset_perms(p);
 	err = set_memory_rox((unsigned long)p, size >> PAGE_SHIFT);
 	if (err)
-		goto err_free_mem;
+		return NULL;
 
-	return p;
-
-err_free_mem:
-	vfree(p);
-	return NULL;
+	return no_free_ptr(p);
 }
 
 static void *execmem_cache_populate_alloc(struct execmem_range *range, size_t size)
 {
 	unsigned long vm_flags = VM_ALLOW_HUGE_VMAP;
-	struct mutex *mutex = &execmem_cache.mutex;
+	void *p __free(vfree) = NULL;
 	size_t alloc_size;
 	int err;
-	void *p;
 
 	alloc_size = round_up(size, PMD_SIZE);
 	p = execmem_vmalloc_rox(range, alloc_size, vm_flags);
@@ -306,20 +301,15 @@ static void *execmem_cache_populate_alloc(struct execmem_range *range, size_t si
 	 * as an atomic operation, otherwise they may be consumed
 	 * by a parallel call to the execmem_cache_alloc function.
 	 */
-	mutex_lock(mutex);
+	guard(mutex)(&execmem_cache.mutex);
 	err = execmem_cache_add_locked(p, alloc_size, GFP_KERNEL);
-	if (!err)
-		p = execmem_cache_alloc_locked(range, size);
-	mutex_unlock(mutex);
-
 	if (err)
-		goto err_free_mem;
+		return NULL;
 
-	return p;
+	/* the chunk belongs to the cache now */
+	retain_and_null_ptr(p);
 
-err_free_mem:
-	vfree(p);
-	return NULL;
+	return execmem_cache_alloc_locked(range, size);
 }
 
 static void *execmem_alloc_rox(struct execmem_range *range, size_t size)
