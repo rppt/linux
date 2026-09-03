@@ -374,15 +374,15 @@ int set_memory_nx(unsigned long addr, int numpages)
 	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_EXEC));
 }
 
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
+int set_direct_map_invalid_noflush(struct page *page)
 {
-	return __set_memory((unsigned long)page_address(page), nr,
+	return __set_memory((unsigned long)page_address(page), 1,
 			    __pgprot(0), __pgprot(_PAGE_PRESENT));
 }
 
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
+int set_direct_map_default_noflush(struct page *page)
 {
-	return __set_memory((unsigned long)page_address(page), nr,
+	return __set_memory((unsigned long)page_address(page), 1,
 			    PAGE_KERNEL, __pgprot(_PAGE_EXEC));
 }
 
