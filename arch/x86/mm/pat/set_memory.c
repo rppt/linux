@@ -708,6 +708,10 @@ static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long star
 	if (!(__supported_pte_mask & _PAGE_NX))
 		return new;
 
+	/* skip verification until kernel text is set to read only */
+	if (!kernel_set_to_readonly)
+		return new;
+
 	if (!((pgprot_val(old) ^ pgprot_val(new)) & (_PAGE_RW | _PAGE_NX)))
 		return new;
 
