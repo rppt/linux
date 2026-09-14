@@ -43,7 +43,6 @@
 #include "mm_init.h"
 #include "page_alloc.h"
 #include "shuffle.h"
-#include "sparse.h"
 
 enum {
 	MEMMAP_ON_MEMORY_DISABLE = 0,
@@ -555,9 +554,8 @@ void remove_pfn_range_from_zone(struct zone *zone,
 		/* Select all remaining pages up to the next section boundary */
 		cur_nr_pages =
 			min(end_pfn - pfn, SECTION_ALIGN_UP(pfn + 1) - pfn);
-		if (!section_vmemmap_optimizable(__pfn_to_section(pfn)))
-			page_init_poison(pfn_to_page(pfn),
-					 sizeof(struct page) * cur_nr_pages);
+		page_init_poison(pfn_to_page(pfn),
+				 sizeof(struct page) * cur_nr_pages);
 	}
 
 	/*
