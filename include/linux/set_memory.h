@@ -14,6 +14,11 @@ static inline int __must_check set_memory_x(unsigned long addr,  int numpages) {
 static inline int __must_check set_memory_nx(unsigned long addr, int numpages) { return 0; }
 #endif
 
+#ifdef CONFIG_GENERIC_SET_MEMORY
+#define set_memory_rox set_memory_rox
+int set_memory_rox(unsigned long addr, int numpages);
+#endif
+
 #ifndef set_memory_rox
 static inline int set_memory_rox(unsigned long addr, int numpages)
 {
@@ -87,6 +92,49 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
 
 #include <linux/pgtable.h>
 #include <linux/spinlock.h>
+
+enum cpa_operation_id {
+	CPA_SET_RO,
+	CPA_SET_RW,
+	CPA_SET_X,
+	CPA_SET_NX,
+	CPA_SET_ROX,
+	CPA_SET_RW_NX,
+	CPA_SET_NP,
+	CPA_SET_NP_NOALIAS,
+	CPA_SET_P,
+	CPA_SET_4K,
+	CPA_SET_GLOBAL,
+	CPA_SET_NONGLOBAL,
+	CPA_OP_COUNT,
+};
+
+struct cpa_operation {
+	pgprot_t mask_set;
+	pgprot_t mask_clr;
+	unsigned int flags;
+	bool supported;
+};
+
+#define CPA_PROT(_set, _clr, _flags)		\
+	{					\
+		.mask_set = __pgprot(_set),	\
+		.mask_clr = __pgprot(_clr),	\
+		.flags = (_flags),		\
+		.supported = true,		\
+	}
+
+extern const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT];
+int arch_cpa_prepare(unsigned long addr, int numpages,
+		     struct cpa_operation *op);
+
+int set_memory_rw_nx(unsigned long addr, int numpages);
+int set_memory_np(unsigned long addr, int numpages);
+int set_memory_np_noalias(unsigned long addr, int numpages);
+int set_memory_p(unsigned long addr, int numpages);
+int set_memory_4k(unsigned long addr, int numpages);
+int set_memory_global(unsigned long addr, int numpages);
+int set_memory_nonglobal(unsigned long addr, int numpages);
 
 /* Caller-requested behavior, stored in cpa_data.flags. */
 #define CPA_ARRAY		BIT(0)

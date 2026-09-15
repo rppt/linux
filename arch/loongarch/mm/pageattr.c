@@ -90,36 +90,22 @@ void arch_cpa_flush(struct cpa_data *cpa, int err)
 	flush_tlb_kernel_range(*cpa->vaddr, *cpa->vaddr + cpa->numpages * PAGE_SIZE);
 }
 
-int set_memory_x(unsigned long addr, int numpages)
+const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
+	[CPA_SET_RO] = CPA_PROT(0, _PAGE_WRITE | _PAGE_DIRTY, 0),
+	[CPA_SET_RW] = CPA_PROT(_PAGE_WRITE | _PAGE_DIRTY, 0, 0),
+	[CPA_SET_X] = CPA_PROT(0, _PAGE_NO_EXEC, 0),
+	[CPA_SET_NX] = CPA_PROT(_PAGE_NO_EXEC, 0, 0),
+};
+
+int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
 {
-	if (addr < vm_map_base)
-		return 0;
+	/* The fixed direct window has no page tables to update. */
+	if (addr < vm_map_base) {
+		op->mask_set = __pgprot(0);
+		op->mask_clr = __pgprot(0);
+	}
 
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_NO_EXEC), 0);
-}
-
-int set_memory_nx(unsigned long addr, int numpages)
-{
-	if (addr < vm_map_base)
-		return 0;
-
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_NO_EXEC), 0);
-}
-
-int set_memory_ro(unsigned long addr, int numpages)
-{
-	if (addr < vm_map_base)
-		return 0;
-
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_WRITE | _PAGE_DIRTY), 0);
-}
-
-int set_memory_rw(unsigned long addr, int numpages)
-{
-	if (addr < vm_map_base)
-		return 0;
-
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_WRITE | _PAGE_DIRTY), 0);
+	return 0;
 }
 
 bool kernel_page_present(struct page *page)
