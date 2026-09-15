@@ -224,9 +224,9 @@ static inline void cr4_set_bits_and_update_boot(unsigned long mask)
 static void __init probe_page_size_mask(void)
 {
 	/*
-	 * For pagealloc debugging, identity mapping will use small pages.
-	 * This will simplify cpa(), which otherwise needs to support splitting
-	 * large pages into small in interrupt context, etc.
+	 * For pagealloc debugging, the direct map must use small pages.
+	 * Its allocator hooks only update existing PTEs and cannot split
+	 * large mappings.
 	 */
 	if (boot_cpu_has(X86_FEATURE_PSE) && !debug_pagealloc_enabled())
 		page_size_mask |= 1 << PG_LEVEL_2M;
