@@ -89,6 +89,7 @@ int set_pages_rw(struct page *page, int numpages);
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr);
 int set_direct_map_default_noflush(struct page *page, unsigned int nr);
 bool kernel_page_present(struct page *page);
+#define kernel_page_present kernel_page_present
 
 extern int kernel_set_to_readonly;
 

@@ -35,11 +35,6 @@ static inline int set_direct_map_default_noflush(struct page *page,
 {
 	return 0;
 }
-
-static inline bool kernel_page_present(struct page *page)
-{
-	return true;
-}
 #else /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
 /*
  * Some architectures, e.g. ARM64 can disable direct map modifications at
@@ -53,6 +48,14 @@ static inline bool can_set_direct_map(void)
 #define can_set_direct_map can_set_direct_map
 #endif
 #endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
+
+/* Presence queries do not imply support for changing the direct map. */
+#ifndef kernel_page_present
+static inline bool kernel_page_present(struct page *page)
+{
+	return true;
+}
+#endif
 
 #ifdef CONFIG_X86_64
 int set_mce_nospec(unsigned long pfn);
