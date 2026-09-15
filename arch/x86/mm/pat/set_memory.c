@@ -1779,7 +1779,7 @@ int _set_memory_uc(unsigned long addr, int numpages)
 				    0);
 }
 
-int set_memory_uc(unsigned long addr, int numpages)
+int arch_set_memory_uc(unsigned long addr, int numpages)
 {
 	int ret;
 
@@ -1802,7 +1802,6 @@ out_free:
 out_err:
 	return ret;
 }
-EXPORT_SYMBOL(set_memory_uc);
 
 int _set_memory_wc(unsigned long addr, int numpages)
 {
@@ -1820,7 +1819,7 @@ int _set_memory_wc(unsigned long addr, int numpages)
 	return ret;
 }
 
-int set_memory_wc(unsigned long addr, int numpages)
+int arch_set_memory_wc(unsigned long addr, int numpages)
 {
 	int ret;
 
@@ -1835,7 +1834,6 @@ int set_memory_wc(unsigned long addr, int numpages)
 
 	return ret;
 }
-EXPORT_SYMBOL(set_memory_wc);
 
 int _set_memory_wt(unsigned long addr, int numpages)
 {
@@ -1850,7 +1848,7 @@ int _set_memory_wb(unsigned long addr, int numpages)
 				      __pgprot(_PAGE_CACHE_MASK), 0);
 }
 
-int set_memory_wb(unsigned long addr, int numpages)
+int arch_set_memory_wb(unsigned long addr, int numpages)
 {
 	int ret;
 
@@ -1861,7 +1859,6 @@ int set_memory_wb(unsigned long addr, int numpages)
 	memtype_free(__pa(addr), __pa(addr) + numpages * PAGE_SIZE);
 	return 0;
 }
-EXPORT_SYMBOL(set_memory_wb);
 
 /* Prevent speculative access to a page by marking it not-present */
 #ifdef CONFIG_X86_64
@@ -2009,7 +2006,7 @@ static DECLARE_RWSEM(mem_enc_lock);
  * Taking the exclusive mem_enc_lock waits for in-flight conversions to complete.
  * The lock is not released to prevent new conversions from being started.
  */
-bool set_memory_enc_stop_conversion(void)
+bool arch_set_memory_enc_stop_conversion(void)
 {
 	/*
 	 * In a crash scenario, sleep is not allowed. Try to take the lock.
@@ -2023,7 +2020,7 @@ bool set_memory_enc_stop_conversion(void)
 	return true;
 }
 
-static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
+int arch_set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
 {
 	int ret = 0;
 
@@ -2038,26 +2035,6 @@ static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
 
 	return ret;
 }
-
-int set_memory_encrypted(unsigned long addr, int numpages)
-{
-	return __set_memory_enc_dec(addr, numpages, true);
-}
-EXPORT_SYMBOL_GPL(set_memory_encrypted);
-
-int set_memory_decrypted(unsigned long addr, int numpages)
-{
-	return __set_memory_enc_dec(addr, numpages, false);
-}
-EXPORT_SYMBOL_GPL(set_memory_decrypted);
-
-int set_pages_uc(struct page *page, int numpages)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	return set_memory_uc(addr, numpages);
-}
-EXPORT_SYMBOL(set_pages_uc);
 
 static int _set_pages_array(struct page **pages, int numpages,
 		enum page_cache_mode new_type)
@@ -2105,27 +2082,17 @@ err_out:
 	return -EINVAL;
 }
 
-int set_pages_array_uc(struct page **pages, int numpages)
+int arch_set_pages_array_uc(struct page **pages, int numpages)
 {
 	return _set_pages_array(pages, numpages, _PAGE_CACHE_MODE_UC_MINUS);
 }
-EXPORT_SYMBOL(set_pages_array_uc);
 
-int set_pages_array_wc(struct page **pages, int numpages)
+int arch_set_pages_array_wc(struct page **pages, int numpages)
 {
 	return _set_pages_array(pages, numpages, _PAGE_CACHE_MODE_WC);
 }
-EXPORT_SYMBOL(set_pages_array_wc);
 
-int set_pages_wb(struct page *page, int numpages)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	return set_memory_wb(addr, numpages);
-}
-EXPORT_SYMBOL(set_pages_wb);
-
-int set_pages_array_wb(struct page **pages, int numpages)
+int arch_set_pages_array_wb(struct page **pages, int numpages)
 {
 	int retval;
 	unsigned long start;
@@ -2147,21 +2114,6 @@ int set_pages_array_wb(struct page **pages, int numpages)
 	}
 
 	return 0;
-}
-EXPORT_SYMBOL(set_pages_array_wb);
-
-int set_pages_ro(struct page *page, int numpages)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	return set_memory_ro(addr, numpages);
-}
-
-int set_pages_rw(struct page *page, int numpages)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	return set_memory_rw(addr, numpages);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC

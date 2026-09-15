@@ -137,6 +137,32 @@ int set_memory_p(unsigned long addr, int numpages);
 int set_memory_4k(unsigned long addr, int numpages);
 int set_memory_global(unsigned long addr, int numpages);
 int set_memory_nonglobal(unsigned long addr, int numpages);
+int set_pages_ro(struct page *page, int numpages);
+int set_pages_rw(struct page *page, int numpages);
+
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY_CACHE
+int arch_set_memory_uc(unsigned long addr, int numpages);
+int arch_set_memory_wc(unsigned long addr, int numpages);
+int arch_set_memory_wb(unsigned long addr, int numpages);
+int arch_set_pages_array_uc(struct page **pages, int numpages);
+int arch_set_pages_array_wc(struct page **pages, int numpages);
+int arch_set_pages_array_wb(struct page **pages, int numpages);
+
+int set_memory_uc(unsigned long addr, int numpages);
+int set_memory_wc(unsigned long addr, int numpages);
+int set_memory_wb(unsigned long addr, int numpages);
+int set_pages_uc(struct page *page, int numpages);
+int set_pages_wb(struct page *page, int numpages);
+int set_pages_array_uc(struct page **pages, int numpages);
+int set_pages_array_wc(struct page **pages, int numpages);
+int set_pages_array_wb(struct page **pages, int numpages);
+#endif
+
+#ifdef CONFIG_ARCH_HAS_MEM_ENCRYPT
+int arch_set_memory_enc_dec(unsigned long addr, int numpages, bool enc);
+bool arch_set_memory_enc_stop_conversion(void);
+bool set_memory_enc_stop_conversion(void);
+#endif
 
 /* Caller-requested behavior, stored in cpa_data.flags. */
 #define CPA_ARRAY		BIT(0)

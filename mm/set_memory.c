@@ -511,6 +511,85 @@ int set_memory_nonglobal(unsigned long addr, int numpages)
 	return cpa_change_memory(addr, numpages, CPA_SET_NONGLOBAL);
 }
 
+int set_pages_ro(struct page *page, int numpages)
+{
+	return set_memory_ro((unsigned long)page_address(page), numpages);
+}
+
+int set_pages_rw(struct page *page, int numpages)
+{
+	return set_memory_rw((unsigned long)page_address(page), numpages);
+}
+
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY_CACHE
+int set_memory_uc(unsigned long addr, int numpages)
+{
+	return arch_set_memory_uc(addr, numpages);
+}
+EXPORT_SYMBOL(set_memory_uc);
+
+int set_memory_wc(unsigned long addr, int numpages)
+{
+	return arch_set_memory_wc(addr, numpages);
+}
+EXPORT_SYMBOL(set_memory_wc);
+
+int set_memory_wb(unsigned long addr, int numpages)
+{
+	return arch_set_memory_wb(addr, numpages);
+}
+EXPORT_SYMBOL(set_memory_wb);
+
+int set_pages_uc(struct page *page, int numpages)
+{
+	return set_memory_uc((unsigned long)page_address(page), numpages);
+}
+EXPORT_SYMBOL(set_pages_uc);
+
+int set_pages_wb(struct page *page, int numpages)
+{
+	return set_memory_wb((unsigned long)page_address(page), numpages);
+}
+EXPORT_SYMBOL(set_pages_wb);
+
+int set_pages_array_uc(struct page **pages, int numpages)
+{
+	return arch_set_pages_array_uc(pages, numpages);
+}
+EXPORT_SYMBOL(set_pages_array_uc);
+
+int set_pages_array_wc(struct page **pages, int numpages)
+{
+	return arch_set_pages_array_wc(pages, numpages);
+}
+EXPORT_SYMBOL(set_pages_array_wc);
+
+int set_pages_array_wb(struct page **pages, int numpages)
+{
+	return arch_set_pages_array_wb(pages, numpages);
+}
+EXPORT_SYMBOL(set_pages_array_wb);
+#endif
+
+#ifdef CONFIG_ARCH_HAS_MEM_ENCRYPT
+int set_memory_encrypted(unsigned long addr, int numpages)
+{
+	return arch_set_memory_enc_dec(addr, numpages, true);
+}
+EXPORT_SYMBOL_GPL(set_memory_encrypted);
+
+int set_memory_decrypted(unsigned long addr, int numpages)
+{
+	return arch_set_memory_enc_dec(addr, numpages, false);
+}
+EXPORT_SYMBOL_GPL(set_memory_decrypted);
+
+bool set_memory_enc_stop_conversion(void)
+{
+	return arch_set_memory_enc_stop_conversion();
+}
+#endif
+
 #ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
 static int cpa_change_direct_map(struct page *page, unsigned int nr,
 				 enum cpa_operation_id id)
