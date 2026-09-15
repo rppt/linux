@@ -106,6 +106,8 @@ enum cpa_operation_id {
 	CPA_SET_4K,
 	CPA_SET_GLOBAL,
 	CPA_SET_NONGLOBAL,
+	CPA_DIRECT_MAP_INVALID,
+	CPA_DIRECT_MAP_DEFAULT,
 	CPA_OP_COUNT,
 };
 
@@ -125,7 +127,7 @@ struct cpa_operation {
 	}
 
 extern const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT];
-int arch_cpa_prepare(unsigned long addr, int numpages,
+int arch_cpa_prepare(unsigned long addr, unsigned long numpages,
 		     struct cpa_operation *op);
 
 int set_memory_rw_nx(unsigned long addr, int numpages);
@@ -142,6 +144,7 @@ int set_memory_nonglobal(unsigned long addr, int numpages);
 #define CPA_NO_CHECK_ALIAS	BIT(2)
 #define CPA_COLLAPSE		BIT(3)
 #define CPA_FORCE_SPLIT		BIT(5)
+#define CPA_NOFLUSH		BIT(6)
 
 /* Internally maintained state, stored in cpa_data.state. */
 #define CPA_FLUSHTLB		BIT(0)
@@ -200,7 +203,7 @@ int arch_should_split_large_page(struct cpa_data *cpa,
 int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd);
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
-void arch_cpa_flush(struct cpa_data *cpa, int err);
+void arch_cpa_finish(struct cpa_data *cpa, int err);
 
 int __change_page_attr_set_clr(struct cpa_data *cpa);
 int change_page_attr_set_clr(unsigned long *addr, int numpages,

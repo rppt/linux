@@ -79,7 +79,7 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 	return 0;
 }
 
-void arch_cpa_flush(struct cpa_data *cpa, int err)
+void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
 	if (err || (cpa->state & CPA_FORCE_FLUSH_ALL) ||
 	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
@@ -97,7 +97,8 @@ const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
 	[CPA_SET_NX] = CPA_PROT(_PAGE_NO_EXEC, 0, 0),
 };
 
-int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
+int arch_cpa_prepare(unsigned long addr, unsigned long numpages,
+		     struct cpa_operation *op)
 {
 	/* The fixed direct window has no page tables to update. */
 	if (addr < vm_map_base) {
