@@ -1742,9 +1742,12 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 	return 0;
 }
 
-void arch_cpa_flush(struct cpa_data *cpa, int err)
+void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
 	int cache;
+
+	if (cpa->flags & CPA_NOFLUSH)
+		return;
 
 	/*
 	 * No need to flush, when we did not set any of the caching
@@ -1914,9 +1917,13 @@ const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
 	[CPA_SET_4K] = CPA_PROT(_PAGE_KERNEL_4K, 0, CPA_FORCE_SPLIT),
 	[CPA_SET_GLOBAL] = CPA_PROT(_PAGE_GLOBAL, 0, 0),
 	[CPA_SET_NONGLOBAL] = CPA_PROT(0, _PAGE_GLOBAL, 0),
+	[CPA_DIRECT_MAP_INVALID] = CPA_PROT(0, _PAGE_PRESENT | _PAGE_RW |
+					  _PAGE_DIRTY, 0),
+	[CPA_DIRECT_MAP_DEFAULT] = CPA_PROT(_PAGE_PRESENT | _PAGE_RW, 0, 0),
 };
 
-int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
+int arch_cpa_prepare(unsigned long addr, unsigned long numpages,
+		     struct cpa_operation *op)
 {
 	if (!(__supported_pte_mask & _PAGE_NX)) {
 		pgprot_val(op->mask_set) &= ~_PAGE_NX;
@@ -2157,6 +2164,7 @@ int set_pages_rw(struct page *page, int numpages)
 	return set_memory_rw(addr, numpages);
 }
 
+#ifdef CONFIG_DEBUG_PAGEALLOC
 static int __set_pages_p(struct page *page, int numpages, unsigned int cpa_flags)
 {
 	unsigned long tempaddr = (unsigned long) page_address(page);
@@ -2195,17 +2203,6 @@ static int __set_pages_np(struct page *page, int numpages, unsigned int cpa_flag
 	return __change_page_attr_set_clr(&cpa);
 }
 
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
-{
-	return __set_pages_np(page, nr, 0);
-}
-
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
-{
-	return __set_pages_p(page, nr, 0);
-}
-
-#ifdef CONFIG_DEBUG_PAGEALLOC
 void __kernel_map_pages(struct page *page, int numpages, int enable)
 {
 	if (PageHighMem(page))

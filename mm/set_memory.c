@@ -447,7 +447,7 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	if (!(cpa.state & CPA_FLUSHTLB))
 		goto out;
 
-	arch_cpa_flush(&cpa, err);
+	arch_cpa_finish(&cpa, err);
 
 out:
 	return err;
@@ -538,6 +538,52 @@ int set_memory_nonglobal(unsigned long addr, int numpages)
 {
 	return cpa_change_memory(addr, numpages, CPA_SET_NONGLOBAL);
 }
+
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
+static int cpa_change_direct_map(struct page *page, unsigned int nr,
+				 enum cpa_operation_id id)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+	struct cpa_operation op = arch_cpa_operations[id];
+	struct cpa_data cpa = {
+		.vaddr = &addr,
+		.numpages = nr,
+		.flags = CPA_NO_CHECK_ALIAS | CPA_NOFLUSH,
+	};
+	int ret;
+
+	if (!op.supported)
+		return -EOPNOTSUPP;
+
+	ret = arch_cpa_prepare(addr, nr, &op);
+	if (ret)
+		return ret;
+
+	cpa.mask_set = op.mask_set;
+	cpa.mask_clr = op.mask_clr;
+	cpa.flags |= op.flags;
+
+	/*
+	 * vmalloc permission reset calls us around its own alias flush.
+	 * Do not recurse into the normal CPA alias-purge preparation.
+	 */
+	ret = __change_page_attr_set_clr(&cpa);
+	if (cpa.state & CPA_FLUSHTLB)
+		arch_cpa_finish(&cpa, ret);
+
+	return ret;
+}
+
+int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_change_direct_map(page, nr, CPA_DIRECT_MAP_INVALID);
+}
+
+int set_direct_map_default_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_change_direct_map(page, nr, CPA_DIRECT_MAP_DEFAULT);
+}
+#endif
 
 /*
  * The testcases use internal knowledge of the implementation that shouldn't

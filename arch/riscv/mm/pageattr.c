@@ -179,27 +179,18 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 	return ret;
 }
 
-void arch_cpa_flush(struct cpa_data *cpa, int err)
-{
-	if (err || (cpa->state & CPA_FORCE_FLUSH_ALL) ||
-	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
-		flush_tlb_all();
-		return;
-	}
-
-	flush_tlb_kernel_range(*cpa->vaddr,
-			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
-}
-
 const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
 	[CPA_SET_RO] = CPA_PROT(_PAGE_READ, _PAGE_WRITE, 0),
 	[CPA_SET_RW] = CPA_PROT(_PAGE_READ | _PAGE_WRITE, 0, 0),
 	[CPA_SET_X] = CPA_PROT(_PAGE_EXEC, 0, 0),
 	[CPA_SET_NX] = CPA_PROT(0, _PAGE_EXEC, 0),
 	[CPA_SET_RW_NX] = CPA_PROT(_PAGE_READ | _PAGE_WRITE, _PAGE_EXEC, 0),
+	[CPA_DIRECT_MAP_INVALID] = CPA_PROT(0, _PAGE_PRESENT, 0),
+	[CPA_DIRECT_MAP_DEFAULT] = CPA_PROT(_PAGE_KERNEL, _PAGE_EXEC, 0),
 };
 
-int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
+int arch_cpa_prepare(unsigned long addr, unsigned long numpages,
+		     struct cpa_operation *op)
 {
 	return 0;
 }
@@ -220,44 +211,22 @@ static void flush_new_direct_map(struct cpa_data *cpa)
 }
 #endif
 
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
+void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
-	unsigned long start = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &start,
-				.pgd = NULL,
-				.numpages = nr,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT),
-				.flags = CPA_NO_CHECK_ALIAS };
-	int ret;
-
-	ret = __change_page_attr_set_clr(&cpa);
-	if (ret && (cpa.state & CPA_FLUSHTLB))
+	if (err || (cpa->state & CPA_FORCE_FLUSH_ALL) ||
+	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
 		flush_tlb_all();
-
-	return ret;
-}
-
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
-{
-	unsigned long start = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &start,
-				.pgd = NULL,
-				.numpages = nr,
-				.mask_set = PAGE_KERNEL,
-				.mask_clr = __pgprot(_PAGE_EXEC),
-				.flags = CPA_NO_CHECK_ALIAS };
-	int ret;
-
-	ret = __change_page_attr_set_clr(&cpa);
-	if (cpa.state & CPA_FLUSHTLB) {
-		if (ret)
-			flush_tlb_all();
-		else
-			flush_new_direct_map(&cpa);
+		return;
 	}
 
-	return ret;
+	if (cpa->flags & CPA_NOFLUSH) {
+		if (pgprot_val(cpa->mask_set) & _PAGE_PRESENT)
+			flush_new_direct_map(cpa);
+		return;
+	}
+
+	flush_tlb_kernel_range(*cpa->vaddr,
+			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC

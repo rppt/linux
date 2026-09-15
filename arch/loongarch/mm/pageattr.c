@@ -79,8 +79,11 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 	return 0;
 }
 
-void arch_cpa_flush(struct cpa_data *cpa, int err)
+void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
+	if (cpa->flags & CPA_NOFLUSH)
+		return;
+
 	if (err || (cpa->state & CPA_FORCE_FLUSH_ALL) ||
 	    (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))) {
 		flush_tlb_all();
@@ -95,9 +98,15 @@ const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
 	[CPA_SET_RW] = CPA_PROT(_PAGE_WRITE | _PAGE_DIRTY, 0, 0),
 	[CPA_SET_X] = CPA_PROT(0, _PAGE_NO_EXEC, 0),
 	[CPA_SET_NX] = CPA_PROT(_PAGE_NO_EXEC, 0, 0),
+	[CPA_DIRECT_MAP_INVALID] = CPA_PROT(0, _PAGE_PRESENT | _PAGE_VALID, 0),
+	[CPA_DIRECT_MAP_DEFAULT] = {
+		.mask_set = PAGE_KERNEL,
+		.supported = true,
+	},
 };
 
-int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
+int arch_cpa_prepare(unsigned long addr, unsigned long numpages,
+		     struct cpa_operation *op)
 {
 	/* The fixed direct window has no page tables to update. */
 	if (addr < vm_map_base) {
@@ -122,36 +131,4 @@ bool kernel_page_present(struct page *page)
 		return false;
 
 	return pte_present(ptep_get(pte));
-}
-
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &addr,
-				.pgd = NULL,
-				.numpages = nr,
-				.mask_set = PAGE_KERNEL,
-				.mask_clr = __pgprot(0),
-				.flags = CPA_NO_CHECK_ALIAS };
-
-	if (addr < vm_map_base)
-		return 0;
-
-	return __change_page_attr_set_clr(&cpa);
-}
-
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &addr,
-				.pgd = NULL,
-				.numpages = nr,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_VALID),
-				.flags = CPA_NO_CHECK_ALIAS };
-
-	if (addr < vm_map_base)
-		return 0;
-
-	return __change_page_attr_set_clr(&cpa);
 }
