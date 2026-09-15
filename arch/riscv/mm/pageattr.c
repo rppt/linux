@@ -191,33 +191,17 @@ void arch_cpa_flush(struct cpa_data *cpa, int err)
 			       *cpa->vaddr + cpa->numpages * PAGE_SIZE);
 }
 
-int set_memory_rw_nx(unsigned long addr, int numpages)
-{
-	return change_page_attr_set_clr(&addr, numpages,
-					__pgprot(_PAGE_READ | _PAGE_WRITE),
-					__pgprot(_PAGE_EXEC), 0, NULL);
-}
+const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
+	[CPA_SET_RO] = CPA_PROT(_PAGE_READ, _PAGE_WRITE, 0),
+	[CPA_SET_RW] = CPA_PROT(_PAGE_READ | _PAGE_WRITE, 0, 0),
+	[CPA_SET_X] = CPA_PROT(_PAGE_EXEC, 0, 0),
+	[CPA_SET_NX] = CPA_PROT(0, _PAGE_EXEC, 0),
+	[CPA_SET_RW_NX] = CPA_PROT(_PAGE_READ | _PAGE_WRITE, _PAGE_EXEC, 0),
+};
 
-int set_memory_ro(unsigned long addr, int numpages)
+int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
 {
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(_PAGE_READ),
-					__pgprot(_PAGE_WRITE), 0, NULL);
-}
-
-int set_memory_rw(unsigned long addr, int numpages)
-{
-	return change_page_attr_set(&addr, numpages,
-				    __pgprot(_PAGE_READ | _PAGE_WRITE), 0);
-}
-
-int set_memory_x(unsigned long addr, int numpages)
-{
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
-}
-
-int set_memory_nx(unsigned long addr, int numpages)
-{
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_EXEC), 0);
+	return 0;
 }
 
 #ifdef CONFIG_64BIT

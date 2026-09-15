@@ -453,6 +453,92 @@ out:
 	return err;
 }
 
+static int cpa_change_memory(unsigned long addr, int numpages,
+			     enum cpa_operation_id id)
+{
+	struct cpa_operation op = arch_cpa_operations[id];
+	int ret;
+
+	if (!op.supported)
+		return -EOPNOTSUPP;
+
+	ret = arch_cpa_prepare(addr, numpages, &op);
+	if (ret)
+		return ret;
+
+	return change_page_attr_set_clr(&addr, numpages, op.mask_set,
+					op.mask_clr, op.flags, NULL);
+}
+
+int set_memory_ro(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_RO);
+}
+
+int set_memory_rw(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_RW);
+}
+
+int set_memory_x(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_X);
+}
+
+int set_memory_nx(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_NX);
+}
+
+int set_memory_rox(unsigned long addr, int numpages)
+{
+	int ret;
+
+	if (arch_cpa_operations[CPA_SET_ROX].supported)
+		return cpa_change_memory(addr, numpages, CPA_SET_ROX);
+
+	ret = set_memory_ro(addr, numpages);
+	if (ret)
+		return ret;
+
+	return set_memory_x(addr, numpages);
+}
+
+int set_memory_rw_nx(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_RW_NX);
+}
+
+int set_memory_np(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_NP);
+}
+
+int set_memory_np_noalias(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_NP_NOALIAS);
+}
+
+int set_memory_p(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_P);
+}
+
+int set_memory_4k(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_4K);
+}
+
+int set_memory_global(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_GLOBAL);
+}
+
+int set_memory_nonglobal(unsigned long addr, int numpages)
+{
+	return cpa_change_memory(addr, numpages, CPA_SET_NONGLOBAL);
+}
+
 /*
  * The testcases use internal knowledge of the implementation that shouldn't
  * be exposed to the rest of the kernel. Include these directly here.

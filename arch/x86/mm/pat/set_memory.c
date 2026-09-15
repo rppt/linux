@@ -1901,77 +1901,29 @@ int clear_mce_nospec(unsigned long pfn)
 EXPORT_SYMBOL_GPL(clear_mce_nospec);
 #endif /* CONFIG_X86_64 */
 
-int set_memory_x(unsigned long addr, int numpages)
+const struct cpa_operation arch_cpa_operations[CPA_OP_COUNT] = {
+	[CPA_SET_RO] = CPA_PROT(0, _PAGE_RW | _PAGE_DIRTY, 0),
+	[CPA_SET_RW] = CPA_PROT(_PAGE_RW, 0, 0),
+	[CPA_SET_X] = CPA_PROT(0, _PAGE_NX, 0),
+	[CPA_SET_NX] = CPA_PROT(_PAGE_NX, 0, 0),
+	[CPA_SET_ROX] = CPA_PROT(0, _PAGE_RW | _PAGE_DIRTY | _PAGE_NX,
+				CPA_COLLAPSE),
+	[CPA_SET_NP] = CPA_PROT(0, _PAGE_PRESENT, 0),
+	[CPA_SET_NP_NOALIAS] = CPA_PROT(0, _PAGE_PRESENT, CPA_NO_CHECK_ALIAS),
+	[CPA_SET_P] = CPA_PROT(_PAGE_PRESENT, 0, 0),
+	[CPA_SET_4K] = CPA_PROT(_PAGE_KERNEL_4K, 0, CPA_FORCE_SPLIT),
+	[CPA_SET_GLOBAL] = CPA_PROT(_PAGE_GLOBAL, 0, 0),
+	[CPA_SET_NONGLOBAL] = CPA_PROT(0, _PAGE_GLOBAL, 0),
+};
+
+int arch_cpa_prepare(unsigned long addr, int numpages, struct cpa_operation *op)
 {
-	if (!(__supported_pte_mask & _PAGE_NX))
-		return 0;
+	if (!(__supported_pte_mask & _PAGE_NX)) {
+		pgprot_val(op->mask_set) &= ~_PAGE_NX;
+		pgprot_val(op->mask_clr) &= ~_PAGE_NX;
+	}
 
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_NX), 0);
-}
-
-int set_memory_nx(unsigned long addr, int numpages)
-{
-	if (!(__supported_pte_mask & _PAGE_NX))
-		return 0;
-
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_NX), 0);
-}
-
-int set_memory_ro(unsigned long addr, int numpages)
-{
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW | _PAGE_DIRTY), 0);
-}
-
-int set_memory_rox(unsigned long addr, int numpages)
-{
-	pgprot_t clr = __pgprot(_PAGE_RW | _PAGE_DIRTY);
-
-	if (__supported_pte_mask & _PAGE_NX)
-		clr.pgprot |= _PAGE_NX;
-
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(0), clr,
-					CPA_COLLAPSE, NULL);
-}
-
-int set_memory_rw(unsigned long addr, int numpages)
-{
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_RW), 0);
-}
-
-int set_memory_np(unsigned long addr, int numpages)
-{
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_PRESENT), 0);
-}
-
-int set_memory_np_noalias(unsigned long addr, int numpages)
-{
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(0),
-					__pgprot(_PAGE_PRESENT),
-					CPA_NO_CHECK_ALIAS, NULL);
-}
-
-int set_memory_p(unsigned long addr, int numpages)
-{
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_PRESENT), 0);
-}
-
-int set_memory_4k(unsigned long addr, int numpages)
-{
-	return change_page_attr_set_clr(&addr, numpages,
-					__pgprot(_PAGE_KERNEL_4K),
-					__pgprot(0), CPA_FORCE_SPLIT, NULL);
-}
-
-int set_memory_nonglobal(unsigned long addr, int numpages)
-{
-	return change_page_attr_clear(&addr, numpages,
-				      __pgprot(_PAGE_GLOBAL), 0);
-}
-
-int set_memory_global(unsigned long addr, int numpages)
-{
-	return change_page_attr_set(&addr, numpages,
-				    __pgprot(_PAGE_GLOBAL), 0);
+	return 0;
 }
 
 /*
