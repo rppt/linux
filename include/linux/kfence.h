@@ -73,6 +73,20 @@ void __init kfence_alloc_pool_and_metadata(void);
 void __init kfence_init(void);
 
 /**
+ * kfence_set_page_protection() - change protection of a KFENCE pool page
+ * @page: page in the KFENCE pool, including guard pages
+ * @protect: whether to make the page inaccessible
+ *
+ * The caller must serialize against KFENCE allocation, freeing and fault
+ * handling, and restore the previous protection before allowing them to resume.
+ * Uses the architecture's KFENCE protection and TLB invalidation protocol.
+ *
+ * Return: true on success, false if the page is outside the pool or the
+ * architecture cannot change its protection.
+ */
+bool __must_check kfence_set_page_protection(struct page *page, bool protect);
+
+/**
  * kfence_shutdown_cache() - handle shutdown_cache() for KFENCE objects
  * @s: cache being shut down
  *
@@ -229,6 +243,10 @@ bool __kfence_obj_info(struct kmem_obj_info *kpp, void *object, struct slab *sla
 static inline bool is_kfence_address(const void *addr) { return false; }
 static inline void kfence_alloc_pool_and_metadata(void) { }
 static inline void kfence_init(void) { }
+static inline bool __must_check kfence_set_page_protection(struct page *page, bool protect)
+{
+	return false;
+}
 static inline void kfence_shutdown_cache(struct kmem_cache *s) { }
 static inline void *kfence_alloc(struct kmem_cache *s, size_t size, gfp_t flags) { return NULL; }
 static inline size_t kfence_ksize(const void *addr) { return 0; }

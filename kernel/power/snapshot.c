@@ -30,11 +30,11 @@
 #include <linux/slab.h>
 #include <linux/compiler.h>
 #include <linux/ktime.h>
+#include <linux/kfence.h>
 #include <linux/set_memory.h>
 
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
-#include <asm/tlbflush.h>
 #include <asm/io.h>
 
 #include "power.h"
@@ -77,40 +77,6 @@ static inline void hibernate_restore_protection_end(void) {}
 static inline int __must_check hibernate_restore_protect_page(void *page_address) {return 0; }
 static inline int hibernate_restore_unprotect_page(void *page_address) {return 0; }
 #endif /* CONFIG_STRICT_KERNEL_RWX  && CONFIG_ARCH_HAS_SET_MEMORY */
-
-
-/*
- * The calls to set_direct_map_*() should not fail because remapping a page
- * here means that we only update protection bits in an existing PTE.
- * It is still worth to have a warning here if something changes and this
- * will no longer be the case.
- */
-static inline void hibernate_map_page(struct page *page)
-{
-	if (IS_ENABLED(CONFIG_ARCH_HAS_SET_DIRECT_MAP)) {
-		int ret = set_direct_map_default_noflush(page, 1);
-
-		if (ret)
-			pr_warn_once("Failed to remap page\n");
-	} else {
-		debug_pagealloc_map_pages(page, 1);
-	}
-}
-
-static inline void hibernate_unmap_page(struct page *page)
-{
-	if (IS_ENABLED(CONFIG_ARCH_HAS_SET_DIRECT_MAP)) {
-		unsigned long addr = (unsigned long)page_address(page);
-		int ret  = set_direct_map_invalid_noflush(page, 1);
-
-		if (ret)
-			pr_warn_once("Failed to remap page\n");
-
-		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
-	} else {
-		debug_pagealloc_unmap_pages(page, 1);
-	}
-}
 
 static int swsusp_page_is_free(struct page *);
 static void swsusp_set_page_forbidden(struct page *);
@@ -1453,23 +1419,33 @@ static inline bool do_copy_page(long *dst, long *src)
 /*
  * safe_copy_page - Copy a page in a safe way.
  *
- * Check if the page we are going to copy is marked as present in the kernel
- * page tables. This always is the case if CONFIG_DEBUG_PAGEALLOC or
- * CONFIG_ARCH_HAS_SET_DIRECT_MAP is not set. In that case kernel_page_present()
- * always returns 'true'. Returns true if the page was entirely composed of
- * zeros, otherwise it will return false.
+ * Only KFENCE-owned pages may be temporarily unprotected. Other CPUs are
+ * offline and interrupts are disabled, so KFENCE cannot change their state
+ * while copying. Present pages, including fault-unprotected guards, are left
+ * unchanged.
+ *
+ * Return 1 for a zero-filled page, 0 for other copied pages, or a negative
+ * error if the source cannot be accessed or its protection restored.
  */
-static bool safe_copy_page(void *dst, struct page *s_page)
+static int safe_copy_page(void *dst, struct page *s_page)
 {
+	void *src = page_address(s_page);
 	bool zeros_only;
 
-	if (kernel_page_present(s_page)) {
-		zeros_only = do_copy_page(dst, page_address(s_page));
-	} else {
-		hibernate_map_page(s_page);
-		zeros_only = do_copy_page(dst, page_address(s_page));
-		hibernate_unmap_page(s_page);
-	}
+	if (kernel_page_present(s_page))
+		return do_copy_page(dst, src);
+
+	if (!is_kfence_address(src))
+		return -EFAULT;
+
+	if (!kfence_set_page_protection(s_page, false))
+		return -EFAULT;
+
+	zeros_only = do_copy_page(dst, src);
+
+	if (!kfence_set_page_protection(s_page, true))
+		return -EFAULT;
+
 	return zeros_only;
 }
 
@@ -1480,18 +1456,18 @@ static inline struct page *page_is_saveable(struct zone *zone, unsigned long pfn
 		saveable_highmem_page(zone, pfn) : saveable_page(zone, pfn);
 }
 
-static bool copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
+static int copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
 {
 	struct page *s_page, *d_page;
 	void *src, *dst;
-	bool zeros_only;
+	int ret;
 
 	s_page = pfn_to_page(src_pfn);
 	d_page = pfn_to_page(dst_pfn);
 	if (PageHighMem(s_page)) {
 		src = kmap_local_page(s_page);
 		dst = kmap_local_page(d_page);
-		zeros_only = do_copy_page(dst, src);
+		ret = do_copy_page(dst, src);
 		kunmap_local(dst);
 		kunmap_local(src);
 	} else {
@@ -1500,15 +1476,17 @@ static bool copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
 			 * The page pointed to by src may contain some kernel
 			 * data modified by kmap_atomic()
 			 */
-			zeros_only = safe_copy_page(buffer, s_page);
+			ret = safe_copy_page(buffer, s_page);
+			if (ret < 0)
+				return ret;
 			dst = kmap_local_page(d_page);
 			copy_page(dst, buffer);
 			kunmap_local(dst);
 		} else {
-			zeros_only = safe_copy_page(page_address(d_page), s_page);
+			ret = safe_copy_page(page_address(d_page), s_page);
 		}
 	}
-	return zeros_only;
+	return ret;
 }
 #else
 #define page_is_saveable(zone, pfn)	saveable_page(zone, pfn)
@@ -1524,15 +1502,18 @@ static inline int copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
  * Copy data pages will copy all pages into pages pulled from the copy_bm.
  * If a page was entirely filled with zeros it will be marked in the zero_bm.
  *
- * Returns the number of pages copied.
+ * Returns zero on success and stores the number of pages copied in nr_copied,
+ * or a negative error.
  */
-static unsigned long copy_data_pages(struct memory_bitmap *copy_bm,
-			    struct memory_bitmap *orig_bm,
-			    struct memory_bitmap *zero_bm)
+static int copy_data_pages(struct memory_bitmap *copy_bm,
+			   struct memory_bitmap *orig_bm,
+			   struct memory_bitmap *zero_bm,
+			   unsigned int *nr_copied)
 {
 	unsigned long copied_pages = 0;
 	struct zone *zone;
 	unsigned long pfn, copy_pfn;
+	int ret;
 
 	for_each_populated_zone(zone) {
 		unsigned long max_zone_pfn;
@@ -1550,7 +1531,10 @@ static unsigned long copy_data_pages(struct memory_bitmap *copy_bm,
 		pfn = memory_bm_next_pfn(orig_bm);
 		if (unlikely(pfn == BM_END_OF_MAP))
 			break;
-		if (copy_data_page(copy_pfn, pfn)) {
+		ret = copy_data_page(copy_pfn, pfn);
+		if (ret < 0)
+			return ret;
+		if (ret) {
 			memory_bm_set_bit(zero_bm, pfn);
 			/* Use this copy_pfn for a page that is not full of zeros */
 			continue;
@@ -1558,7 +1542,8 @@ static unsigned long copy_data_pages(struct memory_bitmap *copy_bm,
 		copied_pages++;
 		copy_pfn = memory_bm_next_pfn(copy_bm);
 	}
-	return copied_pages;
+	*nr_copied = copied_pages;
+	return 0;
 }
 
 /* Total number of image pages */
@@ -2119,6 +2104,7 @@ static int swsusp_alloc(struct memory_bitmap *copy_bm,
 asmlinkage __visible int swsusp_save(void)
 {
 	unsigned int nr_pages, nr_highmem;
+	int error;
 
 	pm_deferred_pr_dbg("Creating image\n");
 
@@ -2140,7 +2126,11 @@ asmlinkage __visible int swsusp_save(void)
 	 * Kill them.
 	 */
 	drain_local_pages(NULL);
-	nr_copy_pages = copy_data_pages(&copy_bm, &orig_bm, &zero_bm);
+	error = copy_data_pages(&copy_bm, &orig_bm, &zero_bm, &nr_copy_pages);
+	if (error) {
+		swsusp_free();
+		return error;
+	}
 
 	/*
 	 * End of critical section. From now on, we can write to memory,

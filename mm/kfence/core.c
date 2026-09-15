@@ -259,6 +259,16 @@ static bool kfence_unprotect(unsigned long addr)
 	return !KFENCE_WARN_ON(!kfence_protect_page(ALIGN_DOWN(addr, PAGE_SIZE), false));
 }
 
+bool kfence_set_page_protection(struct page *page, bool protect)
+{
+	void *addr = page_address(page);
+
+	if (!is_kfence_address(addr))
+		return false;
+
+	return kfence_protect_page((unsigned long)addr, protect);
+}
+
 static inline unsigned long metadata_to_pageaddr(const struct kfence_metadata *meta)
 	__must_hold(&meta->lock)
 {
