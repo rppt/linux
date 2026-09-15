@@ -1514,6 +1514,10 @@ config LAZY_MMU_MODE_KUNIT_TEST
 config GENERIC_SET_MEMORY
 	bool
 
+config ARCH_HAS_SET_MEMORY_CACHE
+	bool
+	depends on GENERIC_SET_MEMORY
+
 source "mm/damon/Kconfig"
 
 endmenu
