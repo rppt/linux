@@ -97,7 +97,8 @@ int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 	smp_wmb();
 	set_pte(sd->kpte, pfn_pte(page_to_pfn(base), PAGE_TABLE));
 
-	cpa->state |= CPA_FLUSHTLB | CPA_FORCE_FLUSH_ALL;
+	/* Synchronize the split before changing any of the new leaf entries. */
+	flush_tlb_all();
 
 	return 0;
 #else
@@ -235,46 +236,14 @@ static void flush_new_direct_map(struct cpa_data *cpa)
 }
 #endif
 
-static int set_direct_map_noflush(struct cpa_data *cpa)
-{
-	int ret = __change_page_attr_set_clr(cpa);
-
-	if (!(cpa->state & CPA_FLUSHTLB))
-		return ret;
-
-	/* With alias checks disabled, CPA_FORCE_FLUSH_ALL records a split. */
-	if (ret || (cpa->state & CPA_FORCE_FLUSH_ALL))
-		flush_tlb_all();
-	else if (pgprot_val(cpa->mask_set) & _PAGE_PRESENT)
-		flush_new_direct_map(cpa);
-
-	return ret;
-}
-
 int set_direct_map_invalid_noflush(struct page *page)
 {
-	unsigned long start = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &start,
-				.pgd = NULL,
-				.numpages = 1,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT),
-				.flags = CPA_NO_CHECK_ALIAS };
-
-	return set_direct_map_noflush(&cpa);
+	return set_direct_map_valid_noflush(page, 1, false);
 }
 
 int set_direct_map_default_noflush(struct page *page)
 {
-	unsigned long start = (unsigned long)page_address(page);
-	struct cpa_data cpa = { .vaddr = &start,
-				.pgd = NULL,
-				.numpages = 1,
-				.mask_set = PAGE_KERNEL,
-				.mask_clr = __pgprot(_PAGE_EXEC),
-				.flags = CPA_NO_CHECK_ALIAS };
-
-	return set_direct_map_noflush(&cpa);
+	return set_direct_map_valid_noflush(page, 1, true);
 }
 
 int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
@@ -284,6 +253,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 				.pgd = NULL,
 				.numpages = nr,
 				.flags = CPA_NO_CHECK_ALIAS };
+	int ret;
 
 	if (valid) {
 		cpa.mask_set = PAGE_KERNEL;
@@ -293,7 +263,15 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
 		cpa.mask_clr = __pgprot(_PAGE_PRESENT);
 	}
 
-	return set_direct_map_noflush(&cpa);
+	ret = __change_page_attr_set_clr(&cpa);
+	if (cpa.state & CPA_FLUSHTLB) {
+		if (ret)
+			flush_tlb_all();
+		else if (valid)
+			flush_new_direct_map(&cpa);
+	}
+
+	return ret;
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
