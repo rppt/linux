@@ -1244,6 +1244,7 @@ unsigned int snapshot_additional_pages(struct zone *zone)
 static void mark_free_pages(struct zone *zone)
 {
 	unsigned long pfn, max_zone_pfn, page_count = WD_PAGE_COUNT;
+	unsigned long guard_end_pfn = 0;
 	struct list_head *free_list;
 	unsigned long flags;
 	unsigned int order;
@@ -1266,7 +1267,16 @@ static void mark_free_pages(struct zone *zone)
 		if (page_zone(page) != zone)
 			continue;
 
-		if (!swsusp_page_is_forbidden(page))
+		/*
+		 * Guard blocks are not on the buddy lists. Only their heads
+		 * carry PageGuard and the order, both protected by zone->lock.
+		 */
+		if (page_is_guard(page))
+			guard_end_pfn = pfn + (1UL << page_private(page));
+
+		if (pfn < guard_end_pfn)
+			swsusp_set_page_free(page);
+		else if (!swsusp_page_is_forbidden(page))
 			swsusp_unset_page_free(page);
 	}
 
