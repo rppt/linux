@@ -297,6 +297,13 @@ static inline int p4d_present(p4d_t p4d)
 	return 1;
 }
 
+#define p4d_leaf	p4d_leaf
+static inline bool p4d_leaf(p4d_t p4d)
+{
+	return pgtable_l4_enabled && p4d_present(p4d) &&
+	       (p4d_val(p4d) & _PAGE_LEAF);
+}
+
 static inline int p4d_bad(p4d_t p4d)
 {
 	if (pgtable_l4_enabled)

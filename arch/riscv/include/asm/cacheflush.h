@@ -61,6 +61,9 @@ static inline void flush_cache_vmap(unsigned long start, unsigned long end)
 		mark_new_valid_map();
 }
 #define flush_cache_vmap_early(start, end)	local_flush_tlb_kernel_range(start, end)
+#else
+/* RV32 resolves new mappings synchronously, there is nothing to notify. */
+static inline void mark_new_valid_map(void) { }
 #endif
 
 #ifndef CONFIG_SMP
