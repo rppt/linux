@@ -17,7 +17,7 @@
  */
 DEFINE_SPINLOCK(cpa_lock);
 
-int __weak arch_cpa_prepare(unsigned long addr, struct cpa_op_desc *desc)
+int __weak arch_cpa_prepare(struct cpa_data *cpa)
 {
 	return 0;
 }
@@ -346,21 +346,18 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	cpa.req = request;
 	cpa.curpage = 0;
 
+	err = arch_cpa_prepare(&cpa);
+	if (err)
+		return err;
+
 	/* Avoid race with concurrent CPA collapse. */
 	cpa.state |= CPA_ST_MM_LOCKED;
 	scoped_guard(mmap_read_lock, &init_mm)
 		err = __change_page_attr_set_clr(&cpa);
 	cpa.state &= ~CPA_ST_MM_LOCKED;
 
-	/*
-	 * Check whether we really changed something:
-	 */
-	if (!(cpa.state & CPA_ST_FLUSHTLB))
-		goto out;
-
 	arch_cpa_finish(&cpa, err);
 
-out:
 	return err;
 }
 
@@ -368,17 +365,12 @@ static int cpa_change_memory(unsigned long addr, int numpages,
 			     enum cpa_op op)
 {
 	struct cpa_op_desc desc = arch_cpa_op_descs[op];
-	int ret;
 
 	if (numpages < 0)
 		return -EINVAL;
 
 	if (!desc.supported)
 		return -EOPNOTSUPP;
-
-	ret = arch_cpa_prepare(addr, &desc);
-	if (ret)
-		return ret;
 
 	return change_page_attr_set_clr(&addr, numpages, desc.mask_set,
 					desc.mask_clr, desc.flags, NULL);
@@ -419,17 +411,17 @@ static int cpa_change_direct_map(struct page *page, unsigned int nr,
 	if (!desc.supported)
 		return -EOPNOTSUPP;
 
-	ret = arch_cpa_prepare(addr, &desc);
-	if (ret)
-		return ret;
-
 	cpa.mask_set = desc.mask_set;
 	cpa.mask_clr = desc.mask_clr;
 	cpa.req = desc.flags;
 
+	ret = arch_cpa_prepare(&cpa);
+	if (ret)
+		return ret;
+
 	ret = __change_page_attr_set_clr(&cpa);
-	if (cpa.state & CPA_ST_FLUSHTLB)
-		arch_cpa_finish_direct_map(&cpa);
+
+	arch_cpa_finish_direct_map(&cpa);
 
 	return ret;
 }

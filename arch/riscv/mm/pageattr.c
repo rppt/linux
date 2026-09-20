@@ -246,6 +246,9 @@ int set_memory_rw_nx(unsigned long addr, int numpages)
 
 void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
+	if (!err && !(cpa->state & CPA_ST_FLUSHTLB))
+		return;
+
 	if (err || (cpa->state & CPA_ST_FLUSHTLB_ALL) ||
 	    (cpa->req & (CPA_REQ_ARRAY | CPA_REQ_PAGES_ARRAY))) {
 		flush_tlb_all();
@@ -263,6 +266,9 @@ void arch_cpa_finish(struct cpa_data *cpa, int err)
  */
 void arch_cpa_finish_direct_map(struct cpa_data *cpa)
 {
+	if (!(cpa->state & CPA_ST_FLUSHTLB))
+		return;
+
 	if (!(pgprot_val(cpa->mask_set) & _PAGE_PRESENT))
 		return;
 

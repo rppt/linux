@@ -44,7 +44,6 @@ struct cpa_op_desc {
 	}
 
 extern const struct cpa_op_desc arch_cpa_op_descs[CPA_OP_NUM];
-int arch_cpa_prepare(unsigned long addr, struct cpa_op_desc *desc);
 
 /*
  * Architectures that keep aliases of the primary mapping override this to
@@ -111,6 +110,14 @@ int arch_should_split_large_page(struct cpa_data *cpa,
 int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd);
 void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
+/*
+ * arch_cpa_prepare() runs immediately before the page tables are walked and
+ * may adjust the masks or start a batched update. It is paired with
+ * arch_cpa_finish() for set_memory() and with arch_cpa_finish_direct_map()
+ * for set_direct_map(), both of which run unconditionally once the walk is
+ * over.
+ */
+int arch_cpa_prepare(struct cpa_data *cpa);
 void arch_cpa_finish(struct cpa_data *cpa, int err);
 void arch_cpa_finish_direct_map(struct cpa_data *cpa);
 

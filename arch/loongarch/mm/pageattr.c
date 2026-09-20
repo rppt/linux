@@ -120,6 +120,9 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 
 void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
+	if (!err && !(cpa->state & CPA_ST_FLUSHTLB))
+		return;
+
 	if (err || (cpa->state & CPA_ST_FLUSHTLB_ALL) ||
 	    (cpa->req & (CPA_REQ_ARRAY | CPA_REQ_PAGES_ARRAY))) {
 		flush_tlb_all();
@@ -136,12 +139,12 @@ const struct cpa_op_desc arch_cpa_op_descs[CPA_OP_NUM] = {
 	[CPA_SET_NX] = CPA_OP_DESC(_PAGE_NO_EXEC, 0, 0),
 };
 
-int arch_cpa_prepare(unsigned long addr, struct cpa_op_desc *desc)
+int arch_cpa_prepare(struct cpa_data *cpa)
 {
 	/* The fixed direct window has no page tables to update. */
-	if (addr < vm_map_base) {
-		desc->mask_set = __pgprot(0);
-		desc->mask_clr = __pgprot(0);
+	if (cpa_addr(cpa, 0) < vm_map_base) {
+		cpa->mask_set = __pgprot(0);
+		cpa->mask_clr = __pgprot(0);
 	}
 
 	return 0;

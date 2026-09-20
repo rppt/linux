@@ -1829,6 +1829,9 @@ void arch_cpa_finish(struct cpa_data *cpa, int err)
 {
 	int cache;
 
+	if (!err && !(cpa->state & CPA_ST_FLUSHTLB))
+		return;
+
 	/*
 	 * No need to flush, when we did not set any of the caching
 	 * attributes:
@@ -2010,11 +2013,11 @@ const struct cpa_op_desc arch_cpa_op_descs[CPA_OP_NUM] = {
 					CPA_REQ_NO_ALIAS),
 };
 
-int arch_cpa_prepare(unsigned long addr, struct cpa_op_desc *desc)
+int arch_cpa_prepare(struct cpa_data *cpa)
 {
 	if (!(__supported_pte_mask & _PAGE_NX)) {
-		pgprot_val(desc->mask_set) &= ~_PAGE_NX;
-		pgprot_val(desc->mask_clr) &= ~_PAGE_NX;
+		pgprot_val(cpa->mask_set) &= ~_PAGE_NX;
+		pgprot_val(cpa->mask_clr) &= ~_PAGE_NX;
 	}
 
 	return 0;

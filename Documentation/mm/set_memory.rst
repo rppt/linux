@@ -58,10 +58,10 @@ direct-map default/invalid operations are described by
 and an explicit supported indicator.  An unsupported operation returns
 ``-EOPNOTSUPP`` rather than being treated as an empty successful request.
 
-``arch_cpa_prepare()`` receives a private copy of an operation description.
-It can normalize runtime-dependent bits or apply architecture address
-restrictions before the request reaches the walker.  A supported operation
-may become a no-op after this adjustment.
+``arch_cpa_prepare()`` runs immediately before the walk and receives the
+``cpa_data`` describing it.  It can normalize runtime-dependent bits, apply
+architecture address restrictions, or start a batched page table update.  A
+supported operation may become a no-op after this adjustment.
 
 The walker keeps caller requests in ``cpa_data.flags`` and execution state
 in ``cpa_data.state``.  Architecture callbacks handle entry updates, alias
@@ -99,8 +99,9 @@ Completion
 ==========
 
 ``CPA_ST_FLUSHTLB`` records that attributes changed; it does not prescribe
-the completion policy.  Common code calls a completion hook when that
-state is set, including after partial errors.
+the completion policy.  Common code always calls a completion hook, so that
+it also terminates whatever ``arch_cpa_prepare()`` started, and the
+architecture decides what an unchanged mapping requires.
 
 For ordinary requests, completion performs the architecture's TLB
 maintenance in ``arch_cpa_finish()``.
