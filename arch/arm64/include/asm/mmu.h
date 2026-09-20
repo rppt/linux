@@ -74,6 +74,16 @@ extern int split_kernel_leaf_mapping(unsigned long start, unsigned long end);
 extern void linear_map_maybe_split_to_ptes(void);
 
 /*
+ * Split a leaf mapping of the kernel page tables one level down. The pud and
+ * pmd variants install the table supplied by the caller. All of them require
+ * FEAT_BBM level 3 because they change the granularity of a live mapping.
+ */
+void split_kernel_contpte(pte_t *ptep);
+void split_kernel_contpmd(pmd_t *pmdp);
+void split_kernel_pmd(pmd_t *pmdp, pmd_t pmd, pte_t *ptep, bool to_cont);
+void split_kernel_pud(pud_t *pudp, pud_t pud, pmd_t *pmdp, bool to_cont);
+
+/*
  * This check is triggered during the early boot before the cpufeature
  * is initialised. Checking the status on the local CPU allows the boot
  * CPU to detect the need for non-global mappings and thus avoiding a
