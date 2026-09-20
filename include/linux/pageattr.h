@@ -108,8 +108,8 @@ int arch_should_split_large_page(struct cpa_data *cpa,
 				 struct cpa_split_data *sd);
 /* A zero return consumes sd->pbase; nonzero leaves it for the caller to free. */
 int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd);
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw);
+int arch_change_pte(struct cpa_data *cpa, unsigned long address,
+		    pte_t *kpte, pte_t old_pte, bool nx, bool rw);
 /*
  * arch_cpa_prepare() runs immediately before the page tables are walked and
  * may adjust the masks or start a batched update. It is paired with

@@ -220,7 +220,11 @@ repeat:
 		return arch_cpa_process_fault(cpa, address);
 
 	if (level == PGTABLE_LEVEL_PTE) {
-		arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
+		int ret = arch_change_pte(cpa, address, kpte, old_pte, nx, rw);
+
+		if (ret)
+			return ret;
+
 		cpa->numpages = 1;
 		return 0;
 	}

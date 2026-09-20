@@ -155,8 +155,8 @@ int arch_split_large_page(struct cpa_data *cpa, struct cpa_split_data *sd)
 #endif
 }
 
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw)
+int arch_change_pte(struct cpa_data *cpa, unsigned long address,
+		    pte_t *kpte, pte_t old_pte, bool nx, bool rw)
 {
 	pgprot_t new_prot = __pgprot(pte_val(old_pte) & ~_PAGE_PFN_MASK);
 	unsigned long pfn = pte_pfn(old_pte);
@@ -172,6 +172,8 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		set_pte(kpte, new_pte);
 		cpa->state |= CPA_ST_FLUSHTLB;
 	}
+
+	return 0;
 }
 
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)

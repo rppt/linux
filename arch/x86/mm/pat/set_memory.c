@@ -1713,8 +1713,8 @@ int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 	}
 }
 
-void arch_change_pte(struct cpa_data *cpa, unsigned long address,
-		     pte_t *kpte, pte_t old_pte, bool nx, bool rw)
+int arch_change_pte(struct cpa_data *cpa, unsigned long address,
+		    pte_t *kpte, pte_t old_pte, bool nx, bool rw)
 {
 	pte_t new_pte;
 	pgprot_t old_prot = pte_pgprot(old_pte);
@@ -1746,6 +1746,8 @@ void arch_change_pte(struct cpa_data *cpa, unsigned long address,
 		set_pte_atomic(kpte, new_pte);
 		cpa->state |= CPA_ST_FLUSHTLB;
 	}
+
+	return 0;
 }
 
 /*
