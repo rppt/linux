@@ -1763,6 +1763,10 @@ void arch_sync_kernel_mappings(unsigned long start, unsigned long end);
  * because these macros can be used even if CONFIG_MMU is not defined.
  */
 
+#ifndef canon_pgprot
+#define canon_pgprot(prot)	(prot)
+#endif
+
 #ifndef pgprot_nx
 #define pgprot_nx(prot)	(prot)
 #endif

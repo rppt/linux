@@ -43,8 +43,9 @@ static inline bool pfn_is_kernel(unsigned long pfn)
 }
 #endif
 
-static inline bool cpa_should_update_alias(unsigned long vaddr,
-					   unsigned long pfn)
+#define arch_cpa_should_update_alias arch_cpa_should_update_alias
+static inline bool arch_cpa_should_update_alias(unsigned long vaddr,
+						unsigned long pfn)
 {
 	/* Primary is not in the direct map, its direct map alias needs update */
 	if (vaddr < PAGE_OFFSET ||
