@@ -1921,11 +1921,12 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 	}
 }
 
-static void __change_pte(struct cpa_data *cpa, unsigned long address,
-			 pte_t *kpte, pte_t old_pte, bool nx, bool rw)
+static void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
+	pte_t old_pte = leaf->pte;
 	pgprot_t old_prot = pte_pgprot(old_pte);
 	pgprot_t new_prot = pte_pgprot(old_pte);
+	unsigned long address = leaf->address;
 	unsigned long pfn = pte_pfn(old_pte);
 	pte_t new_pte;
 
@@ -1938,7 +1939,7 @@ static void __change_pte(struct cpa_data *cpa, unsigned long address,
 				      CPA_PROTECT);
 
 	new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
-			      nx, rw);
+			      leaf->nx, leaf->rw);
 
 	new_prot = pgprot_clear_protnone_bits(new_prot);
 
@@ -1953,7 +1954,7 @@ static void __change_pte(struct cpa_data *cpa, unsigned long address,
 	 * Do we really change anything ?
 	 */
 	if (pte_val(old_pte) != pte_val(new_pte)) {
-		set_pte_atomic(kpte, new_pte);
+		set_pte_atomic(leaf->kpte, new_pte);
 		cpa->state |= CPA_ST_FLUSHTLB;
 	}
 	cpa->numpages = 1;
@@ -1978,7 +1979,7 @@ static int __change_page_attr(struct cpa_data *cpa)
 			return split_res;
 	}
 
-	__change_pte(cpa, address, leaf.kpte, leaf.pte, leaf.nx, leaf.rw);
+	__change_pte(cpa, &leaf);
 	return 0;
 }
 
