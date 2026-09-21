@@ -52,6 +52,15 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+struct cpa_leaf {
+	unsigned long address;
+	pte_t *kpte;
+	pte_t pte;
+	int level;
+	bool nx;
+	bool rw;
+};
+
 enum cpa_warn {
 	CPA_CONFLICT,
 	CPA_PROTECT,
@@ -848,6 +857,23 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 		pgd = cpa->pgd + pgd_index(address);
 
 	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
+}
+
+static pte_t *cpa_lookup_leaf(struct cpa_data *cpa, struct cpa_leaf *leaf,
+			      unsigned long address)
+{
+	unsigned int level;
+
+	leaf->kpte = _lookup_address_cpa(cpa, address, &level, &leaf->nx,
+					 &leaf->rw);
+	if (!leaf->kpte)
+		return NULL;
+
+	leaf->address = address;
+	leaf->level = level;
+	leaf->pte = *leaf->kpte;
+
+	return leaf->kpte;
 }
 
 /*
@@ -1945,33 +1971,24 @@ static void __change_pte(struct cpa_data *cpa, unsigned long address,
 
 static int __change_page_attr(struct cpa_data *cpa)
 {
-	unsigned long address;
+	unsigned long address = __cpa_addr(cpa, cpa->curpage);
+	struct cpa_leaf leaf;
 	int split_res;
-	unsigned int level;
-	pte_t *kpte, old_pte;
-	bool nx, rw;
-
-	address = __cpa_addr(cpa, cpa->curpage);
 
 	for (;;) {
-		kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-		if (!kpte)
+		if (!cpa_lookup_leaf(cpa, &leaf, address) || pte_none(leaf.pte))
 			return __cpa_process_fault(cpa, address);
 
-		old_pte = *kpte;
-		if (pte_none(old_pte))
-			return __cpa_process_fault(cpa, address);
-
-		if (level == PG_LEVEL_4K)
+		if (leaf.level == PG_LEVEL_4K)
 			break;
 
 		/* Update large page or split it */
-		split_res = cpa_handle_large_page(cpa, kpte, address);
+		split_res = cpa_handle_large_page(cpa, leaf.kpte, address);
 		if (split_res <= 0)
 			return split_res;
 	}
 
-	__change_pte(cpa, address, kpte, old_pte, nx, rw);
+	__change_pte(cpa, address, leaf.kpte, leaf.pte, leaf.nx, leaf.rw);
 	return 0;
 }
 
