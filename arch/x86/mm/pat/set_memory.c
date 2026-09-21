@@ -1299,8 +1299,7 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	return 0;
 }
 
-static int cpa_handle_large_page(struct cpa_data *cpa, pte_t *kpte,
-				  unsigned long address)
+static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
 	int do_split, err;
 
@@ -1308,7 +1307,7 @@ static int cpa_handle_large_page(struct cpa_data *cpa, pte_t *kpte,
 	 * Check, whether we can keep the large page intact
 	 * and just change the pte:
 	 */
-	do_split = should_split_large_page(kpte, address, cpa);
+	do_split = should_split_large_page(leaf->kpte, leaf->address, cpa);
 	/*
 	 * When the range fits into the existing large page, no split is
 	 * required.
@@ -1321,7 +1320,7 @@ static int cpa_handle_large_page(struct cpa_data *cpa, pte_t *kpte,
 	/*
 	 * We have to split the large page:
 	 */
-	err = split_large_page(cpa, kpte, address);
+	err = split_large_page(cpa, leaf->kpte, leaf->address);
 	if (err)
 		return err;
 
@@ -1974,7 +1973,7 @@ static int __change_page_attr(struct cpa_data *cpa)
 			break;
 
 		/* Update large page or split it */
-		split_res = cpa_handle_large_page(cpa, leaf.kpte, address);
+		split_res = cpa_handle_large_page(cpa, &leaf);
 		if (split_res <= 0)
 			return split_res;
 	}
