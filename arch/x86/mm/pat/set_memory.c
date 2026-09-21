@@ -1905,6 +1905,44 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 	}
 }
 
+static void __change_pte(struct cpa_data *cpa, unsigned long address,
+			 pte_t *kpte, pte_t old_pte, bool nx, bool rw)
+{
+	pgprot_t old_prot = pte_pgprot(old_pte);
+	pgprot_t new_prot = pte_pgprot(old_pte);
+	unsigned long pfn = pte_pfn(old_pte);
+	pte_t new_pte;
+
+	pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
+	pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
+
+	cpa_inc_4k_install();
+	/* Hand in lpsize = 0 to enforce the protection mechanism */
+	new_prot = static_protections(new_prot, address, pfn, 1, 0,
+				      CPA_PROTECT);
+
+	new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
+			      nx, rw);
+
+	new_prot = pgprot_clear_protnone_bits(new_prot);
+
+	/*
+	 * We need to keep the pfn from the existing PTE,
+	 * after all we're only going to change its attributes
+	 * not the memory it points to
+	 */
+	new_pte = pfn_pte(pfn, new_prot);
+	cpa->pfn = pfn;
+	/*
+	 * Do we really change anything ?
+	 */
+	if (pte_val(old_pte) != pte_val(new_pte)) {
+		set_pte_atomic(kpte, new_pte);
+		cpa->state |= CPA_ST_FLUSHTLB;
+	}
+	cpa->numpages = 1;
+}
+
 static int __change_page_attr(struct cpa_data *cpa)
 {
 	unsigned long address;
@@ -1924,39 +1962,7 @@ repeat:
 		return __cpa_process_fault(cpa, address);
 
 	if (level == PG_LEVEL_4K) {
-		pte_t new_pte;
-		pgprot_t old_prot = pte_pgprot(old_pte);
-		pgprot_t new_prot = pte_pgprot(old_pte);
-		unsigned long pfn = pte_pfn(old_pte);
-
-		pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
-		pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
-
-		cpa_inc_4k_install();
-		/* Hand in lpsize = 0 to enforce the protection mechanism */
-		new_prot = static_protections(new_prot, address, pfn, 1, 0,
-					      CPA_PROTECT);
-
-		new_prot = verify_rwx(old_prot, new_prot, address, pfn, 1,
-				      nx, rw);
-
-		new_prot = pgprot_clear_protnone_bits(new_prot);
-
-		/*
-		 * We need to keep the pfn from the existing PTE,
-		 * after all we're only going to change its attributes
-		 * not the memory it points to
-		 */
-		new_pte = pfn_pte(pfn, new_prot);
-		cpa->pfn = pfn;
-		/*
-		 * Do we really change anything ?
-		 */
-		if (pte_val(old_pte) != pte_val(new_pte)) {
-			set_pte_atomic(kpte, new_pte);
-			cpa->state |= CPA_ST_FLUSHTLB;
-		}
-		cpa->numpages = 1;
+		__change_pte(cpa, address, kpte, old_pte, nx, rw);
 		return 0;
 	}
 
