@@ -1942,26 +1942,27 @@ static int __change_page_attr(struct cpa_data *cpa)
 	bool nx, rw;
 
 	address = __cpa_addr(cpa, cpa->curpage);
-repeat:
-	kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-	if (!kpte)
-		return __cpa_process_fault(cpa, address);
 
-	old_pte = *kpte;
-	if (pte_none(old_pte))
-		return __cpa_process_fault(cpa, address);
+	for (;;) {
+		kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+		if (!kpte)
+			return __cpa_process_fault(cpa, address);
 
-	if (level == PG_LEVEL_4K) {
-		__change_pte(cpa, address, kpte, old_pte, nx, rw);
-		return 0;
+		old_pte = *kpte;
+		if (pte_none(old_pte))
+			return __cpa_process_fault(cpa, address);
+
+		if (level == PG_LEVEL_4K)
+			break;
+
+		/* Update large page or split it */
+		split_res = cpa_handle_large_page(cpa, kpte, address);
+		if (split_res <= 0)
+			return split_res;
 	}
 
-	/* Update large page or split it */
-	split_res = cpa_handle_large_page(cpa, kpte, address);
-	if (split_res > 0)
-		goto repeat;
-
-	return split_res;
+	__change_pte(cpa, address, kpte, old_pte, nx, rw);
+	return 0;
 }
 
 static int __change_page_attr_set_clr(struct cpa_data *cpa);
