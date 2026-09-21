@@ -1008,27 +1008,13 @@ static int __should_split_large_page(struct cpa_data *cpa,
 				     struct cpa_leaf *leaf)
 {
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
-	unsigned long numpages, lpaddr, old_pfn;
+	unsigned long old_pfn = leaf->pfn;
 	unsigned long address = leaf->address;
+	unsigned long numpages, lpaddr;
 	unsigned long psize = leaf->psize;
 	pte_t *kpte = leaf->kpte;
-	pte_t new_pte, *tmp;
-	enum pg_level level;
-	struct cpa_leaf cur;
-	bool nx, rw;
-
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &cur);
-	if (tmp != kpte)
-		return 1;
-
-	level = cur.level;
-	nx = cur.nx;
-	rw = cur.rw;
-	old_pfn = cur.pfn;
+	int level = leaf->level;
+	pte_t new_pte;
 
 	switch (level) {
 	case PG_LEVEL_2M:
@@ -1043,14 +1029,12 @@ static int __should_split_large_page(struct cpa_data *cpa,
 		return -EINVAL;
 	}
 
-	leaf->pfn = old_pfn;
-
 	/*
 	 * We are safe now. Check whether the new pgprot is the same:
 	 * Convert protection attributes to 4k-format, as cpa->mask* are set
 	 * up accordingly.
 	 */
-	req_prot = cpa_new_prot(cpa, cur.prot);
+	req_prot = cpa_new_prot(cpa, leaf->prot);
 
 	/*
 	 * req_prot is in format of 4k pages. It must be converted to large
@@ -1114,7 +1098,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 				      psize, CPA_DETECT);
 
 	new_prot = verify_rwx(old_prot, new_prot, lpaddr, old_pfn, numpages,
-			      nx, rw);
+			      leaf->nx, leaf->rw);
 
 	/*
 	 * If there is a conflict, split the large page.
@@ -1138,10 +1122,17 @@ static int __should_split_large_page(struct cpa_data *cpa,
 
 static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
+	unsigned long address = leaf->address;
+	pte_t *kpte = leaf->kpte;
+
 	if (cpa->req & CPA_REQ_SPLIT)
 		return 1;
 
 	guard(spinlock)(&pgd_lock);
+
+	if (!_lookup_address_cpa(cpa, address, leaf) || leaf->kpte != kpte)
+		return 1;
+
 	return __should_split_large_page(cpa, leaf);
 }
 
@@ -1188,27 +1179,15 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	unsigned long address = leaf->address;
 	struct page *base = virt_to_page(pbase);
 	pte_t *kpte = leaf->kpte;
-	unsigned int i, level;
-	struct cpa_leaf cur;
+	int level = leaf->level;
 	pgprot_t ref_prot;
-	pte_t *tmp;
-
-	guard(spinlock)(&pgd_lock);
-	/*
-	 * Check for races, another CPU might have split this page
-	 * up for us already:
-	 */
-	tmp = _lookup_address_cpa(cpa, address, &cur);
-	if (tmp != kpte)
-		return 1;
-
-	level = cur.level;
+	unsigned int i;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
 	switch (level) {
 	case PG_LEVEL_2M:
-		ref_prot = cur.prot;
+		ref_prot = leaf->prot;
 		lpaddr = address & PMD_MASK;
 		lpinc = PAGE_SIZE;
 		break;
@@ -1236,7 +1215,7 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	/*
 	 * Get the target pfn from the original entry:
 	 */
-	pfn = cur.pfn;
+	pfn = leaf->pfn;
 	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc, lpaddr += lpinc)
 		split_set_pte(cpa, pbase + i, pfn, ref_prot, lpaddr, lpinc);
 
@@ -1281,6 +1260,9 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 
 static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
+	unsigned long address = leaf->address;
+	pte_t *kpte = leaf->kpte;
+	int ret = 1;
 	pte_t *pte;
 
 	spin_unlock(&cpa_lock);
@@ -1293,7 +1275,12 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (!pte)
 		return -ENOMEM;
 
-	if (__split_large_page(cpa, leaf, pte))
+	scoped_guard(spinlock, &pgd_lock) {
+		if (_lookup_address_cpa(cpa, address, leaf) && leaf->kpte == kpte)
+			ret = __split_large_page(cpa, leaf, pte);
+	}
+
+	if (ret)
 		pte_free_kernel(&init_mm, pte);
 
 	return 0;
