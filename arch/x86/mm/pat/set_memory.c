@@ -52,6 +52,15 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+struct cpa_leaf {
+	unsigned long address;
+	pte_t *kpte;
+	pte_t pte;
+	int level;
+	bool nx;
+	bool rw;
+};
+
 enum cpa_warn {
 	CPA_CONFLICT,
 	CPA_PROTECT,
@@ -838,8 +847,9 @@ pte_t *lookup_address(unsigned long address, unsigned int *level)
 EXPORT_SYMBOL_GPL(lookup_address);
 
 static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-				  unsigned int *level, bool *nx, bool *rw)
+				  struct cpa_leaf *leaf)
 {
+	unsigned int level;
 	pgd_t *pgd;
 
 	if (!cpa->pgd)
@@ -847,7 +857,16 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	else
 		pgd = cpa->pgd + pgd_index(address);
 
-	return lookup_address_in_pgd_attr(pgd, address, level, nx, rw);
+	leaf->kpte = lookup_address_in_pgd_attr(pgd, address, &level,
+						&leaf->nx, &leaf->rw);
+	if (!leaf->kpte)
+		return NULL;
+
+	leaf->address = address;
+	leaf->level = level;
+	leaf->pte = *leaf->kpte;
+
+	return leaf->kpte;
 }
 
 /*
@@ -974,15 +993,20 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
 	pte_t new_pte, *tmp;
 	enum pg_level level;
+	struct cpa_leaf cur;
 	bool nx, rw;
 
 	/*
 	 * Check for races, another CPU might have split this page
 	 * up already:
 	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	tmp = _lookup_address_cpa(cpa, address, &cur);
 	if (tmp != kpte)
 		return 1;
+
+	level = cur.level;
+	nx = cur.nx;
+	rw = cur.rw;
 
 	switch (level) {
 	case PG_LEVEL_2M:
@@ -1167,8 +1191,8 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	struct page *base = virt_to_page(pbase);
 	unsigned int i, level;
+	struct cpa_leaf cur;
 	pgprot_t ref_prot;
-	bool nx, rw;
 	pte_t *tmp;
 
 	guard(spinlock)(&pgd_lock);
@@ -1176,9 +1200,11 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 	 * Check for races, another CPU might have split this page
 	 * up for us already:
 	 */
-	tmp = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
+	tmp = _lookup_address_cpa(cpa, address, &cur);
 	if (tmp != kpte)
 		return 1;
+
+	level = cur.level;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
@@ -1945,33 +1971,24 @@ static void __change_pte(struct cpa_data *cpa, unsigned long address,
 
 static int __change_page_attr(struct cpa_data *cpa)
 {
-	unsigned long address;
+	unsigned long address = __cpa_addr(cpa, cpa->curpage);
+	struct cpa_leaf leaf;
 	int split_res;
-	unsigned int level;
-	pte_t *kpte, old_pte;
-	bool nx, rw;
-
-	address = __cpa_addr(cpa, cpa->curpage);
 
 	for (;;) {
-		kpte = _lookup_address_cpa(cpa, address, &level, &nx, &rw);
-		if (!kpte)
+		if (!_lookup_address_cpa(cpa, address, &leaf) || pte_none(leaf.pte))
 			return __cpa_process_fault(cpa, address);
 
-		old_pte = *kpte;
-		if (pte_none(old_pte))
-			return __cpa_process_fault(cpa, address);
-
-		if (level == PG_LEVEL_4K)
+		if (leaf.level == PG_LEVEL_4K)
 			break;
 
 		/* Update large page or split it */
-		split_res = cpa_handle_large_page(cpa, kpte, address);
+		split_res = cpa_handle_large_page(cpa, leaf.kpte, address);
 		if (split_res <= 0)
 			return split_res;
 	}
 
-	__change_pte(cpa, address, kpte, old_pte, nx, rw);
+	__change_pte(cpa, address, leaf.kpte, leaf.pte, leaf.nx, leaf.rw);
 	return 0;
 }
 
