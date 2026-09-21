@@ -62,6 +62,8 @@ static const int cpa_warn_level = CPA_PROTECT;
 
 struct cpa_leaf {
 	unsigned long address;
+	unsigned long psize;
+	unsigned long pfn;
 	pte_t *kpte;
 	pte_t pte;
 	int level;
@@ -854,6 +856,7 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 
 	leaf->address = address;
 	leaf->level = level;
+	leaf->psize = page_level_size(level);
 	leaf->pte = *leaf->kpte;
 
 	return leaf->kpte;
@@ -979,9 +982,10 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 static int __should_split_large_page(struct cpa_data *cpa,
 				     struct cpa_leaf *leaf)
 {
-	unsigned long numpages, pmask, psize, lpaddr, pfn, old_pfn;
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
+	unsigned long numpages, lpaddr, old_pfn;
 	unsigned long address = leaf->address;
+	unsigned long psize = leaf->psize;
 	pte_t *kpte = leaf->kpte;
 	pte_t new_pte, *tmp;
 	enum pg_level level;
@@ -1015,17 +1019,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 		return -EINVAL;
 	}
 
-	psize = page_level_size(level);
-	pmask = page_level_mask(level);
-
-	/*
-	 * Calculate the number of pages, which fit into this large
-	 * page starting at address:
-	 */
-	lpaddr = (address + psize) & pmask;
-	numpages = (lpaddr - address) >> PAGE_SHIFT;
-	if (numpages < cpa->numpages)
-		cpa->numpages = numpages;
+	leaf->pfn = old_pfn;
 
 	/*
 	 * We are safe now. Check whether the new pgprot is the same:
@@ -1050,17 +1044,10 @@ static int __should_split_large_page(struct cpa_data *cpa,
 		pgprot_val(req_prot) |= _PAGE_PSE;
 
 	/*
-	 * old_pfn points to the large page base pfn. So we need to add the
-	 * offset of the virtual address:
-	 */
-	pfn = old_pfn + ((address & (psize - 1)) >> PAGE_SHIFT);
-	cpa->pfn = pfn;
-
-	/*
 	 * Calculate the large page base address and the number of 4K pages
 	 * in the large page
 	 */
-	lpaddr = address & pmask;
+	lpaddr = address & page_level_mask(level);
 	numpages = psize >> PAGE_SHIFT;
 
 	/*
@@ -1097,7 +1084,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	/*
 	 * If the requested range does not cover the full page, split it up
 	 */
-	if (address != lpaddr || cpa->numpages != numpages)
+	if (address != lpaddr || cpa->numpages < numpages)
 		return 1;
 
 	/*
@@ -1302,6 +1289,8 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 
 static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
+	unsigned long pmask = page_level_mask(leaf->level);
+	unsigned long psize = leaf->psize;
 	int do_split, err;
 
 	/*
@@ -1309,14 +1298,21 @@ static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	 * and just change the pte:
 	 */
 	do_split = should_split_large_page(cpa, leaf);
+	if (do_split < 0)
+		return do_split;
+
 	/*
 	 * When the range fits into the existing large page, no split is
 	 * required.
-	 * should_split_large_page() updated the large page attributes and
-	 * cpa->numpages and cpa->pfn.
 	 */
-	if (do_split <= 0)
-		return do_split;
+	if (!do_split) {
+		unsigned long offset = (leaf->address & ~pmask) >> PAGE_SHIFT;
+		unsigned long numpages = psize >> PAGE_SHIFT;
+
+		cpa->numpages = min(cpa->numpages, numpages - offset);
+		cpa->pfn = leaf->pfn + offset;
+		return 0;
+	}
 
 	/*
 	 * We have to split the large page:
