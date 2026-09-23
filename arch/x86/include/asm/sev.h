@@ -129,8 +129,10 @@ struct snp_cpuid_table {
 /* RMP page size */
 #define RMP_PG_SIZE_4K			0
 #define RMP_PG_SIZE_2M			1
-#define RMP_TO_PG_LEVEL(level)		(((level) == RMP_PG_SIZE_4K) ? PG_LEVEL_4K : PG_LEVEL_2M)
-#define PG_LEVEL_TO_RMP(level)		(((level) == PG_LEVEL_4K) ? RMP_PG_SIZE_4K : RMP_PG_SIZE_2M)
+#define RMP_TO_PGTABLE_LEVEL(level)	(((level) == RMP_PG_SIZE_4K) ? \
+					 PGTABLE_LEVEL_PTE : PGTABLE_LEVEL_PMD)
+#define PGTABLE_LEVEL_TO_RMP(level)	(((level) == PGTABLE_LEVEL_PTE) ? \
+					 RMP_PG_SIZE_4K : RMP_PG_SIZE_2M)
 
 struct rmp_state {
 	u64 gpa;
@@ -391,7 +393,7 @@ struct svsm_attest_call {
 /* PTE descriptor used for the prepare_pte_enc() operations. */
 struct pte_enc_desc {
 	pte_t *kpte;
-	int pte_level;
+	enum pgtable_level pte_level;
 	bool encrypt;
 	/* pfn of the kpte above */
 	unsigned long pfn;
@@ -649,11 +651,12 @@ static inline u64 savic_ghcb_msr_read(u32 reg) { return 0; }
 #ifdef CONFIG_KVM_AMD_SEV
 bool snp_probe_rmptable_info(void);
 int snp_rmptable_init(void);
-int snp_lookup_rmpentry(u64 pfn, bool *assigned, int *level);
+int snp_lookup_rmpentry(u64 pfn, bool *assigned, enum pgtable_level *level);
 void snp_dump_hva_rmpentry(unsigned long address);
 int psmash(u64 pfn);
-int rmp_make_private(u64 pfn, u64 gpa, enum pg_level level, u32 asid, bool immutable);
-int rmp_make_shared(u64 pfn, enum pg_level level);
+int rmp_make_private(u64 pfn, u64 gpa, enum pgtable_level level, u32 asid,
+		     bool immutable);
+int rmp_make_shared(u64 pfn, enum pgtable_level level);
 void __snp_leak_pages(u64 pfn, unsigned int npages, bool dump_rmp);
 void kdump_sev_callback(void);
 void snp_fixup_e820_tables(void);
@@ -666,15 +669,19 @@ void snp_shutdown(void);
 #else
 static inline bool snp_probe_rmptable_info(void) { return false; }
 static inline int snp_rmptable_init(void) { return -ENOSYS; }
-static inline int snp_lookup_rmpentry(u64 pfn, bool *assigned, int *level) { return -ENODEV; }
+static inline int snp_lookup_rmpentry(u64 pfn, bool *assigned,
+				      enum pgtable_level *level) { return -ENODEV; }
 static inline void snp_dump_hva_rmpentry(unsigned long address) {}
 static inline int psmash(u64 pfn) { return -ENODEV; }
-static inline int rmp_make_private(u64 pfn, u64 gpa, enum pg_level level, u32 asid,
-				   bool immutable)
+static inline int rmp_make_private(u64 pfn, u64 gpa, enum pgtable_level level,
+				   u32 asid, bool immutable)
 {
 	return -ENODEV;
 }
-static inline int rmp_make_shared(u64 pfn, enum pg_level level) { return -ENODEV; }
+static inline int rmp_make_shared(u64 pfn, enum pgtable_level level)
+{
+	return -ENODEV;
+}
 static inline void __snp_leak_pages(u64 pfn, unsigned int npages, bool dump_rmp) {}
 static inline void snp_leak_pages(u64 pfn, unsigned int npages) {}
 static inline void kdump_sev_callback(void) { }

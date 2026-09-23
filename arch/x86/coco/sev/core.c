@@ -528,7 +528,7 @@ static void snp_cleanup_vmsa(struct sev_es_save_area *vmsa, int apic_id)
 		free_page((unsigned long)vmsa);
 }
 
-static void set_pte_enc(pte_t *kpte, int level, void *va)
+static void set_pte_enc(pte_t *kpte, enum pgtable_level level, void *va)
 {
 	struct pte_enc_desc d = {
 		.kpte	   = kpte,
@@ -545,7 +545,8 @@ static void unshare_all_memory(void)
 {
 	unsigned long addr, end, size, ghcb;
 	struct sev_es_runtime_data *data;
-	unsigned int npages, level;
+	unsigned int npages;
+	enum pgtable_level level;
 	bool skipped_addr;
 	pte_t *pte;
 	int cpu;
@@ -556,7 +557,7 @@ static void unshare_all_memory(void)
 
 	while (addr < end) {
 		pte = lookup_address(addr, &level);
-		size = page_level_size(level);
+		size = pgtable_level_size(level);
 		npages = size / PAGE_SIZE;
 		skipped_addr = false;
 
@@ -688,7 +689,8 @@ void snp_kexec_finish(void)
 {
 	struct sev_es_runtime_data *data;
 	unsigned long size, addr;
-	unsigned int level, cpu;
+	enum pgtable_level level;
+	unsigned int cpu;
 	struct ghcb *ghcb;
 	pte_t *pte;
 
@@ -715,9 +717,9 @@ void snp_kexec_finish(void)
 		data = per_cpu(runtime_data, cpu);
 		ghcb = &data->ghcb_page;
 		pte = lookup_address((unsigned long)ghcb, &level);
-		size = page_level_size(level);
+		size = pgtable_level_size(level);
 		/* Handle the case of a huge page containing the GHCB page */
-		addr = (unsigned long)ghcb & page_level_mask(level);
+		addr = (unsigned long)ghcb & pgtable_level_mask(level);
 		set_pte_enc(pte, level, (void *)addr);
 		snp_set_memory_private(addr, (size / PAGE_SIZE));
 	}

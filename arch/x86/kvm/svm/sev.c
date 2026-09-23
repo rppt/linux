@@ -357,10 +357,11 @@ static void sev_decommission(unsigned int handle)
  * should not fail under normal conditions, but leak the page should that
  * happen since it will no longer be usable by the host due to RMP protections.
  */
-static int kvm_rmp_make_shared(struct kvm *kvm, u64 pfn, enum pg_level level)
+static int kvm_rmp_make_shared(struct kvm *kvm, u64 pfn,
+			       enum pgtable_level level)
 {
 	if (KVM_BUG_ON(rmp_make_shared(pfn, level), kvm)) {
-		snp_leak_pages(pfn, page_level_size(level) >> PAGE_SHIFT);
+		snp_leak_pages(pfn, pgtable_level_size(level) >> PAGE_SHIFT);
 		return -EIO;
 	}
 
@@ -393,7 +394,7 @@ static int snp_page_reclaim(struct kvm *kvm, u64 pfn)
 		return -EIO;
 	}
 
-	if (kvm_rmp_make_shared(kvm, pfn, PG_LEVEL_4K))
+	if (kvm_rmp_make_shared(kvm, pfn, PGTABLE_LEVEL_PTE))
 		return -EIO;
 
 	return rc;
@@ -2352,8 +2353,8 @@ static int sev_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	struct sev_gmem_populate_args *sev_populate_args = opaque;
 	struct sev_data_snp_launch_update fw_args = {0};
 	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
+	enum pgtable_level level;
 	bool assigned = false;
-	int level;
 	int ret;
 
 	ret = snp_lookup_rmpentry((u64)pfn, &assigned, &level);
@@ -2374,14 +2375,14 @@ static int sev_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 		kunmap_local(src_vaddr);
 	}
 
-	ret = rmp_make_private(pfn, gfn << PAGE_SHIFT, PG_LEVEL_4K,
+	ret = rmp_make_private(pfn, gfn << PAGE_SHIFT, PGTABLE_LEVEL_PTE,
 			       sev_get_asid(kvm), true);
 	if (ret)
 		goto out;
 
 	fw_args.gctx_paddr = __psp_pa(sev->snp_context);
 	fw_args.address = __sme_set(pfn_to_hpa(pfn));
-	fw_args.page_size = PG_LEVEL_TO_RMP(PG_LEVEL_4K);
+	fw_args.page_size = PGTABLE_LEVEL_TO_RMP(PGTABLE_LEVEL_PTE);
 	fw_args.page_type = sev_populate_args->type;
 
 	ret = __sev_issue_cmd(sev_populate_args->sev_fd, SEV_CMD_SNP_LAUNCH_UPDATE,
@@ -2529,7 +2530,8 @@ static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
 			goto out;
 
 		/* Transition the VMSA page to a firmware state. */
-		ret = rmp_make_private(pfn, INITIAL_VMSA_GPA, PG_LEVEL_4K, sev->asid, true);
+		ret = rmp_make_private(pfn, INITIAL_VMSA_GPA, PGTABLE_LEVEL_PTE,
+				       sev->asid, true);
 		if (ret)
 			goto out;
 
@@ -3559,7 +3561,7 @@ void sev_free_vcpu(struct kvm_vcpu *vcpu)
 	if (is_sev_snp_guest(vcpu)) {
 		u64 pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
 
-		if (kvm_rmp_make_shared(vcpu->kvm, pfn, PG_LEVEL_4K))
+		if (kvm_rmp_make_shared(vcpu->kvm, pfn, PGTABLE_LEVEL_PTE))
 			goto skip_vmsa_free;
 	}
 
@@ -5018,7 +5020,8 @@ void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)
 {
 	struct kvm_memory_slot *slot;
 	struct kvm *kvm = vcpu->kvm;
-	int order, rmp_level, ret;
+	enum pgtable_level rmp_level;
+	int order, ret;
 	struct page *page;
 	bool assigned;
 	kvm_pfn_t pfn;
@@ -5082,7 +5085,7 @@ void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)
 	 * resolve automatically on subsequent accesses, so just ignore them
 	 * here.
 	 */
-	if (rmp_level == PG_LEVEL_4K)
+	if (rmp_level == PGTABLE_LEVEL_PTE)
 		goto out;
 
 	ret = snp_rmptable_psmash(pfn);
@@ -5093,7 +5096,7 @@ void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)
 		 * itself.
 		 */
 		if (!snp_lookup_rmpentry(pfn, &assigned, &rmp_level) &&
-		    assigned && rmp_level == PG_LEVEL_4K)
+		    assigned && rmp_level == PGTABLE_LEVEL_PTE)
 			goto out;
 
 		pr_warn_ratelimited("SEV: Unable to split RMP entry for GPA 0x%llx PFN 0x%llx ret %d\n",
@@ -5112,8 +5115,9 @@ static bool is_pfn_range_shared(kvm_pfn_t start, kvm_pfn_t end)
 	kvm_pfn_t pfn = start;
 
 	while (pfn < end) {
-		int ret, rmp_level;
+		enum pgtable_level rmp_level;
 		bool assigned;
+		int ret;
 
 		ret = snp_lookup_rmpentry(pfn, &assigned, &rmp_level);
 		if (ret) {
@@ -5153,10 +5157,11 @@ static bool is_large_rmp_possible(kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 int sev_gmem_make_private(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 {
 	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
+	enum pgtable_level level;
 	kvm_pfn_t pfn_aligned;
 	gfn_t gfn_aligned;
-	int level, rc;
 	bool assigned;
+	int rc;
 
 	if (!sev_snp_guest(kvm))
 		return 0;
@@ -5178,11 +5183,11 @@ int sev_gmem_make_private(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn, kvm_pfn_t n
 	}
 
 	if (is_large_rmp_possible(pfn, nr_pages)) {
-		level = PG_LEVEL_2M;
+		level = PGTABLE_LEVEL_PMD;
 		pfn_aligned = ALIGN_DOWN(pfn, PTRS_PER_PMD);
 		gfn_aligned = ALIGN_DOWN(gfn, PTRS_PER_PMD);
 	} else {
-		level = PG_LEVEL_4K;
+		level = PGTABLE_LEVEL_PTE;
 		pfn_aligned = pfn;
 		gfn_aligned = gfn;
 	}
@@ -5210,9 +5215,10 @@ void sev_gmem_make_shared(kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 	pr_debug("%s: PFN start 0x%llx PFN end 0x%llx\n", __func__, pfn, end);
 
 	while (pfn < end) {
+		enum pgtable_level rmp_level;
 		bool use_2m_update = false;
-		int rc, rmp_level;
 		bool assigned;
+		int rc;
 
 		rc = snp_lookup_rmpentry(pfn, &assigned, &rmp_level);
 		if (rc || !assigned)
@@ -5220,14 +5226,14 @@ void sev_gmem_make_shared(kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 
 		use_2m_update = IS_ALIGNED(pfn, PTRS_PER_PMD) &&
 				end >= (pfn + PTRS_PER_PMD) &&
-				rmp_level > PG_LEVEL_4K;
+				rmp_level > PGTABLE_LEVEL_PTE;
 
 		/*
 		 * If an unaligned PFN corresponds to a 2M region assigned as a
 		 * large page in the RMP table, PSMASH the region into individual
 		 * 4K RMP entries before attempting to convert a 4K sub-page.
 		 */
-		if (!use_2m_update && rmp_level > PG_LEVEL_4K) {
+		if (!use_2m_update && rmp_level > PGTABLE_LEVEL_PTE) {
 			/*
 			 * This shouldn't fail, but if it does, report it, but
 			 * still try to update RMP entry to shared and pray this
@@ -5238,7 +5244,8 @@ void sev_gmem_make_shared(kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 				  pfn, rc);
 		}
 
-		rc = rmp_make_shared(pfn, use_2m_update ? PG_LEVEL_2M : PG_LEVEL_4K);
+		rc = rmp_make_shared(pfn, use_2m_update ? PGTABLE_LEVEL_PMD :
+						  PGTABLE_LEVEL_PTE);
 		if (WARN_ONCE(rc, "SEV: Failed to update RMP entry for PFN 0x%llx error %d\n",
 			      pfn, rc))
 			goto next_pfn;
@@ -5300,8 +5307,9 @@ void sev_gmem_invalidate_range(struct kvm *kvm, struct kvm_gfn_range *range)
 
 int sev_gmem_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn, bool is_private)
 {
-	int level, rc;
+	enum pgtable_level level;
 	bool assigned;
+	int rc;
 
 	if (!sev_snp_guest(kvm))
 		return 0;
@@ -5310,7 +5318,7 @@ int sev_gmem_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn, bool is_private)
 	if (rc || !assigned)
 		return KVM_PT_LEVEL_PTE;
 
-	if (level == PG_LEVEL_2M)
+	if (level == PGTABLE_LEVEL_PMD)
 		return KVM_PT_LEVEL_PMD;
 
 	return KVM_PT_LEVEL_PTE;

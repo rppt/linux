@@ -18,7 +18,7 @@ unsigned long arbitrary_virt_to_mfn(void *vaddr)
 xmaddr_t arbitrary_virt_to_machine(void *vaddr)
 {
 	unsigned long address = (unsigned long)vaddr;
-	unsigned int level;
+	enum pgtable_level level;
 	pte_t *pte;
 	unsigned offset;
 

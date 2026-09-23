@@ -508,7 +508,7 @@ phys_pte_init(pte_t *pte_page, unsigned long paddr, unsigned long paddr_end,
 		paddr_last = (paddr & PAGE_MASK) + PAGE_SIZE;
 	}
 
-	update_page_count(PG_LEVEL_4K, pages);
+	update_page_count(PGTABLE_LEVEL_PTE, pages);
 
 	return paddr_last;
 }
@@ -554,7 +554,7 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long paddr, unsigned long paddr_end,
 				continue;
 			}
 			/*
-			 * If we are ok with PG_LEVEL_2M mapping, then we will
+			 * If we are ok with PGTABLE_LEVEL_PMD mapping, then we will
 			 * use the existing mapping,
 			 *
 			 * Otherwise, we will split the large page mapping but
@@ -565,7 +565,7 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long paddr, unsigned long paddr_end,
 			 * not differ with respect to page frame and
 			 * attributes.
 			 */
-			if (page_size_mask & (1 << PG_LEVEL_2M)) {
+			if (page_size_mask & (1 << PGTABLE_LEVEL_PMD)) {
 				if (!after_bootmem)
 					pages++;
 				paddr_last = paddr_next;
@@ -574,7 +574,7 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long paddr, unsigned long paddr_end,
 			new_prot = pte_pgprot(pte_clrhuge(*(pte_t *)pmd));
 		}
 
-		if (page_size_mask & (1<<PG_LEVEL_2M)) {
+		if (page_size_mask & (1<<PGTABLE_LEVEL_PMD)) {
 			pages++;
 			spin_lock(&init_mm.page_table_lock);
 			set_pmd_init(pmd,
@@ -592,7 +592,7 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long paddr, unsigned long paddr_end,
 		pmd_populate_kernel_init(&init_mm, pmd, pte, init);
 		spin_unlock(&init_mm.page_table_lock);
 	}
-	update_page_count(PG_LEVEL_2M, pages);
+	update_page_count(PGTABLE_LEVEL_PMD, pages);
 	return paddr_last;
 }
 
@@ -640,7 +640,7 @@ phys_pud_init(pud_t *pud_page, unsigned long paddr, unsigned long paddr_end,
 				continue;
 			}
 			/*
-			 * If we are ok with PG_LEVEL_1G mapping, then we will
+			 * If we are ok with PGTABLE_LEVEL_PUD mapping, then we will
 			 * use the existing mapping.
 			 *
 			 * Otherwise, we will split the gbpage mapping but use
@@ -651,7 +651,7 @@ phys_pud_init(pud_t *pud_page, unsigned long paddr, unsigned long paddr_end,
 			 * not differ with respect to page frame and
 			 * attributes.
 			 */
-			if (page_size_mask & (1 << PG_LEVEL_1G)) {
+			if (page_size_mask & (1 << PGTABLE_LEVEL_PUD)) {
 				if (!after_bootmem)
 					pages++;
 				paddr_last = paddr_next;
@@ -660,7 +660,7 @@ phys_pud_init(pud_t *pud_page, unsigned long paddr, unsigned long paddr_end,
 			prot = pte_pgprot(pte_clrhuge(*(pte_t *)pud));
 		}
 
-		if (page_size_mask & (1<<PG_LEVEL_1G)) {
+		if (page_size_mask & (1<<PGTABLE_LEVEL_PUD)) {
 			pages++;
 			spin_lock(&init_mm.page_table_lock);
 			set_pud_init(pud,
@@ -680,7 +680,7 @@ phys_pud_init(pud_t *pud_page, unsigned long paddr, unsigned long paddr_end,
 		spin_unlock(&init_mm.page_table_lock);
 	}
 
-	update_page_count(PG_LEVEL_1G, pages);
+	update_page_count(PGTABLE_LEVEL_PUD, pages);
 
 	return paddr_last;
 }
@@ -1115,7 +1115,7 @@ remove_pte_table(pte_t *pte_start, unsigned long addr, unsigned long end,
 	/* Call free_pte_table() in remove_pmd_table(). */
 	flush_tlb_all();
 	if (direct)
-		update_page_count(PG_LEVEL_4K, -pages);
+		update_page_count(PGTABLE_LEVEL_PTE, -pages);
 }
 
 static void __meminit
@@ -1161,7 +1161,7 @@ remove_pmd_table(pmd_t *pmd_start, unsigned long addr, unsigned long end,
 
 	/* Call free_pmd_table() in remove_pud_table(). */
 	if (direct)
-		update_page_count(PG_LEVEL_2M, -pages);
+		update_page_count(PGTABLE_LEVEL_PMD, -pages);
 }
 
 static void __meminit
@@ -1195,7 +1195,7 @@ remove_pud_table(pud_t *pud_start, unsigned long addr, unsigned long end,
 	}
 
 	if (direct)
-		update_page_count(PG_LEVEL_1G, -pages);
+		update_page_count(PGTABLE_LEVEL_PUD, -pages);
 }
 
 static void __meminit
@@ -1227,7 +1227,7 @@ remove_p4d_table(p4d_t *p4d_start, unsigned long addr, unsigned long end,
 	}
 
 	if (direct)
-		update_page_count(PG_LEVEL_512G, -pages);
+		update_page_count(PGTABLE_LEVEL_P4D, -pages);
 }
 
 /* start and end are both virtual address. */

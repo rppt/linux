@@ -4083,8 +4083,9 @@ static int iommu_page_make_shared(void *page)
 	pfn = __sme_clr(paddr) >> PAGE_SHIFT;
 
 	if (!(pfn % PTRS_PER_PMD)) {
-		int ret, level;
+		enum pgtable_level level;
 		bool assigned;
+		int ret;
 
 		ret = snp_lookup_rmpentry(pfn, &assigned, &level);
 		if (ret) {
@@ -4097,7 +4098,7 @@ static int iommu_page_make_shared(void *page)
 			return -EINVAL;
 		}
 
-		if (level > PG_LEVEL_4K) {
+		if (level > PGTABLE_LEVEL_PTE) {
 			ret = psmash(pfn);
 			if (!ret)
 				goto done;
@@ -4109,7 +4110,7 @@ static int iommu_page_make_shared(void *page)
 	}
 
 done:
-	return rmp_make_shared(pfn, PG_LEVEL_4K);
+	return rmp_make_shared(pfn, PGTABLE_LEVEL_PTE);
 }
 
 static int iommu_make_shared(void *va, size_t size)

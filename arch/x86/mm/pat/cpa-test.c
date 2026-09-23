@@ -57,7 +57,7 @@ static int print_split(struct split_state *s)
 	s->max_exec = 0;
 	for (i = 0; i < max_pfn_mapped; ) {
 		unsigned long addr = (unsigned long)__va(i << PAGE_SHIFT);
-		unsigned int level;
+		enum pgtable_level level;
 		pte_t *pte;
 
 		pte = lookup_address(addr, &level);
@@ -67,10 +67,10 @@ static int print_split(struct split_state *s)
 			continue;
 		}
 
-		if (level == PG_LEVEL_1G && sizeof(long) == 8) {
+		if (level == PGTABLE_LEVEL_PUD && sizeof(long) == 8) {
 			s->gpg++;
 			i += GPS/PAGE_SIZE;
-		} else if (level == PG_LEVEL_2M) {
+		} else if (level == PGTABLE_LEVEL_PMD) {
 			if ((pte_val(*pte) & _PAGE_PRESENT) && !(pte_val(*pte) & _PAGE_PSE)) {
 				printk(KERN_ERR
 					"%lx level %d but not PSE %Lx\n",
@@ -121,7 +121,7 @@ static int pageattr_test(void)
 	unsigned long *bm;
 	pte_t *pte, pte0;
 	int failed = 0;
-	unsigned int level;
+	enum pgtable_level level;
 	int i, k;
 	int err;
 
@@ -204,7 +204,7 @@ static int pageattr_test(void)
 				pte ? (u64)pte_val(*pte) : 0ULL);
 			failed++;
 		}
-		if (level != PG_LEVEL_4K) {
+		if (level != PGTABLE_LEVEL_PTE) {
 			printk(KERN_ERR "CPA %lx: unexpected level %d\n",
 				addr[i], level);
 			failed++;

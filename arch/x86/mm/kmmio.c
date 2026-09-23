@@ -80,12 +80,12 @@ static LIST_HEAD(kmmio_probes);
 
 static struct list_head *kmmio_page_list(unsigned long addr)
 {
-	unsigned int l;
+	enum pgtable_level l;
 	pte_t *pte = lookup_address(addr, &l);
 
 	if (!pte)
 		return NULL;
-	addr &= page_level_mask(l);
+	addr &= pgtable_level_mask(l);
 
 	return &kmmio_page_table[hash_long(addr, KMMIO_PAGE_HASH_BITS)];
 }
@@ -117,12 +117,12 @@ static struct kmmio_fault_page *get_kmmio_fault_page(unsigned long addr)
 {
 	struct list_head *head;
 	struct kmmio_fault_page *f;
-	unsigned int l;
+	enum pgtable_level l;
 	pte_t *pte = lookup_address(addr, &l);
 
 	if (!pte)
 		return NULL;
-	addr &= page_level_mask(l);
+	addr &= pgtable_level_mask(l);
 	head = kmmio_page_list(addr);
 	list_for_each_entry_rcu(f, head, list) {
 		if (f->addr == addr)
@@ -160,7 +160,7 @@ static void clear_pte_presence(pte_t *pte, bool clear, pteval_t *old)
 
 static int clear_page_presence(struct kmmio_fault_page *f, bool clear)
 {
-	unsigned int level;
+	enum pgtable_level level;
 	pte_t *pte = lookup_address(f->addr, &level);
 
 	if (!pte) {
@@ -169,10 +169,10 @@ static int clear_page_presence(struct kmmio_fault_page *f, bool clear)
 	}
 
 	switch (level) {
-	case PG_LEVEL_2M:
+	case PGTABLE_LEVEL_PMD:
 		clear_pmd_presence((pmd_t *)pte, clear, &f->old_presence);
 		break;
-	case PG_LEVEL_4K:
+	case PGTABLE_LEVEL_PTE:
 		clear_pte_presence(pte, clear, &f->old_presence);
 		break;
 	default:
@@ -240,11 +240,11 @@ int kmmio_handler(struct pt_regs *regs, unsigned long addr)
 	struct kmmio_fault_page *faultpage;
 	int ret = 0; /* default to fault not handled */
 	unsigned long page_base = addr;
-	unsigned int l;
+	enum pgtable_level l;
 	pte_t *pte = lookup_address(addr, &l);
 	if (!pte)
 		return -EINVAL;
-	page_base &= page_level_mask(l);
+	page_base &= pgtable_level_mask(l);
 
 	/*
 	 * Hold the RCU read lock over single stepping to avoid looking
@@ -441,7 +441,7 @@ int register_kmmio_probe(struct kmmio_probe *p)
 	unsigned long size = 0;
 	unsigned long addr = p->addr & PAGE_MASK;
 	const unsigned long size_lim = p->len + (p->addr & ~PAGE_MASK);
-	unsigned int l;
+	enum pgtable_level l;
 	pte_t *pte;
 
 	local_irq_save(flags);
@@ -462,7 +462,7 @@ int register_kmmio_probe(struct kmmio_probe *p)
 	while (size < size_lim) {
 		if (add_kmmio_fault_page(addr + size))
 			pr_err("Unable to set page fault.\n");
-		size += page_level_size(l);
+		size += pgtable_level_size(l);
 	}
 out:
 	arch_spin_unlock(&kmmio_lock);
@@ -542,7 +542,7 @@ void unregister_kmmio_probe(struct kmmio_probe *p)
 	const unsigned long size_lim = p->len + (p->addr & ~PAGE_MASK);
 	struct kmmio_fault_page *release_list = NULL;
 	struct kmmio_delayed_release *drelease;
-	unsigned int l;
+	enum pgtable_level l;
 	pte_t *pte;
 
 	pte = lookup_address(addr, &l);
@@ -553,7 +553,7 @@ void unregister_kmmio_probe(struct kmmio_probe *p)
 	arch_spin_lock(&kmmio_lock);
 	while (size < size_lim) {
 		release_kmmio_fault_page(addr + size, &release_list);
-		size += page_level_size(l);
+		size += pgtable_level_size(l);
 	}
 	list_del_rcu(&p->list);
 	kmmio_count--;

@@ -214,21 +214,22 @@ void __init sme_map_bootdata(char *real_mode_data)
 	__sme_early_map_unmap_mem(__va(cmdline_paddr), COMMAND_LINE_SIZE, true);
 }
 
-static unsigned long pg_level_to_pfn(int level, pte_t *kpte, pgprot_t *ret_prot)
+static unsigned long pgtable_level_to_pfn(enum pgtable_level level, pte_t *kpte,
+					  pgprot_t *ret_prot)
 {
 	unsigned long pfn = 0;
 	pgprot_t prot;
 
 	switch (level) {
-	case PG_LEVEL_4K:
+	case PGTABLE_LEVEL_PTE:
 		pfn = pte_pfn(*kpte);
 		prot = pte_pgprot(*kpte);
 		break;
-	case PG_LEVEL_2M:
+	case PGTABLE_LEVEL_PMD:
 		pfn = pmd_pfn(*(pmd_t *)kpte);
 		prot = pmd_pgprot(*(pmd_t *)kpte);
 		break;
-	case PG_LEVEL_1G:
+	case PGTABLE_LEVEL_PUD:
 		pfn = pud_pfn(*(pud_t *)kpte);
 		prot = pud_pgprot(*(pud_t *)kpte);
 		break;
@@ -259,7 +260,8 @@ static void enc_dec_hypercall(unsigned long vaddr, unsigned long size, bool enc)
 	unsigned long vaddr_end = vaddr + size;
 
 	while (vaddr < vaddr_end) {
-		int psize, pmask, level;
+		unsigned long psize, pmask;
+		enum pgtable_level level;
 		unsigned long pfn;
 		pte_t *kpte;
 
@@ -269,12 +271,12 @@ static void enc_dec_hypercall(unsigned long vaddr, unsigned long size, bool enc)
 			return;
 		}
 
-		pfn = pg_level_to_pfn(level, kpte, NULL);
+		pfn = pgtable_level_to_pfn(level, kpte, NULL);
 		if (!pfn)
 			continue;
 
-		psize = page_level_size(level);
-		pmask = page_level_mask(level);
+		psize = pgtable_level_size(level);
+		pmask = pgtable_level_mask(level);
 
 		notify_page_enc_status_changed(pfn, psize >> PAGE_SHIFT, enc);
 
@@ -315,7 +317,7 @@ int prepare_pte_enc(struct pte_enc_desc *d)
 {
 	pgprot_t old_prot;
 
-	d->pfn = pg_level_to_pfn(d->pte_level, d->kpte, &old_prot);
+	d->pfn = pgtable_level_to_pfn(d->pte_level, d->kpte, &old_prot);
 	if (!d->pfn)
 		return 1;
 
@@ -330,7 +332,7 @@ int prepare_pte_enc(struct pte_enc_desc *d)
 		return 1;
 
 	d->pa = d->pfn << PAGE_SHIFT;
-	d->size = page_level_size(d->pte_level);
+	d->size = pgtable_level_size(d->pte_level);
 
 	/*
 	 * In-place en-/decryption and physical page attribute change
@@ -355,7 +357,8 @@ void set_pte_enc_mask(pte_t *kpte, unsigned long pfn, pgprot_t new_prot)
 	set_pte_atomic(kpte, new_pte);
 }
 
-static void __init __set_clr_pte_enc(pte_t *kpte, int level, bool enc)
+static void __init __set_clr_pte_enc(pte_t *kpte, enum pgtable_level level,
+				     bool enc)
 {
 	struct pte_enc_desc d = {
 		.kpte	     = kpte,
@@ -395,8 +398,9 @@ static int __init early_set_memory_enc_dec(unsigned long vaddr,
 	unsigned long vaddr_end, vaddr_next, start;
 	unsigned long psize, pmask;
 	int split_page_size_mask;
-	int level, ret;
+	enum pgtable_level level;
 	pte_t *kpte;
+	int ret;
 
 	start = vaddr;
 	vaddr_next = vaddr;
@@ -409,14 +413,14 @@ static int __init early_set_memory_enc_dec(unsigned long vaddr,
 			goto out;
 		}
 
-		if (level == PG_LEVEL_4K) {
+		if (level == PGTABLE_LEVEL_PTE) {
 			__set_clr_pte_enc(kpte, level, enc);
 			vaddr_next = (vaddr & PAGE_MASK) + PAGE_SIZE;
 			continue;
 		}
 
-		psize = page_level_size(level);
-		pmask = page_level_mask(level);
+		psize = pgtable_level_size(level);
+		pmask = pgtable_level_mask(level);
 
 		/*
 		 * Check whether we can change the large page in one go.
@@ -437,10 +441,10 @@ static int __init early_set_memory_enc_dec(unsigned long vaddr,
 		 * page then we request a split of the large page into 4K
 		 * chunks. A 1GB large page is split into 2M pages, resp.
 		 */
-		if (level == PG_LEVEL_2M)
+		if (level == PGTABLE_LEVEL_PMD)
 			split_page_size_mask = 0;
 		else
-			split_page_size_mask = 1 << PG_LEVEL_2M;
+			split_page_size_mask = 1 << PGTABLE_LEVEL_PMD;
 
 		/*
 		 * kernel_physical_mapping_change() does not flush the TLBs, so

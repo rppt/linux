@@ -541,16 +541,6 @@ extern void native_pagetable_init(void);
 #define native_pagetable_init        paging_init
 #endif
 
-enum pg_level {
-	PG_LEVEL_NONE,
-	PG_LEVEL_4K,
-	PG_LEVEL_2M,
-	PG_LEVEL_1G,
-	PG_LEVEL_512G,
-	PG_LEVEL_256T,
-	PG_LEVEL_NUM
-};
-
 #endif	/* !__ASSEMBLER__ */
 
 #endif /* _ASM_X86_PGTABLE_DEFS_H */

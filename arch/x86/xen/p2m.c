@@ -209,7 +209,8 @@ void __ref xen_build_mfn_list_list(void)
 {
 	unsigned long pfn, mfn;
 	pte_t *ptep;
-	unsigned int level, topidx, mididx;
+	unsigned int topidx, mididx;
+	enum pgtable_level level;
 	unsigned long *mid_mfn_p;
 
 	if (xen_start_info->flags & SIF_VIRT_P2M_4TOOLS)
@@ -238,7 +239,7 @@ void __ref xen_build_mfn_list_list(void)
 		mid_mfn_p = p2m_top_mfn_p[topidx];
 		ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn),
 				      &level);
-		BUG_ON(!ptep || level != PG_LEVEL_4K);
+		BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 		mfn = pte_mfn(*ptep);
 		ptep = (pte_t *)((unsigned long)ptep & ~(PAGE_SIZE - 1));
 
@@ -426,7 +427,7 @@ void __init xen_vmalloc_p2m_tree(void)
 unsigned long get_phys_to_machine(unsigned long pfn)
 {
 	pte_t *ptep;
-	unsigned int level;
+	enum pgtable_level level;
 
 	if (unlikely(pfn >= xen_p2m_size)) {
 		if (pfn < xen_max_p2m_pfn)
@@ -436,7 +437,7 @@ unsigned long get_phys_to_machine(unsigned long pfn)
 	}
 
 	ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn), &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 
 	/*
 	 * The INVALID_P2M_ENTRY is filled in both p2m_*identity
@@ -461,7 +462,7 @@ static pte_t *alloc_p2m_pmd(unsigned long addr, pte_t *pte_pg)
 	pte_t *ptechk;
 	pte_t *pte_newpg[PMDS_PER_MID_PAGE];
 	pmd_t *pmdp;
-	unsigned int level;
+	enum pgtable_level level;
 	unsigned long flags;
 	unsigned long vaddr;
 	int i;
@@ -524,13 +525,13 @@ int xen_alloc_p2m_entry(unsigned long pfn)
 	unsigned topidx;
 	unsigned long *top_mfn_p, *mid_mfn;
 	pte_t *ptep, *pte_pg;
-	unsigned int level;
+	enum pgtable_level level;
 	unsigned long flags;
 	unsigned long addr = (unsigned long)(xen_p2m_addr + pfn);
 	unsigned long p2m_pfn;
 
 	ptep = lookup_address(addr, &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 	pte_pg = (pte_t *)((unsigned long)ptep & ~(PAGE_SIZE - 1));
 
 	if (pte_pg == p2m_missing_pte || pte_pg == p2m_identity_pte) {
@@ -640,7 +641,7 @@ unsigned long __init set_phys_range_identity(unsigned long pfn_s,
 bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 {
 	pte_t *ptep;
-	unsigned int level;
+	enum pgtable_level level;
 
 	/* Only invalid entries allowed above the highest p2m covered frame. */
 	if (unlikely(pfn >= xen_p2m_size))
@@ -654,7 +655,7 @@ bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 		return true;
 
 	ptep = lookup_address((unsigned long)(xen_p2m_addr + pfn), &level);
-	BUG_ON(!ptep || level != PG_LEVEL_4K);
+	BUG_ON(!ptep || level != PGTABLE_LEVEL_PTE);
 
 	if (pte_pfn(*ptep) == PFN_DOWN(__pa(p2m_missing)))
 		return mfn == INVALID_P2M_ENTRY;

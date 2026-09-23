@@ -199,7 +199,7 @@ void make_lowmem_page_readonly(void *vaddr)
 {
 	pte_t *pte, ptev;
 	unsigned long address = (unsigned long)vaddr;
-	unsigned int level;
+	enum pgtable_level level;
 
 	pte = lookup_address(address, &level);
 	if (pte == NULL)
@@ -215,7 +215,7 @@ void make_lowmem_page_readwrite(void *vaddr)
 {
 	pte_t *pte, ptev;
 	unsigned long address = (unsigned long)vaddr;
-	unsigned int level;
+	enum pgtable_level level;
 
 	pte = lookup_address(address, &level);
 	if (pte == NULL)

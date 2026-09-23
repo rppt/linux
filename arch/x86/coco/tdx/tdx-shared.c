@@ -1,10 +1,11 @@
+#include <linux/pgtable.h>
+
 #include <asm/tdx.h>
-#include <asm/pgtable.h>
 
 static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
-				    enum pg_level pg_level)
+				    enum pgtable_level level)
 {
-	unsigned long accept_size = page_level_size(pg_level);
+	unsigned long accept_size = pgtable_level_size(level);
 	struct tdx_module_args args = {};
 	u8 page_size;
 
@@ -20,14 +21,14 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 	 *
 	 * Bits 2:0 of RCX encode page size: 0 - 4K, 1 - 2M, 2 - 1G.
 	 */
-	switch (pg_level) {
-	case PG_LEVEL_4K:
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
 		page_size = TDX_PS_4K;
 		break;
-	case PG_LEVEL_2M:
+	case PGTABLE_LEVEL_PMD:
 		page_size = TDX_PS_2M;
 		break;
-	case PG_LEVEL_1G:
+	case PGTABLE_LEVEL_PUD:
 		page_size = TDX_PS_1G;
 		break;
 	default:
@@ -57,11 +58,11 @@ bool tdx_accept_memory(phys_addr_t start, phys_addr_t end)
 		 * process by cutting number of hypercalls (if successful).
 		 */
 
-		accept_size = try_accept_one(start, len, PG_LEVEL_1G);
+		accept_size = try_accept_one(start, len, PGTABLE_LEVEL_PUD);
 		if (!accept_size)
-			accept_size = try_accept_one(start, len, PG_LEVEL_2M);
+			accept_size = try_accept_one(start, len, PGTABLE_LEVEL_PMD);
 		if (!accept_size)
-			accept_size = try_accept_one(start, len, PG_LEVEL_4K);
+			accept_size = try_accept_one(start, len, PGTABLE_LEVEL_PTE);
 		if (!accept_size)
 			return false;
 		start += accept_size;

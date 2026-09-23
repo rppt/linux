@@ -519,7 +519,7 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		return;
 
 	if (error_code & X86_PF_INSTR) {
-		unsigned int level;
+		enum pgtable_level level;
 		bool nx, rw;
 		pgd_t *pgd;
 		pte_t *pte;

@@ -2295,6 +2295,8 @@ enum pgtable_level {
 	PGTABLE_LEVEL_PGD,
 };
 
+#define PGTABLE_LEVEL_NUM	(PGTABLE_LEVEL_PGD + 1)
+
 static inline const char *pgtable_level_to_str(enum pgtable_level level)
 {
 	switch (level) {
@@ -2312,6 +2314,35 @@ static inline const char *pgtable_level_to_str(enum pgtable_level level)
 		return "unknown";
 	}
 }
+
+#ifdef CONFIG_MMU
+/*
+ * Size of the range mapped by a leaf entry at @level.  Folded levels alias to
+ * the size of the enclosing level.
+ */
+static inline unsigned long pgtable_level_size(enum pgtable_level level)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return PAGE_SIZE;
+	case PGTABLE_LEVEL_PMD:
+		return PMD_SIZE;
+	case PGTABLE_LEVEL_PUD:
+		return PUD_SIZE;
+	case PGTABLE_LEVEL_P4D:
+		return P4D_SIZE;
+	case PGTABLE_LEVEL_PGD:
+		return PGDIR_SIZE;
+	}
+
+	return PAGE_SIZE;
+}
+
+static inline unsigned long pgtable_level_mask(enum pgtable_level level)
+{
+	return ~(pgtable_level_size(level) - 1);
+}
+#endif /* CONFIG_MMU */
 
 #endif /* !__ASSEMBLER__ */
 

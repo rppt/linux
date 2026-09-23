@@ -41,7 +41,7 @@ static enum es_result vc_slow_virt_to_phys(struct ghcb *ghcb, struct es_em_ctxt 
 					   unsigned long vaddr, phys_addr_t *paddr)
 {
 	unsigned long va = (unsigned long)vaddr;
-	unsigned int level;
+	enum pgtable_level level;
 	phys_addr_t pa;
 	pgd_t *pgd;
 	pte_t *pte;
@@ -65,7 +65,7 @@ static enum es_result vc_slow_virt_to_phys(struct ghcb *ghcb, struct es_em_ctxt 
 		return ES_UNSUPPORTED;
 
 	pa = (phys_addr_t)pte_pfn(*pte) << PAGE_SHIFT;
-	pa |= va & ~page_level_mask(level);
+	pa |= va & ~pgtable_level_mask(level);
 
 	*paddr = pa;
 

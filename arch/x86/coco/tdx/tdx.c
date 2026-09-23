@@ -1038,11 +1038,11 @@ static void tdx_kexec_finish(void)
 
 	while (addr < end) {
 		unsigned long size;
-		unsigned int level;
+		enum pgtable_level level;
 		pte_t *pte;
 
 		pte = lookup_address(addr, &level);
-		size = page_level_size(level);
+		size = pgtable_level_size(level);
 
 		if (pte && pte_decrypted(*pte)) {
 			int pages = size / PAGE_SIZE;

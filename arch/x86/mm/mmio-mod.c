@@ -79,7 +79,7 @@ static bool is_enabled(void)
 
 static void print_pte(unsigned long address)
 {
-	unsigned int level;
+	enum pgtable_level level;
 	pte_t *pte = lookup_address(address, &level);
 
 	if (!pte) {
@@ -88,7 +88,7 @@ static void print_pte(unsigned long address)
 		return;
 	}
 
-	if (level == PG_LEVEL_2M) {
+	if (level == PGTABLE_LEVEL_PMD) {
 		pr_emerg("4MB pages are not currently supported: 0x%08lx\n",
 			 address);
 		BUG();

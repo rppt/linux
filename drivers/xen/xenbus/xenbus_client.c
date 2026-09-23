@@ -806,7 +806,7 @@ static int xenbus_unmap_ring_pv(struct xenbus_device *dev, void *vaddr)
 {
 	struct xenbus_map_node *node;
 	struct gnttab_unmap_grant_ref unmap[XENBUS_MAX_RING_GRANTS];
-	unsigned int level;
+	enum pgtable_level level;
 	int i;
 	bool leaked = false;
 	int err;

@@ -92,9 +92,10 @@ int set_direct_map_default_noflush(struct page *page, unsigned int nr);
 bool kernel_page_present(struct page *page);
 
 #ifdef CONFIG_PROC_FS
-void update_page_count(int level, unsigned long pages);
+void update_page_count(enum pgtable_level level, unsigned long pages);
 #else
-static inline void update_page_count(int level, unsigned long pages) { }
+static inline void update_page_count(enum pgtable_level level,
+				     unsigned long pages) { }
 #endif
 
 /*
@@ -103,11 +104,12 @@ static inline void update_page_count(int level, unsigned long pages) { }
  * NOTE: the return type is pte_t but if the pmd is PSE then we return it
  * as a pte too.
  */
-pte_t *lookup_address(unsigned long address, unsigned int *level);
+pte_t *lookup_address(unsigned long address, enum pgtable_level *level);
 pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
-			     unsigned int *level);
+			     enum pgtable_level *level);
 pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
-				  unsigned int *level, bool *nx, bool *rw);
+				  enum pgtable_level *level, bool *nx,
+				  bool *rw);
 pmd_t *lookup_pmd_address(unsigned long address);
 phys_addr_t slow_virt_to_phys(void *__address);
 int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn,

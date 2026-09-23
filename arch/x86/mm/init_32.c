@@ -251,7 +251,7 @@ kernel_physical_mapping_init(unsigned long start,
 			     unsigned long page_size_mask,
 			     pgprot_t prot)
 {
-	int use_pse = page_size_mask == (1<<PG_LEVEL_2M);
+	int use_pse = page_size_mask == (1<<PGTABLE_LEVEL_PMD);
 	unsigned long last_map_addr = end;
 	unsigned long start_pfn, end_pfn;
 	pgd_t *pgd_base = swapper_pg_dir;
@@ -367,8 +367,8 @@ repeat:
 		 * update direct mapping page count only in the first
 		 * iteration.
 		 */
-		update_page_count(PG_LEVEL_2M, pages_2m);
-		update_page_count(PG_LEVEL_4K, pages_4k);
+		update_page_count(PGTABLE_LEVEL_PMD, pages_2m);
+		update_page_count(PGTABLE_LEVEL_PTE, pages_4k);
 
 		/*
 		 * local global flush tlb, which will flush the previous

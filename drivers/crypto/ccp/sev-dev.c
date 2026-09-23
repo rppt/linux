@@ -397,7 +397,7 @@ int snp_reclaim_pages(unsigned long paddr, unsigned int npages, bool locked)
 		if (ret)
 			goto cleanup;
 
-		ret = rmp_make_shared(__phys_to_pfn(paddr), PG_LEVEL_4K);
+		ret = rmp_make_shared(__phys_to_pfn(paddr), PGTABLE_LEVEL_PTE);
 		if (ret)
 			goto cleanup;
 	}
@@ -420,7 +420,7 @@ static int rmp_mark_pages_firmware(unsigned long paddr, unsigned int npages, boo
 	int rc, i;
 
 	for (i = 0; i < npages; i++, pfn++) {
-		rc = rmp_make_private(pfn, 0, PG_LEVEL_4K, 0, true);
+		rc = rmp_make_private(pfn, 0, PGTABLE_LEVEL_PTE, 0, true);
 		if (rc)
 			goto cleanup;
 	}

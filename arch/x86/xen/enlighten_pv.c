@@ -448,7 +448,7 @@ static unsigned long xen_store_tr(void)
  */
 static void set_aliased_prot(void *v, pgprot_t prot)
 {
-	int level;
+	enum pgtable_level level;
 	pte_t *ptep;
 	pte_t pte;
 	unsigned long pfn;
@@ -547,7 +547,7 @@ static void xen_load_gdt(const struct desc_ptr *dtr)
 	unsigned long va = dtr->address;
 	unsigned int size = dtr->size + 1;
 	unsigned long pfn, mfn;
-	int level;
+	enum pgtable_level level;
 	pte_t *ptep;
 	void *virt;
 

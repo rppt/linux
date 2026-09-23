@@ -474,11 +474,11 @@ static struct sla_addr_t sla_alloc(size_t len, bool firmware_state)
 		if (scatter) {
 			for (i = 0; i < npages; ++i) {
 				if (rmp_make_private(sla_to_pfn(scatter[i]), 0,
-						     PG_LEVEL_4K, 0, true))
+						     PGTABLE_LEVEL_PTE, 0, true))
 					goto free_exit;
 			}
 		} else {
-			if (rmp_make_private(sla_to_pfn(ret), 0, PG_LEVEL_4K, 0, true))
+			if (rmp_make_private(sla_to_pfn(ret), 0, PGTABLE_LEVEL_PTE, 0, true))
 				goto no_reclaim_exit;
 		}
 	}

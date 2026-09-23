@@ -765,7 +765,8 @@ static int get_rmpentry(u64 pfn, struct rmpentry *e)
 	return 0;
 }
 
-static int __snp_lookup_rmpentry(u64 pfn, struct rmpentry *e, int *level)
+static int __snp_lookup_rmpentry(u64 pfn, struct rmpentry *e,
+				 enum pgtable_level *level)
 {
 	struct rmpentry e_large;
 	int ret;
@@ -786,12 +787,12 @@ static int __snp_lookup_rmpentry(u64 pfn, struct rmpentry *e, int *level)
 	if (ret)
 		return ret;
 
-	*level = RMP_TO_PG_LEVEL(e_large.pagesize);
+	*level = RMP_TO_PGTABLE_LEVEL(e_large.pagesize);
 
 	return 0;
 }
 
-int snp_lookup_rmpentry(u64 pfn, bool *assigned, int *level)
+int snp_lookup_rmpentry(u64 pfn, bool *assigned, enum pgtable_level *level)
 {
 	struct rmpentry e;
 	int ret;
@@ -814,9 +815,10 @@ EXPORT_SYMBOL_GPL(snp_lookup_rmpentry);
 static void dump_rmpentry(u64 pfn)
 {
 	struct rmpentry_raw *e_raw;
+	enum pgtable_level level;
 	u64 pfn_i, pfn_end;
 	struct rmpentry e;
-	int level, ret;
+	int ret;
 
 	ret = __snp_lookup_rmpentry(pfn, &e, &level);
 	if (ret) {
@@ -870,7 +872,7 @@ static void dump_rmpentry(u64 pfn)
 void snp_dump_hva_rmpentry(unsigned long hva)
 {
 	unsigned long paddr;
-	unsigned int level;
+	enum pgtable_level level;
 	pgd_t *pgd;
 	pte_t *pte;
 
@@ -883,7 +885,7 @@ void snp_dump_hva_rmpentry(unsigned long hva)
 		return;
 	}
 
-	paddr = PFN_PHYS(pte_pfn(*pte)) | (hva & ~page_level_mask(level));
+	paddr = PFN_PHYS(pte_pfn(*pte)) | (hva & ~pgtable_level_mask(level));
 	dump_rmpentry(PHYS_PFN(paddr));
 }
 
@@ -938,10 +940,10 @@ EXPORT_SYMBOL_GPL(psmash);
  * More specifics on how these checks are carried out can be found in APM
  * Volume 2, "RMP and VMPL Access Checks".
  */
-static int adjust_direct_map(u64 pfn, int rmp_level)
+static int adjust_direct_map(u64 pfn, enum pgtable_level rmp_level)
 {
 	unsigned long vaddr;
-	unsigned int level;
+	enum pgtable_level level;
 	int npages, ret;
 	pte_t *pte;
 
@@ -952,13 +954,13 @@ static int adjust_direct_map(u64 pfn, int rmp_level)
 	vaddr = (unsigned long)pfn_to_kaddr(pfn);
 
 	/* Only 4KB/2MB RMP entries are supported by current hardware. */
-	if (WARN_ON_ONCE(rmp_level > PG_LEVEL_2M))
+	if (WARN_ON_ONCE(rmp_level > PGTABLE_LEVEL_PMD))
 		return -EINVAL;
 
 	if (!pfn_valid(pfn))
 		return -EINVAL;
 
-	if (rmp_level == PG_LEVEL_2M &&
+	if (rmp_level == PGTABLE_LEVEL_PMD &&
 	    (!IS_ALIGNED(pfn, PTRS_PER_PMD) || !pfn_valid(pfn + PTRS_PER_PMD - 1)))
 		return -EINVAL;
 
@@ -968,17 +970,17 @@ static int adjust_direct_map(u64 pfn, int rmp_level)
 	 * since even accesses from 1GB mappings will be treated as 2MB accesses
 	 * as far as RMP table checks are concerned.
 	 */
-	if (rmp_level == PG_LEVEL_2M)
+	if (rmp_level == PGTABLE_LEVEL_PMD)
 		return 0;
 
 	pte = lookup_address(vaddr, &level);
 	if (!pte || pte_none(*pte))
 		return 0;
 
-	if (level == PG_LEVEL_4K)
+	if (level == PGTABLE_LEVEL_PTE)
 		return 0;
 
-	npages = page_level_size(rmp_level) / PAGE_SIZE;
+	npages = pgtable_level_size(rmp_level) / PAGE_SIZE;
 	ret = set_memory_4k(vaddr, npages);
 	if (ret)
 		pr_warn("Failed to split direct map for PFN 0x%llx, ret: %d\n",
@@ -1003,12 +1005,13 @@ static int adjust_direct_map(u64 pfn, int rmp_level)
 static int rmpupdate(u64 pfn, struct rmp_state *state)
 {
 	unsigned long paddr = pfn << PAGE_SHIFT;
-	int ret, level;
+	enum pgtable_level level;
+	int ret;
 
 	if (!cc_platform_has(CC_ATTR_HOST_SEV_SNP))
 		return -ENODEV;
 
-	level = RMP_TO_PG_LEVEL(state->pagesize);
+	level = RMP_TO_PGTABLE_LEVEL(state->pagesize);
 
 	if (adjust_direct_map(pfn, level))
 		return -EFAULT;
@@ -1022,7 +1025,7 @@ static int rmpupdate(u64 pfn, struct rmp_state *state)
 	} while (ret == RMPUPDATE_FAIL_OVERLAP);
 
 	if (ret) {
-		pr_err("RMPUPDATE failed for PFN %llx, pg_level: %d, ret: %d\n",
+		pr_err("RMPUPDATE failed for PFN %llx, level: %d, ret: %d\n",
 		       pfn, level, ret);
 		dump_rmpentry(pfn);
 		dump_stack();
@@ -1033,7 +1036,8 @@ static int rmpupdate(u64 pfn, struct rmp_state *state)
 }
 
 /* Transition a page to guest-owned/private state in the RMP table. */
-int rmp_make_private(u64 pfn, u64 gpa, enum pg_level level, u32 asid, bool immutable)
+int rmp_make_private(u64 pfn, u64 gpa, enum pgtable_level level, u32 asid,
+		     bool immutable)
 {
 	struct rmp_state state;
 
@@ -1042,19 +1046,19 @@ int rmp_make_private(u64 pfn, u64 gpa, enum pg_level level, u32 asid, bool immut
 	state.asid = asid;
 	state.immutable = immutable;
 	state.gpa = gpa;
-	state.pagesize = PG_LEVEL_TO_RMP(level);
+	state.pagesize = PGTABLE_LEVEL_TO_RMP(level);
 
 	return rmpupdate(pfn, &state);
 }
 EXPORT_SYMBOL_GPL(rmp_make_private);
 
 /* Transition a page to hypervisor-owned/shared state in the RMP table. */
-int rmp_make_shared(u64 pfn, enum pg_level level)
+int rmp_make_shared(u64 pfn, enum pgtable_level level)
 {
 	struct rmp_state state;
 
 	memset(&state, 0, sizeof(state));
-	state.pagesize = PG_LEVEL_TO_RMP(level);
+	state.pagesize = PGTABLE_LEVEL_TO_RMP(level);
 
 	return rmpupdate(pfn, &state);
 }

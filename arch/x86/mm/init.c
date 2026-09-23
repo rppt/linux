@@ -229,7 +229,7 @@ static void __init probe_page_size_mask(void)
 	 * support splitting large pages into small in interrupt context, etc.
 	 */
 	if (boot_cpu_has(X86_FEATURE_PSE) && !debug_pagealloc_enabled())
-		page_size_mask |= 1 << PG_LEVEL_2M;
+		page_size_mask |= 1 << PGTABLE_LEVEL_PMD;
 	else
 		direct_gbpages = 0;
 
@@ -253,7 +253,7 @@ static void __init probe_page_size_mask(void)
 	/* Enable 1 GB linear kernel mappings if available: */
 	if (direct_gbpages && boot_cpu_has(X86_FEATURE_GBPAGES)) {
 		printk(KERN_INFO "Using GB pages for direct mapping\n");
-		page_size_mask |= 1 << PG_LEVEL_1G;
+		page_size_mask |= 1 << PGTABLE_LEVEL_PUD;
 	} else {
 		direct_gbpages = 0;
 	}
@@ -349,8 +349,8 @@ static void __ref adjust_range_page_size_mask(struct map_range *mr,
 	int i;
 
 	for (i = 0; i < nr_range; i++) {
-		if ((page_size_mask & (1<<PG_LEVEL_2M)) &&
-		    !(mr[i].page_size_mask & (1<<PG_LEVEL_2M))) {
+		if ((page_size_mask & (1<<PGTABLE_LEVEL_PMD)) &&
+		    !(mr[i].page_size_mask & (1<<PGTABLE_LEVEL_PMD))) {
 			unsigned long start = round_down(mr[i].start, PMD_SIZE);
 			unsigned long end = round_up(mr[i].end, PMD_SIZE);
 
@@ -360,15 +360,15 @@ static void __ref adjust_range_page_size_mask(struct map_range *mr,
 #endif
 
 			if (memblock_is_region_memory(start, end - start))
-				mr[i].page_size_mask |= 1<<PG_LEVEL_2M;
+				mr[i].page_size_mask |= 1<<PGTABLE_LEVEL_PMD;
 		}
-		if ((page_size_mask & (1<<PG_LEVEL_1G)) &&
-		    !(mr[i].page_size_mask & (1<<PG_LEVEL_1G))) {
+		if ((page_size_mask & (1<<PGTABLE_LEVEL_PUD)) &&
+		    !(mr[i].page_size_mask & (1<<PGTABLE_LEVEL_PUD))) {
 			unsigned long start = round_down(mr[i].start, PUD_SIZE);
 			unsigned long end = round_up(mr[i].end, PUD_SIZE);
 
 			if (memblock_is_region_memory(start, end - start))
-				mr[i].page_size_mask |= 1<<PG_LEVEL_1G;
+				mr[i].page_size_mask |= 1<<PGTABLE_LEVEL_PUD;
 		}
 	}
 }
@@ -380,19 +380,15 @@ static const char *page_size_string(struct map_range *mr)
 	static const char str_4m[] = "4M";
 	static const char str_4k[] = "4k";
 
-	if (mr->page_size_mask & (1<<PG_LEVEL_1G))
+	if (mr->page_size_mask & (1<<PGTABLE_LEVEL_PUD))
 		return str_1g;
-	/*
-	 * 32-bit without PAE has a 4M large page size.
-	 * PG_LEVEL_2M is misnamed, but we can at least
-	 * print out the right size in the string.
-	 */
+	/* 32-bit without PAE maps 4M at the PMD level */
 	if (IS_ENABLED(CONFIG_X86_32) &&
 	    !IS_ENABLED(CONFIG_X86_PAE) &&
-	    mr->page_size_mask & (1<<PG_LEVEL_2M))
+	    mr->page_size_mask & (1<<PGTABLE_LEVEL_PMD))
 		return str_4m;
 
-	if (mr->page_size_mask & (1<<PG_LEVEL_2M))
+	if (mr->page_size_mask & (1<<PGTABLE_LEVEL_PMD))
 		return str_2m;
 
 	return str_4k;
@@ -443,7 +439,7 @@ static int __meminit split_mem_range(struct map_range *mr, int nr_range,
 
 	if (start_pfn < end_pfn) {
 		nr_range = save_mr(mr, nr_range, start_pfn, end_pfn,
-				page_size_mask & (1<<PG_LEVEL_2M));
+				page_size_mask & (1<<PGTABLE_LEVEL_PMD));
 		pfn = end_pfn;
 	}
 
@@ -454,7 +450,7 @@ static int __meminit split_mem_range(struct map_range *mr, int nr_range,
 	if (start_pfn < end_pfn) {
 		nr_range = save_mr(mr, nr_range, start_pfn, end_pfn,
 				page_size_mask &
-				 ((1<<PG_LEVEL_2M)|(1<<PG_LEVEL_1G)));
+				 ((1<<PGTABLE_LEVEL_PMD)|(1<<PGTABLE_LEVEL_PUD)));
 		pfn = end_pfn;
 	}
 
@@ -463,7 +459,7 @@ static int __meminit split_mem_range(struct map_range *mr, int nr_range,
 	end_pfn = round_down(limit_pfn, PFN_DOWN(PMD_SIZE));
 	if (start_pfn < end_pfn) {
 		nr_range = save_mr(mr, nr_range, start_pfn, end_pfn,
-				page_size_mask & (1<<PG_LEVEL_2M));
+				page_size_mask & (1<<PGTABLE_LEVEL_PMD));
 		pfn = end_pfn;
 	}
 #endif
@@ -601,7 +597,7 @@ static unsigned long __init get_new_step_size(unsigned long step_size)
 	 * Initial mapped size is PMD_SIZE (2M).
 	 * We can not set step_size to be PUD_SIZE (1G) yet.
 	 * In worse case, when we cross the 1G boundary, and
-	 * PG_LEVEL_2M is not set, we will need 1+1+512 pages (2M + 8k)
+	 * PGTABLE_LEVEL_PMD is not set, we will need 1+1+512 pages (2M + 8k)
 	 * to map 1G range with PTE. Hence we use one less than the
 	 * difference of page table level shifts.
 	 *
