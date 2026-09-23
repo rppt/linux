@@ -186,6 +186,9 @@ static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 
 #define arch_cpa_needs_alias arch_cpa_needs_alias
 
+/* A spare software bit CPA self-test can toggle. */
+#define ARCH_PAGE_CPA_TEST	__pgprot(_PAGE_CPA_TEST)
+
 /*
  * CPA walks the kernel page tables, so it has to serialize against everything
  * else that does, not just against other CPA calls.

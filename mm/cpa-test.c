@@ -12,34 +12,24 @@
 #include <linux/init.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
-
-#include <asm/cacheflush.h>
-#include <asm/kdebug.h>
-#include <asm/set_memory.h>
+#include <linux/pageattr.h>
 
 /*
  * Only print the results of the first pass:
  */
 static __read_mostly int print = 1;
+static unsigned long max_test_pfn;
 
 enum {
 	NTEST			= 3 * 100,
 	NPAGES			= 100,
-#ifdef CONFIG_X86_64
-	LPS			= (1 << PMD_SHIFT),
-#elif defined(CONFIG_X86_PAE)
-	LPS			= (1 << PMD_SHIFT),
-#else
-	LPS			= (1 << 22),
-#endif
-	GPS			= (1<<30)
+	LPS			= PMD_SIZE,
+	GPS			= PUD_SIZE
 };
-
-#define PAGE_CPA_TEST	__pgprot(_PAGE_CPA_TEST)
 
 static int pte_testbit(pte_t pte)
 {
-	return pte_flags(pte) & _PAGE_SOFTW1;
+	return !!(pte_val(pte) & pgprot_val(ARCH_PAGE_CPA_TEST));
 }
 
 struct split_state {
@@ -55,10 +45,10 @@ static int print_split(struct split_state *s)
 	s->lpg = s->gpg = s->spg = s->exec = 0;
 	s->min_exec = ~0UL;
 	s->max_exec = 0;
-	for (i = 0; i < max_pfn_mapped; ) {
+	for (i = 0; i < max_test_pfn; ) {
 		unsigned long addr = (unsigned long)__va(i << PAGE_SHIFT);
 		enum pgtable_level level;
-		pte_t *pte;
+		pte_t *pte, pteval;
 
 		pte = lookup_address(addr, &level);
 		if (!pte) {
@@ -66,15 +56,16 @@ static int print_split(struct split_state *s)
 			i++;
 			continue;
 		}
+		pteval = ptep_get(pte);
 
 		if (level == PGTABLE_LEVEL_PUD && sizeof(long) == 8) {
 			s->gpg++;
 			i += GPS/PAGE_SIZE;
 		} else if (level == PGTABLE_LEVEL_PMD) {
-			if ((pte_val(*pte) & _PAGE_PRESENT) && !(pte_val(*pte) & _PAGE_PSE)) {
+			if (pte_present(pteval) && !pte_huge(pteval)) {
 				printk(KERN_ERR
-					"%lx level %d but not PSE %Lx\n",
-					addr, level, (u64)pte_val(*pte));
+					"%lx level %d but not leaf %Lx\n",
+					addr, level, (u64)pte_val(pteval));
 				err = 1;
 			}
 			s->lpg++;
@@ -83,7 +74,7 @@ static int print_split(struct split_state *s)
 			s->spg++;
 			i++;
 		}
-		if (!(pte_val(*pte) & _PAGE_NX)) {
+		if (pte_exec(pteval)) {
 			s->exec++;
 			if (addr < s->min_exec)
 				s->min_exec = addr;
@@ -101,8 +92,8 @@ static int print_split(struct split_state *s)
 
 	expected = (s->gpg*GPS + s->lpg*LPS)/PAGE_SIZE + s->spg + missed;
 	if (expected != i) {
-		printk(KERN_ERR "CPA max_pfn_mapped %lu but expected %lu\n",
-			max_pfn_mapped, expected);
+		printk(KERN_ERR "CPA max_test_pfn %lu but expected %lu\n",
+			max_test_pfn, expected);
 		return 1;
 	}
 	return err;
@@ -119,7 +110,7 @@ static int pageattr_test(void)
 {
 	struct split_state sa, sb, sc;
 	unsigned long *bm;
-	pte_t *pte, pte0;
+	pte_t *pte, pte0, pteval;
 	int failed = 0;
 	enum pgtable_level level;
 	int i, k;
@@ -128,7 +119,7 @@ static int pageattr_test(void)
 	if (print)
 		printk(KERN_INFO "CPA self-test:\n");
 
-	bm = vzalloc((max_pfn_mapped + 7) / 8);
+	bm = vzalloc((max_test_pfn + 7) / 8);
 	if (!bm) {
 		printk(KERN_ERR "CPA Cannot vmalloc bitmap\n");
 		return -ENOMEM;
@@ -137,11 +128,11 @@ static int pageattr_test(void)
 	failed += print_split(&sa);
 
 	for (i = 0; i < NTEST; i++) {
-		unsigned long pfn = get_random_u32_below(max_pfn_mapped);
+		unsigned long pfn = get_random_u32_below(max_test_pfn);
 
 		addr[i] = (unsigned long)__va(pfn << PAGE_SHIFT);
 		len[i] = get_random_u32_below(NPAGES);
-		len[i] = min_t(unsigned long, len[i], max_pfn_mapped - pfn - 1);
+		len[i] = min_t(unsigned long, len[i], max_test_pfn - pfn - 1);
 
 		if (len[i] == 0)
 			len[i] = 1;
@@ -151,15 +142,20 @@ static int pageattr_test(void)
 
 		for (k = 0; k < len[i]; k++) {
 			pte = lookup_address(addr[i] + k*PAGE_SIZE, &level);
-			if (!pte || pgprot_val(pte_pgprot(*pte)) == 0 ||
-			    !(pte_val(*pte) & _PAGE_PRESENT)) {
+			if (!pte) {
+				addr[i] = 0;
+				break;
+			}
+			pteval = ptep_get(pte);
+			if (pgprot_val(pte_pgprot(pteval)) == 0 ||
+			    !pte_present(pteval)) {
 				addr[i] = 0;
 				break;
 			}
 			if (k == 0) {
-				pte0 = *pte;
+				pte0 = pteval;
 			} else {
-				if (pgprot_val(pte_pgprot(*pte)) !=
+				if (pgprot_val(pte_pgprot(pteval)) !=
 					pgprot_val(pte_pgprot(pte0))) {
 					len[i] = k;
 					break;
@@ -180,15 +176,23 @@ static int pageattr_test(void)
 
 		switch (i % 3) {
 		case 0:
-			err = change_page_attr_set(&addr[i], len[i], PAGE_CPA_TEST, 0);
+			err = change_page_attr_set_clr(&addr[i], len[i],
+						       ARCH_PAGE_CPA_TEST,
+						       __pgprot(0), 0, NULL);
 			break;
 
 		case 1:
-			err = change_page_attr_set(addrs, len[i], PAGE_CPA_TEST, 1);
+			err = change_page_attr_set_clr(addrs, len[i],
+						       ARCH_PAGE_CPA_TEST,
+						       __pgprot(0),
+						       CPA_REQ_ARRAY, NULL);
 			break;
 
 		case 2:
-			err = cpa_set_pages_array(pages, len[i], PAGE_CPA_TEST);
+			err = change_page_attr_set_clr(NULL, len[i],
+						       ARCH_PAGE_CPA_TEST,
+						       __pgprot(0),
+						       CPA_REQ_PAGES_ARRAY, pages);
 			break;
 		}
 
@@ -199,9 +203,9 @@ static int pageattr_test(void)
 		}
 
 		pte = lookup_address(addr[i], &level);
-		if (!pte || !pte_testbit(*pte) || pte_huge(*pte)) {
+		if (!pte || !pte_testbit(ptep_get(pte))) {
 			printk(KERN_ERR "CPA %lx: bad pte %Lx\n", addr[i],
-				pte ? (u64)pte_val(*pte) : 0ULL);
+				pte ? (u64)pte_val(ptep_get(pte)) : 0ULL);
 			failed++;
 		}
 		if (level != PGTABLE_LEVEL_PTE) {
@@ -224,15 +228,16 @@ static int pageattr_test(void)
 			failed++;
 			continue;
 		}
-		err = change_page_attr_clear(&addr[i], len[i], PAGE_CPA_TEST, 0);
+		err = change_page_attr_set_clr(&addr[i], len[i], __pgprot(0),
+					       ARCH_PAGE_CPA_TEST, 0, NULL);
 		if (err < 0) {
 			printk(KERN_ERR "CPA reverting failed: %d\n", err);
 			failed++;
 		}
 		pte = lookup_address(addr[i], &level);
-		if (!pte || pte_testbit(*pte)) {
+		if (!pte || pte_testbit(ptep_get(pte))) {
 			printk(KERN_ERR "CPA %lx: bad pte after revert %Lx\n",
-				addr[i], pte ? (u64)pte_val(*pte) : 0ULL);
+				addr[i], pte ? (u64)pte_val(ptep_get(pte)) : 0ULL);
 			failed++;
 		}
 
@@ -266,6 +271,8 @@ static int do_pageattr_test(void *__unused)
 static int start_pageattr_test(void)
 {
 	struct task_struct *p;
+
+	max_test_pfn = PFN_DOWN(__pa(high_memory - 1)) + 1;
 
 	p = kthread_create(do_pageattr_test, NULL, "pageattr-test");
 	if (!IS_ERR(p))
