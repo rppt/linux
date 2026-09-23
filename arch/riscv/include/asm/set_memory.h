@@ -7,6 +7,12 @@
 #define _ASM_RISCV_SET_MEMORY_H
 
 #ifndef __ASSEMBLER__
+
+#include <linux/mmzone.h>
+#include <linux/pgtable.h>
+
+#include <asm/page.h>
+
 /*
  * Functions to change memory attributes.
  */
@@ -26,6 +32,19 @@ static __always_inline int set_kernel_memory(char *startp, char *endp,
 
 	return set_memory(start, num_pages);
 }
+
+/*
+ * Everything outside the linear mapping is also mapped there, and a change
+ * to one of the two has to be applied to the other.
+ *
+ * Keep this inline: it runs once per page and says no most of the time.
+ */
+static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
+{
+	return !is_linear_mapping(vaddr) && pfn_valid(pfn);
+}
+
+#define arch_cpa_needs_alias arch_cpa_needs_alias
 #else
 static inline int set_memory_ro(unsigned long addr, int numpages) { return 0; }
 static inline int set_memory_rw(unsigned long addr, int numpages) { return 0; }

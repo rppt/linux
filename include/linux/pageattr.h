@@ -81,6 +81,19 @@ struct cpa_alias {
 
 #define CPA_MAX_ALIASES 2
 
+/*
+ * Find the leaf that maps @address in @pgd.  Returns a pointer to the entry
+ * and its level, plus the write and execute restrictions the entries above
+ * it impose.  Architectures whose table entries carry no permissions report
+ * @nx false and @rw true.
+ */
+pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
+				  enum pgtable_level *level, bool *nx,
+				  bool *rw);
+pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
+			     enum pgtable_level *level);
+pte_t *lookup_address(unsigned long address, enum pgtable_level *level);
+
 /* The page table entry a walk landed on. */
 struct cpa_leaf {
 	unsigned long address;
@@ -117,6 +130,14 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 			     pgprot_t mask_set, pgprot_t mask_clr,
 			     unsigned int request, struct page **pages);
 
+
+/*
+ * Drop the bits of a pgprot the CPU does not implement, so that a change
+ * never asks for a protection that cannot be encoded.
+ */
+#ifndef canon_pgprot
+#define canon_pgprot(p)		(p)
+#endif
 
 /*
  * Serialize a CPA walk against anything else that walks or modifies the
