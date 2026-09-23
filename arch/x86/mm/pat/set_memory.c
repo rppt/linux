@@ -2018,6 +2018,34 @@ static int __change_page_attr(struct cpa_data *cpa)
 static int __change_page_attr_set_clr(struct cpa_data *cpa);
 
 /*
+ * The direct map aliases all of physical memory, and on 64-bit the kernel
+ * text is aliased by the high mapping.  A change to one alias has to be
+ * applied to the others, unless the caller asked otherwise or this walk is
+ * itself already updating an alias.
+ *
+ * Keep this inline: it runs once per page and says no most of the time.
+ */
+static inline bool cpa_needs_alias(struct cpa_data *cpa)
+{
+	unsigned long vaddr;
+
+	if (cpa->state & CPA_ST_ALIAS || cpa->req & CPA_REQ_NO_ALIAS)
+		return false;
+
+	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
+		return false;
+
+	vaddr = __cpa_addr(cpa, cpa->curpage);
+
+	if (!within(vaddr, PAGE_OFFSET,
+		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT)))
+		return true;
+
+	return !within(vaddr, (unsigned long)_text, _brk_end) &&
+	       __cpa_pfn_in_highmap(cpa->pfn);
+}
+
+/*
  * Check the directmap and "high kernel map" 'aliases'.
  */
 static int cpa_process_alias(struct cpa_data *cpa)
@@ -2026,9 +2054,6 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
 	unsigned long vaddr;
 	int ret;
-
-	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
-		return 0;
 
 	/*
 	 * No need to redo, when the primary call touched the direct
@@ -2122,8 +2147,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa)
 		if (ret)
 			goto out;
 
-		if (!(cpa->state & CPA_ST_ALIAS) &&
-		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
+		if (cpa_needs_alias(cpa)) {
 			ret = cpa_process_alias(cpa);
 			if (ret)
 				goto out;
