@@ -330,10 +330,10 @@ static inline bool cpu_has_vmx_ept_1g_page(void)
 static inline int ept_caps_to_lpage_level(u32 ept_caps)
 {
 	if (ept_caps & VMX_EPT_1GB_PAGE_BIT)
-		return PG_LEVEL_1G;
+		return KVM_PT_LEVEL_PUD;
 	if (ept_caps & VMX_EPT_2MB_PAGE_BIT)
-		return PG_LEVEL_2M;
-	return PG_LEVEL_4K;
+		return KVM_PT_LEVEL_PMD;
+	return KVM_PT_LEVEL_PTE;
 }
 
 static inline bool cpu_has_vmx_ept_ad_bits(void)

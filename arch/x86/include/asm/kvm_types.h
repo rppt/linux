@@ -17,6 +17,19 @@
 #define EXPORT_SYMBOL_FOR_KVM(symbol)
 #endif
 
+#ifndef __ASSEMBLER__
+/* Levels of the page tables KVM manages for a guest */
+enum kvm_pt_level {
+	KVM_PT_LEVEL_NONE,
+	KVM_PT_LEVEL_PTE,
+	KVM_PT_LEVEL_PMD,
+	KVM_PT_LEVEL_PUD,
+	KVM_PT_LEVEL_P4D,
+	KVM_PT_LEVEL_PGD,
+	KVM_PT_LEVEL_NUM
+};
+#endif /* !__ASSEMBLER__ */
+
 #define KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE 40
 
 #endif /* _ASM_X86_KVM_TYPES_H */

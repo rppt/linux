@@ -71,7 +71,7 @@
 #define PT_GUEST_ACCESSED_MASK (1 << PT_GUEST_ACCESSED_SHIFT)
 
 #define gpte_to_gfn_lvl FNAME(gpte_to_gfn_lvl)
-#define gpte_to_gfn(pte) gpte_to_gfn_lvl((pte), PG_LEVEL_4K)
+#define gpte_to_gfn(pte) gpte_to_gfn_lvl((pte), KVM_PT_LEVEL_PTE)
 
 /*
  * The guest_walker structure emulates the behavior of the hardware page
@@ -167,7 +167,7 @@ static bool FNAME(prefetch_invalid_gpte)(struct kvm_vcpu *vcpu,
 	    !(gpte & PT_GUEST_ACCESSED_MASK))
 		goto no_present;
 
-	if (FNAME(is_rsvd_bits_set)(&w->fmt, gpte, PG_LEVEL_4K))
+	if (FNAME(is_rsvd_bits_set)(&w->fmt, gpte, KVM_PT_LEVEL_PTE))
 		goto no_present;
 
 	return false;
@@ -301,11 +301,11 @@ static inline bool FNAME(is_last_gpte)(struct kvm_pagewalk *w,
 	gpte &= level - (PT32_ROOT_LEVEL + w->cpu_role.ext.cr4_pse);
 #endif
 	/*
-	 * PG_LEVEL_4K always terminates.  The RHS has bit 7 set
-	 * iff level <= PG_LEVEL_4K, which for our purpose means
-	 * level == PG_LEVEL_4K; set PT_PAGE_SIZE_MASK in gpte then.
+	 * KVM_PT_LEVEL_PTE always terminates.  The RHS has bit 7 set
+	 * iff level <= KVM_PT_LEVEL_PTE, which for our purpose means
+	 * level == KVM_PT_LEVEL_PTE; set PT_PAGE_SIZE_MASK in gpte then.
 	 */
-	gpte |= level - PG_LEVEL_4K - 1;
+	gpte |= level - KVM_PT_LEVEL_PTE - 1;
 
 	return gpte & PT_PAGE_SIZE_MASK;
 }
@@ -451,7 +451,7 @@ retry_walk:
 	gfn += (addr & PT_LVL_OFFSET_MASK(walker->level)) >> PAGE_SHIFT;
 
 #if PTTYPE == 32
-	if (walker->level > PG_LEVEL_4K && is_cpuid_PSE36())
+	if (walker->level > KVM_PT_LEVEL_PTE && is_cpuid_PSE36())
 		gfn += pse36_gfn_delta(pte);
 #endif
 
@@ -592,7 +592,7 @@ static bool FNAME(gpte_changed)(struct kvm_vcpu *vcpu,
 	u64 mask;
 	int r, index;
 
-	if (level == PG_LEVEL_4K) {
+	if (level == KVM_PT_LEVEL_PTE) {
 		mask = PTE_PREFETCH_NUM * sizeof(pt_element_t) - 1;
 		base_gpa = pte_gpa & ~mask;
 		index = (pte_gpa - base_gpa) / sizeof(pt_element_t);
@@ -617,7 +617,7 @@ static void FNAME(pte_prefetch)(struct kvm_vcpu *vcpu, struct guest_walker *gw,
 
 	sp = sptep_to_sp(sptep);
 
-	if (sp->role.level > PG_LEVEL_4K)
+	if (sp->role.level > KVM_PT_LEVEL_PTE)
 		return;
 
 	/*
@@ -706,7 +706,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		 * entries into the TLB, i.e. the guest isn't required to flush
 		 * the TLB when changing the gPTE from non-present to present.
 		 *
-		 * For PG_LEVEL_4K, kvm_mmu_find_shadow_page() has already
+		 * For KVM_PT_LEVEL_PTE, kvm_mmu_find_shadow_page() has already
 		 * synchronized the page via kvm_sync_page().
 		 *
 		 * For higher level pages, which cannot be unsync themselves
@@ -889,7 +889,7 @@ static gpa_t FNAME(get_level1_sp_gpa)(struct kvm_mmu_page *sp)
 {
 	int offset = 0;
 
-	WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
+	WARN_ON_ONCE(sp->role.level != KVM_PT_LEVEL_PTE);
 
 	if (PTTYPE == 32)
 		offset = sp->role.quadrant << SPTE_LEVEL_BITS;

@@ -1618,7 +1618,7 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, root_hpa);
 }
 
-static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum kvm_pt_level level,
 			    kvm_pfn_t pfn)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -1643,7 +1643,7 @@ static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 }
 
 static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
-			    enum pg_level level, kvm_pfn_t pfn)
+			    enum kvm_pt_level level, kvm_pfn_t pfn)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
@@ -1661,7 +1661,7 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 }
 
 static struct page *tdx_spte_to_sept_pt(struct kvm *kvm, gfn_t gfn,
-					u64 new_spte, enum pg_level level)
+					u64 new_spte, enum kvm_pt_level level)
 {
 	struct kvm_mmu_page *sp = spte_to_child_sp(new_spte);
 
@@ -1674,7 +1674,7 @@ static struct page *tdx_spte_to_sept_pt(struct kvm *kvm, gfn_t gfn,
 }
 
 static int tdx_sept_map_nonleaf_spte(struct kvm *kvm, gfn_t gfn,
-				     enum pg_level level, u64 new_spte)
+				     enum kvm_pt_level level, u64 new_spte)
 {
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 err, entry, level_state;
@@ -1695,14 +1695,14 @@ static int tdx_sept_map_nonleaf_spte(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
-static int tdx_sept_map_leaf_spte(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				  u64 new_spte)
+static int tdx_sept_map_leaf_spte(struct kvm *kvm, gfn_t gfn,
+				  enum kvm_pt_level level, u64 new_spte)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	kvm_pfn_t pfn = spte_to_pfn(new_spte);
 
 	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+	if (KVM_BUG_ON(level != KVM_PT_LEVEL_PTE, kvm))
 		return -EIO;
 
 	WARN_ON_ONCE((new_spte & VMX_EPT_RWX_MASK) != VMX_EPT_RWX_MASK);
@@ -1772,7 +1772,7 @@ static void tdx_track(struct kvm *kvm)
 }
 
 static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
-				     enum pg_level level, u64 old_spte)
+				     enum kvm_pt_level level, u64 old_spte)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	kvm_pfn_t pfn = spte_to_pfn(old_spte);
@@ -1790,7 +1790,7 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 
 	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+	if (KVM_BUG_ON(level != KVM_PT_LEVEL_PTE, kvm))
 		return -EIO;
 
 	err = tdh_do_no_vcpus(tdh_mem_range_block, kvm, &kvm_tdx->td, gpa,
@@ -1840,7 +1840,7 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
  * - Promotion/demotion is not yet supported.
  */
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
-				     u64 new_spte, enum pg_level level)
+				     u64 new_spte, enum kvm_pt_level level)
 {
 	lockdep_assert_held(&kvm->mmu_lock);
 
@@ -3345,7 +3345,7 @@ int tdx_gmem_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn, bool is_private)
 	if (!is_private)
 		return 0;
 
-	return PG_LEVEL_4K;
+	return KVM_PT_LEVEL_PTE;
 }
 
 void tdx_hardware_unsetup(void)

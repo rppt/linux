@@ -5664,7 +5664,7 @@ static __init int svm_hardware_setup(void)
 
 	/* Force VM NPT level equal to the host's paging level */
 	kvm_configure_mmu(npt_enabled, get_npt_level(),
-			  get_npt_level(), PG_LEVEL_1G);
+			  get_npt_level(), KVM_PT_LEVEL_PUD);
 	pr_info("Nested Paging %s\n", str_enabled_disabled(npt_enabled));
 
 	/*

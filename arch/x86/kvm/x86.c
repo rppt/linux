@@ -10280,13 +10280,13 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
 			return;
 
 		if (READ_ONCE(eager_page_split))
-			kvm_mmu_slot_try_split_huge_pages(kvm, new, PG_LEVEL_4K);
+			kvm_mmu_slot_try_split_huge_pages(kvm, new, KVM_PT_LEVEL_PTE);
 
 		if (kvm->arch.cpu_dirty_log_size) {
 			kvm_mmu_slot_leaf_clear_dirty(kvm, new);
-			kvm_mmu_slot_remove_write_access(kvm, new, PG_LEVEL_2M);
+			kvm_mmu_slot_remove_write_access(kvm, new, KVM_PT_LEVEL_PMD);
 		} else {
-			kvm_mmu_slot_remove_write_access(kvm, new, PG_LEVEL_4K);
+			kvm_mmu_slot_remove_write_access(kvm, new, KVM_PT_LEVEL_PTE);
 		}
 
 		/*

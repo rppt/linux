@@ -77,7 +77,7 @@ static void update_gfn_write_track(struct kvm_memory_slot *slot, gfn_t gfn,
 {
 	int index, val;
 
-	index = gfn_to_index(gfn, slot->base_gfn, PG_LEVEL_4K);
+	index = gfn_to_index(gfn, slot->base_gfn, KVM_PT_LEVEL_PTE);
 
 	val = slot->arch.gfn_write_track[index];
 
@@ -106,7 +106,7 @@ void __kvm_write_track_add_gfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 	 */
 	kvm_mmu_gfn_disallow_lpage(slot, gfn);
 
-	if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, PG_LEVEL_4K))
+	if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, KVM_PT_LEVEL_PTE))
 		kvm_flush_remote_tlbs(kvm);
 }
 
@@ -138,7 +138,7 @@ static bool __kvm_gfn_is_write_tracked(const struct kvm_memory_slot *slot,
 	if (!slot)
 		return false;
 
-	index = gfn_to_index(gfn, slot->base_gfn, PG_LEVEL_4K);
+	index = gfn_to_index(gfn, slot->base_gfn, KVM_PT_LEVEL_PTE);
 	return !!READ_ONCE(slot->arch.gfn_write_track[index]);
 }
 

@@ -1635,9 +1635,9 @@ static void tdx_clflush_pfn(kvm_pfn_t pfn)
 	clflush_cache_range(__va(PFN_PHYS(pfn)), PAGE_SIZE);
 }
 
-static int pg_level_to_tdx_sept_level(enum pg_level level)
+static int kvm_pt_level_to_sept_level(enum kvm_pt_level level)
 {
-	WARN_ON_ONCE(level == PG_LEVEL_NONE);
+	WARN_ON_ONCE(level == KVM_PT_LEVEL_NONE);
 	return level - 1;
 }
 
@@ -1682,11 +1682,11 @@ u64 tdh_mem_page_add(struct tdx_td *td, u64 gpa, kvm_pfn_t pfn, struct page *sou
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_mem_page_add);
 
-u64 tdh_mem_sept_add(struct tdx_td *td, u64 gpa, enum pg_level level,
+u64 tdh_mem_sept_add(struct tdx_td *td, u64 gpa, enum kvm_pt_level level,
 		     struct page *page, u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
-		.rcx = gpa | pg_level_to_tdx_sept_level(level),
+		.rcx = gpa | kvm_pt_level_to_sept_level(level),
 		.rdx = tdx_tdr_pa(td),
 		.r8 = page_to_phys(page),
 	};
@@ -1714,11 +1714,11 @@ u64 tdh_vp_addcx(struct tdx_vp *vp, struct page *tdcx_page)
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_vp_addcx);
 
-u64 tdh_mem_page_aug(struct tdx_td *td, u64 gpa, enum pg_level level,
+u64 tdh_mem_page_aug(struct tdx_td *td, u64 gpa, enum kvm_pt_level level,
 		     kvm_pfn_t pfn, u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
-		.rcx = gpa | pg_level_to_tdx_sept_level(level),
+		.rcx = gpa | kvm_pt_level_to_sept_level(level),
 		.rdx = tdx_tdr_pa(td),
 		.r8 = PFN_PHYS(pfn),
 	};
@@ -1734,11 +1734,11 @@ u64 tdh_mem_page_aug(struct tdx_td *td, u64 gpa, enum pg_level level,
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_mem_page_aug);
 
-u64 tdh_mem_range_block(struct tdx_td *td, u64 gpa, enum pg_level level,
+u64 tdh_mem_range_block(struct tdx_td *td, u64 gpa, enum kvm_pt_level level,
 			u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
-		.rcx = gpa | pg_level_to_tdx_sept_level(level),
+		.rcx = gpa | kvm_pt_level_to_sept_level(level),
 		.rdx = tdx_tdr_pa(td),
 	};
 	u64 ret;
@@ -1951,11 +1951,11 @@ u64 tdh_mem_track(struct tdx_td *td)
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_mem_track);
 
-u64 tdh_mem_page_remove(struct tdx_td *td, u64 gpa, enum pg_level level,
+u64 tdh_mem_page_remove(struct tdx_td *td, u64 gpa, enum kvm_pt_level level,
 			u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
-		.rcx = gpa | pg_level_to_tdx_sept_level(level),
+		.rcx = gpa | kvm_pt_level_to_sept_level(level),
 		.rdx = tdx_tdr_pa(td),
 	};
 	u64 ret;

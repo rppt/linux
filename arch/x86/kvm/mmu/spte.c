@@ -219,7 +219,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	 * would tie make_spte() further to vCPU/MMU state, and add complexity
 	 * just to optimize a mode that is anything but performance critical.
 	 */
-	if (level > PG_LEVEL_4K && is_nx_huge_page_enabled(vcpu->kvm)) {
+	if (level > KVM_PT_LEVEL_PTE && is_nx_huge_page_enabled(vcpu->kvm)) {
 		pte_access &= ~ACC_EXEC_MASK;
 		if (shadow_xu_mask)
 			pte_access &= ~ACC_USER_EXEC_MASK;
@@ -240,7 +240,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			spte |= shadow_xu_mask;
 	}
 
-	if (level > PG_LEVEL_4K)
+	if (level > KVM_PT_LEVEL_PTE)
 		spte |= PT_PAGE_SIZE_MASK;
 
 	if (kvm_x86_ops.get_mt_mask)
@@ -292,7 +292,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	 */
 	if ((spte & PT_WRITABLE_MASK) && kvm_slot_dirty_track_enabled(slot)) {
 		/* Enforced by kvm_mmu_hugepage_adjust. */
-		WARN_ON_ONCE(level > PG_LEVEL_4K);
+		WARN_ON_ONCE(level > KVM_PT_LEVEL_PTE);
 		mark_page_dirty_in_slot(vcpu->kvm, slot, gfn);
 	}
 
@@ -356,7 +356,7 @@ u64 make_small_spte(struct kvm *kvm, u64 huge_spte,
 	 */
 	child_spte |= (index * KVM_PAGES_PER_HPAGE(role.level)) << PAGE_SHIFT;
 
-	if (role.level == PG_LEVEL_4K) {
+	if (role.level == KVM_PT_LEVEL_PTE) {
 		child_spte &= ~PT_PAGE_SIZE_MASK;
 
 		/*
@@ -375,7 +375,8 @@ u64 make_huge_spte(struct kvm *kvm, u64 small_spte, int level)
 {
 	u64 huge_spte;
 
-	KVM_BUG_ON(!is_shadow_present_pte(small_spte) || level == PG_LEVEL_4K, kvm);
+	KVM_BUG_ON(!is_shadow_present_pte(small_spte) ||
+		   level == KVM_PT_LEVEL_PTE, kvm);
 
 	huge_spte = small_spte | PT_PAGE_SIZE_MASK;
 

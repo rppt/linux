@@ -138,7 +138,7 @@ struct tdp_iter {
 		tdp_iter_next(&iter))
 
 #define for_each_tdp_pte(iter, kvm, root, start, end)				\
-	for_each_tdp_pte_min_level(iter, kvm, root, PG_LEVEL_4K, start, end)
+	for_each_tdp_pte_min_level(iter, kvm, root, KVM_PT_LEVEL_PTE, start, end)
 
 tdp_ptep_t spte_to_child_pt(u64 pte, int level);
 

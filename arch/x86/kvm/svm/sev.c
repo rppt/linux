@@ -3737,7 +3737,7 @@ static int snp_rmptable_psmash(kvm_pfn_t pfn)
 {
 	int ret;
 
-	pfn = pfn & ~(KVM_PAGES_PER_HPAGE(PG_LEVEL_2M) - 1);
+	pfn = pfn & ~(KVM_PAGES_PER_HPAGE(KVM_PT_LEVEL_PMD) - 1);
 
 	/*
 	 * PSMASH_FAIL_INUSE indicates another processor is modifying the
@@ -5143,7 +5143,7 @@ static bool is_large_rmp_possible(kvm_pfn_t pfn, kvm_pfn_t nr_pages)
 	 * PFN is currently shared, then the entire 2M-aligned range can be
 	 * set to private via a single 2M RMP entry.
 	 */
-	if (nr_pages >= KVM_PAGES_PER_HPAGE(PG_LEVEL_2M) &&
+	if (nr_pages >= KVM_PAGES_PER_HPAGE(KVM_PT_LEVEL_PMD) &&
 	    is_pfn_range_shared(pfn_aligned, pfn_aligned + PTRS_PER_PMD))
 		return true;
 
@@ -5308,9 +5308,12 @@ int sev_gmem_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn, bool is_private)
 
 	rc = snp_lookup_rmpentry(pfn, &assigned, &level);
 	if (rc || !assigned)
-		return PG_LEVEL_4K;
+		return KVM_PT_LEVEL_PTE;
 
-	return level;
+	if (level == PG_LEVEL_2M)
+		return KVM_PT_LEVEL_PMD;
+
+	return KVM_PT_LEVEL_PTE;
 }
 
 struct vmcb_save_area *sev_decrypt_vmsa(struct kvm_vcpu *vcpu)

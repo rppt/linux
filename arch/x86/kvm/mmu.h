@@ -348,7 +348,7 @@ static inline bool kvm_memslots_have_rmaps(struct kvm *kvm)
 
 static inline gfn_t gfn_to_index(gfn_t gfn, gfn_t base_gfn, int level)
 {
-	/* KVM_HPAGE_GFN_SHIFT(PG_LEVEL_4K) must be 0. */
+	/* KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PTE) must be 0. */
 	return (gfn >> KVM_HPAGE_GFN_SHIFT(level)) -
 		(base_gfn >> KVM_HPAGE_GFN_SHIFT(level));
 }

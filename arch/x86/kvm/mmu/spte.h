@@ -354,7 +354,7 @@ static inline bool is_large_pte(u64 pte)
 
 static inline bool is_last_spte(u64 pte, int level)
 {
-	return (level == PG_LEVEL_4K) || is_large_pte(pte);
+	return (level == KVM_PT_LEVEL_PTE) || is_large_pte(pte);
 }
 
 static inline kvm_pfn_t spte_to_pfn(u64 pte)

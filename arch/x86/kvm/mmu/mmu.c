@@ -759,7 +759,7 @@ static void update_gfn_disallow_lpage_count(const struct kvm_memory_slot *slot,
 	struct kvm_lpage_info *linfo;
 	int old, i;
 
-	for (i = PG_LEVEL_2M; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
+	for (i = KVM_PT_LEVEL_PMD; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
 		linfo = lpage_info_slot(gfn, slot, i);
 
 		old = linfo->disallow_lpage;
@@ -799,13 +799,13 @@ static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	slot = __gfn_to_memslot(slots, gfn);
 
 	/* the non-leaf shadow pages are keeping readonly. */
-	if (sp->role.level > PG_LEVEL_4K)
+	if (sp->role.level > KVM_PT_LEVEL_PTE)
 		return __kvm_write_track_add_gfn(kvm, slot, gfn);
 
 	kvm_mmu_gfn_disallow_lpage(slot, gfn);
 
-	if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, PG_LEVEL_4K))
-		kvm_flush_remote_tlbs_gfn(kvm, gfn, PG_LEVEL_4K);
+	if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, KVM_PT_LEVEL_PTE))
+		kvm_flush_remote_tlbs_gfn(kvm, gfn, KVM_PT_LEVEL_PTE);
 }
 
 void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
@@ -847,7 +847,7 @@ static void unaccount_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	gfn = sp->gfn;
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);
 	slot = __gfn_to_memslot(slots, gfn);
-	if (sp->role.level > PG_LEVEL_4K)
+	if (sp->role.level > KVM_PT_LEVEL_PTE)
 		return __kvm_write_track_remove_gfn(kvm, slot, gfn);
 
 	kvm_mmu_gfn_allow_lpage(slot, gfn);
@@ -1210,7 +1210,7 @@ static struct kvm_rmap_head *gfn_to_rmap(gfn_t gfn, int level,
 	unsigned long idx;
 
 	idx = gfn_to_index(gfn, slot->base_gfn, level);
-	return &slot->arch.rmap[level - PG_LEVEL_4K][idx];
+	return &slot->arch.rmap[level - KVM_PT_LEVEL_PTE][idx];
 }
 
 static void rmap_remove(struct kvm *kvm, u64 *spte)
@@ -1413,7 +1413,7 @@ static void kvm_mmu_write_protect_pt_masked(struct kvm *kvm,
 
 	while (mask) {
 		rmap_head = gfn_to_rmap(slot->base_gfn + gfn_offset + __ffs(mask),
-					PG_LEVEL_4K, slot);
+					KVM_PT_LEVEL_PTE, slot);
 		rmap_write_protect(rmap_head, false);
 
 		/* clear the first set bit */
@@ -1436,7 +1436,7 @@ static void kvm_mmu_clear_dirty_pt_masked(struct kvm *kvm,
 
 	while (mask) {
 		rmap_head = gfn_to_rmap(slot->base_gfn + gfn_offset + __ffs(mask),
-					PG_LEVEL_4K, slot);
+					KVM_PT_LEVEL_PTE, slot);
 		__rmap_clear_dirty(kvm, rmap_head, slot);
 
 		/* clear the first set bit */
@@ -1464,15 +1464,15 @@ void kvm_arch_mmu_enable_log_dirty_pt_masked(struct kvm *kvm,
 		gfn_t end = slot->base_gfn + gfn_offset + __fls(mask);
 
 		if (READ_ONCE(eager_page_split))
-			kvm_mmu_try_split_huge_pages(kvm, slot, start, end + 1, PG_LEVEL_4K);
+			kvm_mmu_try_split_huge_pages(kvm, slot, start, end + 1, KVM_PT_LEVEL_PTE);
 
-		kvm_mmu_slot_gfn_write_protect(kvm, slot, start, PG_LEVEL_2M);
+		kvm_mmu_slot_gfn_write_protect(kvm, slot, start, KVM_PT_LEVEL_PMD);
 
 		/* Cross two large pages? */
 		if (ALIGN(start << PAGE_SHIFT, PMD_SIZE) !=
 		    ALIGN(end << PAGE_SHIFT, PMD_SIZE))
 			kvm_mmu_slot_gfn_write_protect(kvm, slot, end,
-						       PG_LEVEL_2M);
+						       KVM_PT_LEVEL_PMD);
 	}
 
 	/*
@@ -1523,7 +1523,7 @@ static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
 	struct kvm_memory_slot *slot;
 
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K);
+	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, KVM_PT_LEVEL_PTE);
 }
 
 static bool kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
@@ -1655,7 +1655,8 @@ static __always_inline bool walk_slot_rmaps_4k(struct kvm *kvm,
 					       slot_rmaps_handler fn,
 					       bool flush_on_yield)
 {
-	return walk_slot_rmaps(kvm, slot, fn, PG_LEVEL_4K, PG_LEVEL_4K, flush_on_yield);
+	return walk_slot_rmaps(kvm, slot, fn, KVM_PT_LEVEL_PTE,
+			       KVM_PT_LEVEL_PTE, flush_on_yield);
 }
 
 static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
@@ -1664,7 +1665,7 @@ static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
 				     bool flush)
 {
 	return __walk_slot_rmaps(kvm, slot, kvm_zap_rmap,
-				 PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL,
+				 KVM_PT_LEVEL_PTE, KVM_MAX_HUGEPAGE_LEVEL,
 				 start, end - 1, can_yield, true, flush);
 }
 
@@ -1745,7 +1746,7 @@ static bool kvm_rmap_age_gfn_range(struct kvm *kvm,
 	gfn_t gfn;
 	int level;
 
-	for (level = PG_LEVEL_4K; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+	for (level = KVM_PT_LEVEL_PTE; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
 		for (gfn = range->start; gfn < range->end;
 		     gfn += KVM_PAGES_PER_HPAGE(level)) {
 			rmap_head = gfn_to_rmap(gfn, level, range->slot);
@@ -2169,7 +2170,7 @@ static int mmu_pages_next(struct kvm_mmu_pages *pvec,
 		int level = sp->role.level;
 
 		parents->idx[level-1] = idx;
-		if (level == PG_LEVEL_4K)
+		if (level == KVM_PT_LEVEL_PTE)
 			break;
 
 		parents->parent[level-2] = sp;
@@ -2191,7 +2192,7 @@ static int mmu_pages_first(struct kvm_mmu_pages *pvec,
 
 	sp = pvec->page[0].sp;
 	level = sp->role.level;
-	WARN_ON_ONCE(level == PG_LEVEL_4K);
+	WARN_ON_ONCE(level == KVM_PT_LEVEL_PTE);
 
 	parents->parent[level-2] = sp;
 
@@ -2304,7 +2305,7 @@ static struct kvm_mmu_page *kvm_mmu_find_shadow_page(struct kvm *kvm,
 			 * Unsync pages must not be left as is, because the new
 			 * upper-level page will be write-protected.
 			 */
-			if (role.level > PG_LEVEL_4K && sp->unsync)
+			if (role.level > KVM_PT_LEVEL_PTE && sp->unsync)
 				kvm_mmu_prepare_zap_page(kvm, sp,
 							 &invalid_list);
 			continue;
@@ -2481,7 +2482,7 @@ static union kvm_mmu_page_role kvm_mmu_child_role(u64 *sptep, bool direct,
 	 * _least_ significant bit of the PDE index.
 	 */
 	if (role.has_4_byte_gpte) {
-		WARN_ON_ONCE(role.level != PG_LEVEL_4K);
+		WARN_ON_ONCE(role.level != KVM_PT_LEVEL_PTE);
 		role.quadrant = spte_index(sptep) & 1;
 	}
 
@@ -2544,7 +2545,7 @@ static void shadow_walk_init(struct kvm_shadow_walk_iterator *iterator,
 
 static bool shadow_walk_okay(struct kvm_shadow_walk_iterator *iterator)
 {
-	if (iterator->level < PG_LEVEL_4K)
+	if (iterator->level < KVM_PT_LEVEL_PTE)
 		return false;
 
 	iterator->index = SPTE_INDEX(iterator->addr, iterator->level);
@@ -2599,7 +2600,7 @@ static void __link_shadow_page(struct kvm *kvm,
 		LIST_HEAD(invalid_list);
 
 		parent_sp = sptep_to_sp(sptep);
-		WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
+		WARN_ON_ONCE(parent_sp->role.level == KVM_PT_LEVEL_PTE);
 
 		if (mmu_page_zap_pte(kvm, parent_sp, sptep, &invalid_list))
 			kvm_mmu_commit_zap_page(kvm, &invalid_list);
@@ -2717,7 +2718,7 @@ static int mmu_zap_unsync_children(struct kvm *kvm,
 	struct mmu_page_path parents;
 	struct kvm_mmu_pages pages;
 
-	if (parent->role.level == PG_LEVEL_4K)
+	if (parent->role.level == KVM_PT_LEVEL_PTE)
 		return 0;
 
 	while (mmu_unsync_walk(parent, &pages)) {
@@ -3002,7 +3003,7 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 	 * write-protected (see above), thus if the gfn can be mapped with a
 	 * hugepage and isn't write-tracked, it can't have a shadow page.
 	 */
-	if (kvm_gfn_is_lpage_allowed(kvm, slot, gfn, PG_LEVEL_2M))
+	if (kvm_gfn_is_lpage_allowed(kvm, slot, gfn, KVM_PT_LEVEL_PMD))
 		return 0;
 
 	/*
@@ -3044,7 +3045,7 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 				continue;
 		}
 
-		WARN_ON_ONCE(sp->role.level != PG_LEVEL_4K);
+		WARN_ON_ONCE(sp->role.level != KVM_PT_LEVEL_PTE);
 		kvm_unsync_page(kvm, sp);
 	}
 	if (locked)
@@ -3118,7 +3119,7 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 		 * If we overwrite a PTE page pointer with a 2MB PMD, unlink
 		 * the parent of the now unreachable PTE.
 		 */
-		if (level > PG_LEVEL_4K && !is_large_pte(*sptep)) {
+		if (level > KVM_PT_LEVEL_PTE && !is_large_pte(*sptep)) {
 			struct kvm_mmu_page *child;
 			u64 pte = *sptep;
 
@@ -3255,7 +3256,7 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 	if (sp_ad_disabled(sp))
 		return;
 
-	if (sp->role.level > PG_LEVEL_4K)
+	if (sp->role.level > KVM_PT_LEVEL_PTE)
 		return;
 
 	/*
@@ -3296,7 +3297,7 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 static int host_pfn_mapping_level(struct kvm *kvm, gfn_t gfn,
 				  const struct kvm_memory_slot *slot)
 {
-	int level = PG_LEVEL_4K;
+	int level = KVM_PT_LEVEL_PTE;
 	unsigned long hva;
 	unsigned long flags;
 	pgd_t pgd;
@@ -3341,7 +3342,7 @@ static int host_pfn_mapping_level(struct kvm *kvm, gfn_t gfn,
 		goto out;
 
 	if (pud_leaf(pud)) {
-		level = PG_LEVEL_1G;
+		level = KVM_PT_LEVEL_PUD;
 		goto out;
 	}
 
@@ -3350,7 +3351,7 @@ static int host_pfn_mapping_level(struct kvm *kvm, gfn_t gfn,
 		goto out;
 
 	if (pmd_leaf(pmd))
-		level = PG_LEVEL_2M;
+		level = KVM_PT_LEVEL_PMD;
 
 out:
 	local_irq_restore(flags);
@@ -3359,19 +3360,19 @@ out:
 
 static u8 kvm_max_level_for_order(int order)
 {
-	BUILD_BUG_ON(KVM_MAX_HUGEPAGE_LEVEL > PG_LEVEL_1G);
+	BUILD_BUG_ON(KVM_MAX_HUGEPAGE_LEVEL > KVM_PT_LEVEL_PUD);
 
-	KVM_MMU_WARN_ON(order != KVM_HPAGE_GFN_SHIFT(PG_LEVEL_1G) &&
-			order != KVM_HPAGE_GFN_SHIFT(PG_LEVEL_2M) &&
-			order != KVM_HPAGE_GFN_SHIFT(PG_LEVEL_4K));
+	KVM_MMU_WARN_ON(order != KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PUD) &&
+			order != KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PMD) &&
+			order != KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PTE));
 
-	if (order >= KVM_HPAGE_GFN_SHIFT(PG_LEVEL_1G))
-		return PG_LEVEL_1G;
+	if (order >= KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PUD))
+		return KVM_PT_LEVEL_PUD;
 
-	if (order >= KVM_HPAGE_GFN_SHIFT(PG_LEVEL_2M))
-		return PG_LEVEL_2M;
+	if (order >= KVM_HPAGE_GFN_SHIFT(KVM_PT_LEVEL_PMD))
+		return KVM_PT_LEVEL_PMD;
 
-	return PG_LEVEL_4K;
+	return KVM_PT_LEVEL_PTE;
 }
 
 static u8 kvm_gmem_max_mapping_level(struct kvm *kvm, struct kvm_page_fault *fault,
@@ -3389,10 +3390,10 @@ static u8 kvm_gmem_max_mapping_level(struct kvm *kvm, struct kvm_page_fault *fau
 		/* TODO: Call into guest_memfd once hugepages are supported. */
 		WARN_ONCE(1, "Get pfn+order from guest_memfd");
 		pfn = KVM_PFN_ERR_FAULT;
-		max_level = PG_LEVEL_4K;
+		max_level = KVM_PT_LEVEL_PTE;
 	}
 
-	if (max_level == PG_LEVEL_4K)
+	if (max_level == KVM_PT_LEVEL_PTE)
 		return max_level;
 
 	/*
@@ -3420,19 +3421,19 @@ int kvm_mmu_max_mapping_level(struct kvm *kvm, struct kvm_page_fault *fault,
 		max_level = fault->max_level;
 		is_private = fault->is_private;
 	} else {
-		max_level = PG_LEVEL_NUM;
+		max_level = KVM_PT_LEVEL_NUM;
 		is_private = kvm_mem_is_private(kvm, gfn);
 	}
 
 	max_level = min(max_level, max_huge_page_level);
-	for ( ; max_level > PG_LEVEL_4K; max_level--) {
+	for ( ; max_level > KVM_PT_LEVEL_PTE; max_level--) {
 		linfo = lpage_info_slot(gfn, slot, max_level);
 		if (!linfo->disallow_lpage)
 			break;
 	}
 
-	if (max_level == PG_LEVEL_4K)
-		return PG_LEVEL_4K;
+	if (max_level == KVM_PT_LEVEL_PTE)
+		return KVM_PT_LEVEL_PTE;
 
 	if (is_private || kvm_memslot_is_gmem_only(slot))
 		host_level = kvm_gmem_max_mapping_level(kvm, fault, slot, gfn,
@@ -3449,7 +3450,7 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 	fault->huge_page_disallowed = fault->exec && fault->nx_huge_page_workaround_enabled;
 
-	if (unlikely(fault->max_level == PG_LEVEL_4K))
+	if (unlikely(fault->max_level == KVM_PT_LEVEL_PTE))
 		return;
 
 	if (is_error_noslot_pfn(fault->pfn))
@@ -3464,7 +3465,7 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	 */
 	fault->req_level = kvm_mmu_max_mapping_level(vcpu->kvm, fault,
 						     fault->slot, fault->gfn);
-	if (fault->req_level == PG_LEVEL_4K || fault->huge_page_disallowed)
+	if (fault->req_level == KVM_PT_LEVEL_PTE || fault->huge_page_disallowed)
 		return;
 
 	/*
@@ -3479,7 +3480,7 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_level)
 {
-	if (cur_level > PG_LEVEL_4K &&
+	if (cur_level > KVM_PT_LEVEL_PTE &&
 	    cur_level == fault->goal_level &&
 	    is_shadow_present_pte(spte) &&
 	    !is_large_pte(spte) &&
@@ -3812,7 +3813,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			 * Instead, we let the slow page fault path create a
 			 * normal spte to fix the access.
 			 */
-			if (sp->role.level > PG_LEVEL_4K &&
+			if (sp->role.level > KVM_PT_LEVEL_PTE &&
 			    kvm_slot_dirty_track_enabled(fault->slot))
 				break;
 		}
@@ -4883,7 +4884,7 @@ static int nonpaging_page_fault(struct kvm_vcpu *vcpu,
 				struct kvm_page_fault *fault)
 {
 	/* This path builds a PAE pagetable, we can map 2mb pages at maximum. */
-	fault->max_level = PG_LEVEL_2M;
+	fault->max_level = KVM_PT_LEVEL_PMD;
 	return direct_page_fault(vcpu, fault);
 }
 
@@ -4995,8 +4996,8 @@ static int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 			is_nx_huge_page_enabled(vcpu->kvm),
 
 		.max_level = KVM_MAX_HUGEPAGE_LEVEL,
-		.req_level = PG_LEVEL_4K,
-		.goal_level = PG_LEVEL_4K,
+		.req_level = KVM_PT_LEVEL_PTE,
+		.goal_level = KVM_PT_LEVEL_PTE,
 		.is_private = err & PFERR_PRIVATE_ACCESS,
 
 		.pfn = KVM_PFN_ERR_FAULT,
@@ -5090,7 +5091,7 @@ long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
 				    struct kvm_pre_fault_memory *range)
 {
 	u64 error_code = PFERR_GUEST_FINAL_MASK;
-	u8 level = PG_LEVEL_4K;
+	u8 level = KVM_PT_LEVEL_PTE;
 	u64 direct_bits;
 	u64 end;
 	int r;
@@ -5185,9 +5186,9 @@ int kvm_tdp_mmu_map_private_pfn(struct kvm_vcpu *vcpu, gfn_t gfn, kvm_pfn_t pfn)
 		.is_tdp = true,
 		.nx_huge_page_workaround_enabled = is_nx_huge_page_enabled(vcpu->kvm),
 
-		.max_level = PG_LEVEL_4K,
-		.req_level = PG_LEVEL_4K,
-		.goal_level = PG_LEVEL_4K,
+		.max_level = KVM_PT_LEVEL_PTE,
+		.req_level = KVM_PT_LEVEL_PTE,
+		.goal_level = KVM_PT_LEVEL_PTE,
 		.is_private = true,
 
 		.gfn = gfn,
@@ -5529,9 +5530,9 @@ static void __reset_rsvds_bits_mask_ept(struct kvm_page_format *fmt,
 	u64 large_1g_rsvd = 0, large_2m_rsvd = 0;
 	u64 bad_mt_xwr;
 
-	if (huge_page_level < PG_LEVEL_1G)
+	if (huge_page_level < KVM_PT_LEVEL_PUD)
 		large_1g_rsvd = rsvd_bits(7, 7);
-	if (huge_page_level < PG_LEVEL_2M)
+	if (huge_page_level < KVM_PT_LEVEL_PMD)
 		large_2m_rsvd = rsvd_bits(7, 7);
 
 	fmt->rsvd_bits_mask[0][4] = high_bits_rsvd | rsvd_bits(3, 7);
@@ -6347,7 +6348,7 @@ static bool detect_write_flooding(struct kvm_mmu_page *sp)
 	 * Skip write-flooding detected for the sp whose level is 1, because
 	 * it can become unsync, then the guest page is not write-protected.
 	 */
-	if (sp->role.level == PG_LEVEL_4K)
+	if (sp->role.level == KVM_PT_LEVEL_PTE)
 		return false;
 
 	atomic_inc(&sp->write_flooding_count);
@@ -6453,7 +6454,7 @@ void kvm_mmu_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 		while (npte--) {
 			entry = *spte;
 			mmu_page_zap_pte(vcpu->kvm, sp, spte, &invalid_list);
-			if (gentry && sp->role.level != PG_LEVEL_4K)
+			if (gentry && sp->role.level != KVM_PT_LEVEL_PTE)
 				++vcpu->kvm->stat.mmu_pde_zapped;
 			if (is_shadow_present_pte(entry))
 				flush = true;
@@ -6792,9 +6793,9 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
 	if (tdp_enabled)
 		max_huge_page_level = tdp_huge_page_level;
 	else if (boot_cpu_has(X86_FEATURE_GBPAGES))
-		max_huge_page_level = PG_LEVEL_1G;
+		max_huge_page_level = KVM_PT_LEVEL_PUD;
 	else
-		max_huge_page_level = PG_LEVEL_2M;
+		max_huge_page_level = KVM_PT_LEVEL_PMD;
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_configure_mmu);
 
@@ -7348,7 +7349,7 @@ restart:
 		if (WARN_ON_ONCE(!is_large_pte(*huge_sptep)))
 			continue;
 
-		/* SPs with level >PG_LEVEL_4K should never by unsync. */
+		/* SPs with level >KVM_PT_LEVEL_PTE should never by unsync. */
 		if (WARN_ON_ONCE(sp->unsync))
 			continue;
 
@@ -7492,7 +7493,7 @@ static void kvm_rmap_zap_collapsible_sptes(struct kvm *kvm,
 	 * pages that are already mapped at the maximum hugepage level.
 	 */
 	if (walk_slot_rmaps(kvm, slot, kvm_mmu_zap_collapsible_spte,
-			    PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL - 1, true))
+			    KVM_PT_LEVEL_PTE, KVM_MAX_HUGEPAGE_LEVEL - 1, true))
 		kvm_flush_remote_tlbs_memslot(kvm, slot);
 }
 
@@ -8148,7 +8149,7 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	 * of gfns whose attributes are being modified needs to be explicitly
 	 * unmapped, as that will unmap any existing hugepages.
 	 */
-	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+	for (level = KVM_PT_LEVEL_PMD; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
 		gfn_t start = gfn_round_for_level(range->start, level);
 		gfn_t end = gfn_round_for_level(range->end - 1, level);
 		gfn_t nr_pages = KVM_PAGES_PER_HPAGE(level);
@@ -8185,7 +8186,7 @@ static bool hugepage_has_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
 	const unsigned long start = gfn;
 	const unsigned long end = start + KVM_PAGES_PER_HPAGE(level);
 
-	if (level == PG_LEVEL_2M)
+	if (level == KVM_PT_LEVEL_PMD)
 		return kvm_range_has_memory_attributes(kvm, start, end, ~0, attrs);
 
 	for (gfn = start; gfn < end; gfn += KVM_PAGES_PER_HPAGE(level - 1)) {
@@ -8219,7 +8220,7 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 	 * The sequence matters here: upper levels consume the result of lower
 	 * level's scanning.
 	 */
-	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+	for (level = KVM_PT_LEVEL_PMD; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
 		gfn_t nr_pages = KVM_PAGES_PER_HPAGE(level);
 		gfn_t gfn = gfn_round_for_level(range->start, level);
 
@@ -8271,7 +8272,7 @@ void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,
 	if (!kvm_arch_has_private_mem(kvm))
 		return;
 
-	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+	for (level = KVM_PT_LEVEL_PMD; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
 		/*
 		 * Don't bother tracking mixed attributes for pages that can't
 		 * be huge due to alignment, i.e. process only pages that are

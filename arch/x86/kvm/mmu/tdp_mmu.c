@@ -495,7 +495,7 @@ static int __handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
 	int as_id = kvm_mmu_page_as_id(sp);
 
 	WARN_ON_ONCE(level > PT64_ROOT_MAX_LEVEL);
-	WARN_ON_ONCE(level < PG_LEVEL_4K);
+	WARN_ON_ONCE(level < KVM_PT_LEVEL_PTE);
 	WARN_ON_ONCE(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
 
 	/*
@@ -860,14 +860,14 @@ static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 	 * allows verifying that KVM can safely zap 1GiB regions, e.g. without
 	 * inducing RCU stalls, without relying on a relatively rare event
 	 * (zapping roots is orders of magnitude more common).  Note, because
-	 * zapping a SP recurses on its children, stepping down to PG_LEVEL_4K
+	 * zapping a SP recurses on its children, stepping down to KVM_PT_LEVEL_PTE
 	 * in the iterator itself is unnecessary.
 	 */
 	if (!IS_ENABLED(CONFIG_KVM_PROVE_MMU)) {
-		__tdp_mmu_zap_root(kvm, root, shared, PG_LEVEL_4K);
-		__tdp_mmu_zap_root(kvm, root, shared, PG_LEVEL_2M);
+		__tdp_mmu_zap_root(kvm, root, shared, KVM_PT_LEVEL_PTE);
+		__tdp_mmu_zap_root(kvm, root, shared, KVM_PT_LEVEL_PMD);
 	}
-	__tdp_mmu_zap_root(kvm, root, shared, PG_LEVEL_1G);
+	__tdp_mmu_zap_root(kvm, root, shared, KVM_PT_LEVEL_PUD);
 	__tdp_mmu_zap_root(kvm, root, shared, root->role.level);
 
 	rcu_read_unlock();
@@ -941,7 +941,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 
 	rcu_read_lock();
 
-	for_each_tdp_pte_min_level(iter, kvm, root, PG_LEVEL_4K, start, end) {
+	for_each_tdp_pte_min_level(iter, kvm, root, KVM_PT_LEVEL_PTE, start, end) {
 		if (can_yield &&
 		    tdp_mmu_iter_cond_resched(kvm, &iter, flush, false)) {
 			flush = false;
@@ -1687,7 +1687,7 @@ static void clear_dirty_pt_masked(struct kvm *kvm, struct kvm_mmu_page *root,
 		KVM_MMU_WARN_ON(dbit == shadow_dirty_mask &&
 				spte_ad_need_write_protect(iter.old_spte));
 
-		if (iter.level > PG_LEVEL_4K ||
+		if (iter.level > KVM_PT_LEVEL_PTE ||
 		    !(mask & (1UL << (iter.gfn - gfn))))
 			continue;
 
@@ -1767,7 +1767,7 @@ static void recover_huge_pages_range(struct kvm *kvm,
 
 	rcu_read_lock();
 
-	for_each_tdp_pte_min_level(iter, kvm, root, PG_LEVEL_2M, start, end) {
+	for_each_tdp_pte_min_level(iter, kvm, root, KVM_PT_LEVEL_PMD, start, end) {
 retry:
 		if (tdp_mmu_iter_cond_resched(kvm, &iter, flush, true)) {
 			flush = false;

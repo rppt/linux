@@ -131,8 +131,8 @@
 #define VALID_PAGE(x) ((x) != INVALID_PAGE)
 
 /* KVM Hugepage definitions for x86 */
-#define KVM_MAX_HUGEPAGE_LEVEL	PG_LEVEL_1G
-#define KVM_NR_PAGE_SIZES	(KVM_MAX_HUGEPAGE_LEVEL - PG_LEVEL_4K + 1)
+#define KVM_MAX_HUGEPAGE_LEVEL	KVM_PT_LEVEL_PUD
+#define KVM_NR_PAGE_SIZES	(KVM_MAX_HUGEPAGE_LEVEL - KVM_PT_LEVEL_PTE + 1)
 #define KVM_HPAGE_GFN_SHIFT(x)	(((x) - 1) * 9)
 #define KVM_HPAGE_SHIFT(x)	(PAGE_SHIFT + KVM_HPAGE_GFN_SHIFT(x))
 #define KVM_HPAGE_SIZE(x)	(1UL << KVM_HPAGE_SHIFT(x))
@@ -1639,7 +1639,7 @@ struct kvm_x86_ops {
 
 	/* Update the external page table from spte getting set. */
 	int (*set_external_spte)(struct kvm *kvm, gfn_t gfn, u64 old_spte,
-				 u64 new_spte, enum pg_level level);
+				 u64 new_spte, enum kvm_pt_level level);
 
 	/* Update external page tables for page table about to be freed. */
 	void (*free_external_spt)(struct kvm *kvm, struct kvm_mmu_page *sp);
