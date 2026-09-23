@@ -75,6 +75,7 @@
 #include <asm/pci_x86.h>
 #include <asm/cpu.h>
 #include <asm/irq_stack.h>
+#include <asm/set_memory.h>
 #ifdef CONFIG_X86_IOPL_IOPERM
 #include <asm/io_bitmap.h>
 #endif

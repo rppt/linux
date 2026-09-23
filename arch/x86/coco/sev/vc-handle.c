@@ -33,6 +33,7 @@
 #include <asm/cpu.h>
 #include <asm/apic.h>
 #include <asm/cpuid/api.h>
+#include <asm/set_memory.h>
 
 #include "internal.h"
 

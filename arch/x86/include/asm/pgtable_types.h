@@ -551,31 +551,6 @@ enum pg_level {
 	PG_LEVEL_NUM
 };
 
-#ifdef CONFIG_PROC_FS
-extern void update_page_count(int level, unsigned long pages);
-#else
-static inline void update_page_count(int level, unsigned long pages) { }
-#endif
-
-/*
- * Helper function that returns the kernel pagetable entry controlling
- * the virtual address 'address'. NULL means no pagetable entry present.
- * NOTE: the return type is pte_t but if the pmd is PSE then we return it
- * as a pte too.
- */
-extern pte_t *lookup_address(unsigned long address, unsigned int *level);
-extern pte_t *lookup_address_in_pgd(pgd_t *pgd, unsigned long address,
-				    unsigned int *level);
-pte_t *lookup_address_in_pgd_attr(pgd_t *pgd, unsigned long address,
-				  unsigned int *level, bool *nx, bool *rw);
-extern pmd_t *lookup_pmd_address(unsigned long address);
-extern phys_addr_t slow_virt_to_phys(void *__address);
-extern int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn,
-					  unsigned long address,
-					  unsigned numpages,
-					  unsigned long page_flags);
-extern int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
-					    unsigned long numpages);
 #endif	/* !__ASSEMBLER__ */
 
 #endif /* _ASM_X86_PGTABLE_DEFS_H */

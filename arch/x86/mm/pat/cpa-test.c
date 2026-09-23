@@ -15,6 +15,7 @@
 
 #include <asm/cacheflush.h>
 #include <asm/kdebug.h>
+#include <asm/set_memory.h>
 
 /*
  * Only print the results of the first pass:

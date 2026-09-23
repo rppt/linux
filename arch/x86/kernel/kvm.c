@@ -48,6 +48,7 @@
 #include <asm/reboot.h>
 #include <asm/svm.h>
 #include <asm/e820/api.h>
+#include <asm/set_memory.h>
 
 DEFINE_STATIC_KEY_FALSE_RO(kvm_async_pf_enabled);
 

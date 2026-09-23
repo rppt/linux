@@ -36,6 +36,7 @@
 #include <linux/spinlock.h>
 #include <linux/vmalloc.h>
 #include <linux/export.h>
+#include <linux/set_memory.h>
 #include <asm/xen/hypervisor.h>
 #include <xen/page.h>
 #include <xen/interface/xen.h>

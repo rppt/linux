@@ -18,6 +18,7 @@
 #include <linux/mmiotrace.h>
 #include <linux/pgtable.h>
 #include <asm/e820/api.h> /* for ISA_START_ADDRESS */
+#include <asm/set_memory.h>
 #include <linux/atomic.h>
 #include <linux/percpu.h>
 #include <linux/cpu.h>

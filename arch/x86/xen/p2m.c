@@ -73,6 +73,7 @@
 #include <linux/acpi.h>
 
 #include <asm/cache.h>
+#include <asm/set_memory.h>
 #include <asm/setup.h>
 #include <linux/uaccess.h>
 

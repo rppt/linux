@@ -16,6 +16,7 @@
 #include <asm/cpufeature.h>
 #include <asm/cpufeatures.h>
 #include <asm/seamldr.h>
+#include <asm/set_memory.h>
 
 #include "seamcall_internal.h"
 #include "tdx.h"

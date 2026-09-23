@@ -18,6 +18,7 @@
 #include <asm/cpu_device_id.h>
 #include <asm/realmode.h>
 #include <asm/reboot.h>
+#include <asm/set_memory.h>
 
 #define EFI_MIN_RESERVE 5120
 

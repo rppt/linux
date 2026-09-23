@@ -69,6 +69,7 @@
 #include <asm/memtype.h>
 #include <asm/smp.h>
 #include <asm/tlb.h>
+#include <asm/set_memory.h>
 
 #include <asm/xen/hypercall.h>
 #include <asm/xen/hypervisor.h>

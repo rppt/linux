@@ -3,6 +3,7 @@
 #include <linux/pfn.h>
 #include <asm/xen/page.h>
 #include <asm/xen/hypercall.h>
+#include <asm/set_memory.h>
 #include <xen/interface/memory.h>
 
 #include "xen-ops.h"

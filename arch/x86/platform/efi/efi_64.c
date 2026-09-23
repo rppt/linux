@@ -48,6 +48,7 @@
 #include <asm/time.h>
 #include <asm/pgalloc.h>
 #include <asm/sev.h>
+#include <asm/set_memory.h>
 
 /*
  * We allocate runtime services regions top-down, starting from -4G, i.e.
