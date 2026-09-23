@@ -1511,6 +1511,12 @@ config LAZY_MMU_MODE_KUNIT_TEST
 
 	  If unsure, say N.
 
+# Select if arch uses the generic change_page_attr() implementation in
+# mm/set_memory.c rather than providing its own
+config GENERIC_SET_MEMORY
+	bool
+	depends on ARCH_HAS_SET_MEMORY
+
 source "mm/damon/Kconfig"
 
 endmenu
