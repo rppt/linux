@@ -45,6 +45,9 @@ static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 }
 
 #define arch_cpa_needs_alias arch_cpa_needs_alias
+
+/* A spare software bit CPA self-test can toggle. */
+#define ARCH_PAGE_CPA_TEST	__pgprot(_PAGE_SPECIAL)
 #else
 static inline int set_memory_ro(unsigned long addr, int numpages) { return 0; }
 static inline int set_memory_rw(unsigned long addr, int numpages) { return 0; }

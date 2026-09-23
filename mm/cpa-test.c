@@ -18,14 +18,17 @@
  * Only print the results of the first pass:
  */
 static __read_mostly int print = 1;
+static unsigned long min_test_pfn;
 static unsigned long max_test_pfn;
 
 enum {
 	NTEST			= 3 * 100,
 	NPAGES			= 100,
-	LPS			= PMD_SIZE,
-	GPS			= PUD_SIZE
 };
+
+#define LPS	PMD_SIZE
+#define GPS	PUD_SIZE
+#define HPS	P4D_SIZE
 
 static int pte_testbit(pte_t pte)
 {
@@ -33,7 +36,7 @@ static int pte_testbit(pte_t pte)
 }
 
 struct split_state {
-	long lpg, gpg, spg, exec;
+	long hpg, lpg, gpg, spg, exec;
 	long min_exec, max_exec;
 };
 
@@ -42,10 +45,10 @@ static int print_split(struct split_state *s)
 	long i, expected, missed = 0;
 	int err = 0;
 
-	s->lpg = s->gpg = s->spg = s->exec = 0;
+	s->lpg = s->gpg = s->spg = s->hpg = s->exec = 0;
 	s->min_exec = ~0UL;
 	s->max_exec = 0;
-	for (i = 0; i < max_test_pfn; ) {
+	for (i = min_test_pfn; i < max_test_pfn; ) {
 		unsigned long addr = (unsigned long)__va(i << PAGE_SHIFT);
 		enum pgtable_level level;
 		pte_t *pte, pteval;
@@ -58,7 +61,10 @@ static int print_split(struct split_state *s)
 		}
 		pteval = ptep_get(pte);
 
-		if (level == PGTABLE_LEVEL_PUD && sizeof(long) == 8) {
+		if (level == PGTABLE_LEVEL_P4D) {
+			s->hpg++;
+			i += HPS/PAGE_SIZE;
+		} else if (level == PGTABLE_LEVEL_PUD && sizeof(long) == 8) {
 			s->gpg++;
 			i += GPS/PAGE_SIZE;
 		} else if (level == PGTABLE_LEVEL_PMD) {
@@ -84,14 +90,15 @@ static int print_split(struct split_state *s)
 	}
 	if (print) {
 		printk(KERN_INFO
-			" 4k %lu large %lu gb %lu x %lu[%lx-%lx] miss %lu\n",
-			s->spg, s->lpg, s->gpg, s->exec,
+			" 4k %lu large %lu gb %lu huge %lu x %lu[%lx-%lx] miss %lu\n",
+			s->spg, s->lpg, s->gpg, s->hpg, s->exec,
 			s->min_exec != ~0UL ? s->min_exec : 0,
 			s->max_exec, missed);
 	}
 
-	expected = (s->gpg*GPS + s->lpg*LPS)/PAGE_SIZE + s->spg + missed;
-	if (expected != i) {
+	expected = (s->hpg*HPS + s->gpg*GPS + s->lpg*LPS)/PAGE_SIZE +
+		   s->spg + missed;
+	if (expected != i - min_test_pfn) {
 		printk(KERN_ERR "CPA max_test_pfn %lu but expected %lu\n",
 			max_test_pfn, expected);
 		return 1;
@@ -128,7 +135,8 @@ static int pageattr_test(void)
 	failed += print_split(&sa);
 
 	for (i = 0; i < NTEST; i++) {
-		unsigned long pfn = get_random_u32_below(max_test_pfn);
+		unsigned long pfn = min_test_pfn +
+			get_random_u32_below(max_test_pfn - min_test_pfn);
 
 		addr[i] = (unsigned long)__va(pfn << PAGE_SHIFT);
 		len[i] = get_random_u32_below(NPAGES);
@@ -272,6 +280,7 @@ static int start_pageattr_test(void)
 {
 	struct task_struct *p;
 
+	min_test_pfn = PFN_DOWN(__pa(PAGE_OFFSET));
 	max_test_pfn = PFN_DOWN(__pa(high_memory - 1)) + 1;
 
 	p = kthread_create(do_pageattr_test, NULL, "pageattr-test");
