@@ -400,6 +400,7 @@ int set_memory_nx(unsigned long addr, int numpages)
 	return cpa_change_memory(addr, numpages, CPA_SET_NX);
 }
 
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
 static int cpa_change_direct_map(struct page *page, int numpages,
 				 enum cpa_op op)
 {
@@ -433,3 +434,4 @@ int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 {
 	return cpa_change_direct_map(page, nr, CPA_SET_DEFAULT);
 }
+#endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
