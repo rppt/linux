@@ -106,7 +106,7 @@ static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (cpa->req & CPA_REQ_SPLIT)
 		return 1;
 
-	guard(spinlock)(&pgd_lock);
+	guard(cpa_pgtable)();
 
 	if (!cpa_lookup_leaf(cpa, leaf, address) || leaf->kpte != kpte)
 		return 1;
@@ -131,7 +131,7 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (!pte)
 		return -ENOMEM;
 
-	scoped_guard(spinlock, &pgd_lock) {
+	scoped_guard(cpa_pgtable) {
 		if (!cpa_lookup_leaf(cpa, leaf, address) || leaf->kpte != kpte)
 			ret = 1;
 		else

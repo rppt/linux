@@ -3,6 +3,7 @@
 #define _ASM_X86_SET_MEMORY_H
 
 #include <linux/pgtable.h>
+#include <linux/spinlock.h>
 
 #include <asm/page.h>
 #include <asm/sections.h>
@@ -184,5 +185,21 @@ static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 }
 
 #define arch_cpa_needs_alias arch_cpa_needs_alias
+
+/*
+ * CPA walks the kernel page tables, so it has to serialize against everything
+ * else that does, not just against other CPA calls.
+ */
+static inline void arch_cpa_pgtable_lock(void)
+{
+	spin_lock(&pgd_lock);
+}
+
+static inline void arch_cpa_pgtable_unlock(void)
+{
+	spin_unlock(&pgd_lock);
+}
+
+#define arch_cpa_pgtable_lock arch_cpa_pgtable_lock
 
 #endif /* _ASM_X86_SET_MEMORY_H */

@@ -2,6 +2,7 @@
 #ifndef _LINUX_PAGEATTR_H
 #define _LINUX_PAGEATTR_H
 
+#include <linux/cleanup.h>
 #include <linux/pgtable.h>
 #include <linux/set_memory.h>
 #include <linux/spinlock.h>
@@ -116,6 +117,19 @@ int change_page_attr_set_clr(unsigned long *addr, int numpages,
 			     pgprot_t mask_set, pgprot_t mask_clr,
 			     unsigned int request, struct page **pages);
 
+
+/*
+ * Serialize a CPA walk against anything else that walks or modifies the
+ * kernel page tables.  Architectures that need no such serialization can
+ * leave these empty.
+ */
+#ifndef arch_cpa_pgtable_lock
+static inline void arch_cpa_pgtable_lock(void) { }
+static inline void arch_cpa_pgtable_unlock(void) { }
+#endif
+
+DEFINE_LOCK_GUARD_0(cpa_pgtable, arch_cpa_pgtable_lock(),
+		    arch_cpa_pgtable_unlock())
 
 /* The operations this architecture supports, indexed by enum cpa_op. */
 extern const struct cpa_op_desc arch_cpa_op_descs[CPA_OP_NUM];
