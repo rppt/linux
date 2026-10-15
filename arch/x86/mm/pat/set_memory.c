@@ -483,8 +483,6 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	int collapsed = 0;
 	int i;
 
-	guard(spinlock)(&cpa_lock);
-
 	if (cpa->req & (CPA_REQ_PAGES_ARRAY | CPA_REQ_ARRAY)) {
 		for (i = 0; i < cpa->numpages; i++)
 			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
@@ -517,18 +515,6 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	}
 }
 
-static void cpa_collapse_large_pages(struct cpa_data *cpa)
-{
-	/*
-	 * Take the mmap write lock on init_mm to:
-	 * - Avoid a use-after-free if raced by ptdump (which takes its own
-	 *   write lock on init_mm).
-	 * - Serialise concurrent CPA walkers.
-	 */
-	scoped_guard(mmap_write_lock, &init_mm)
-		__cpa_collapse_large_pages(cpa);
-}
-
 static void cpa_flush(struct cpa_data *cpa, int cache)
 {
 	unsigned int i;
@@ -537,7 +523,7 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 
 	if (cache && !cpu_feature_enabled(X86_FEATURE_CLFLUSH)) {
 		cpa_flush_all(cache);
-		goto collapse_large_pages;
+		return;
 	}
 
 	if ((cpa->state & CPA_ST_FLUSHTLB_ALL) ||
@@ -547,7 +533,7 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 		on_each_cpu(__cpa_flush_tlb, cpa, 1);
 
 	if (!cache)
-		goto collapse_large_pages;
+		return;
 
 	mb();
 	for (i = 0; i < cpa->numpages; i++) {
@@ -563,10 +549,25 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 			clflush_cache_range_opt((void *)fix_addr(addr), PAGE_SIZE);
 	}
 	mb();
+}
 
-collapse_large_pages:
-	if (cpa->req & CPA_REQ_COLLAPSE)
-		cpa_collapse_large_pages(cpa);
+static void cpa_flush_changes(struct cpa_data *cpa, int err)
+{
+	/*
+	 * No need to flush, when we did not set any of the caching
+	 * attributes:
+	 */
+	int cache = !!pgprot2cachemode(cpa->mask_set);
+
+	/*
+	 * On error; flush everything to be sure.
+	 */
+	if (err) {
+		cpa_flush_all(cache);
+		return;
+	}
+
+	cpa_flush(cpa, cache);
 }
 
 static bool overlaps(unsigned long r1_start, unsigned long r1_end,
@@ -2186,13 +2187,27 @@ out:
 	return ret;
 }
 
+static void cpa_collapse_large_pages(struct cpa_data *cpa)
+{
+	/*
+	 * Take the mmap write lock on init_mm to:
+	 * - Avoid a use-after-free if raced by ptdump (which takes its own
+	 *   write lock on init_mm).
+	 * - Serialise concurrent CPA walkers.
+	 */
+	guard(mmap_write_lock)(&init_mm);
+	guard(spinlock)(&cpa_lock);
+
+	__cpa_collapse_large_pages(cpa);
+}
+
 static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 				    pgprot_t mask_set, pgprot_t mask_clr,
 				    unsigned int request,
 				    struct page **pages)
 {
 	struct cpa_data cpa;
-	int ret, cache;
+	int ret;
 
 	memset(&cpa, 0, sizeof(cpa));
 
@@ -2252,24 +2267,13 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	 * Check whether we really changed something:
 	 */
 	if (!(cpa.state & CPA_ST_FLUSHTLB))
-		goto out;
+		return ret;
 
-	/*
-	 * No need to flush, when we did not set any of the caching
-	 * attributes:
-	 */
-	cache = !!pgprot2cachemode(mask_set);
+	cpa_flush_changes(&cpa, ret);
 
-	/*
-	 * On error; flush everything to be sure.
-	 */
-	if (ret) {
-		cpa_flush_all(cache);
-		goto out;
-	}
+	if (!ret && (cpa.req & CPA_REQ_COLLAPSE))
+		cpa_collapse_large_pages(&cpa);
 
-	cpa_flush(&cpa, cache);
-out:
 	return ret;
 }
 
