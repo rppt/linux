@@ -282,12 +282,6 @@ within(unsigned long addr, unsigned long start, unsigned long end)
 
 #ifdef CONFIG_X86_64
 
-static inline int
-within_inclusive(unsigned long addr, unsigned long start, unsigned long end)
-{
-	return addr >= start && addr <= end;
-}
-
 /*
  * The kernel image is mapped into two places in the virtual address space
  * (addresses without KASLR, of course):
@@ -316,18 +310,18 @@ static inline unsigned long highmap_end_pfn(void)
 	return __pa_symbol(roundup(_brk_end, PMD_SIZE) - 1) >> PAGE_SHIFT;
 }
 
-static bool __cpa_pfn_in_highmap(unsigned long pfn)
+static inline bool __cpa_pfn_in_highmap(unsigned long pfn)
 {
 	/*
 	 * Kernel text has an alias mapping at a high address, known
 	 * here as "highmap".
 	 */
-	return within_inclusive(pfn, highmap_start_pfn(), highmap_end_pfn());
+	return pfn >= highmap_start_pfn() && pfn <= highmap_end_pfn();
 }
 
 #else
 
-static bool __cpa_pfn_in_highmap(unsigned long pfn)
+static inline bool __cpa_pfn_in_highmap(unsigned long pfn)
 {
 	/* There is no highmap on 32-bit */
 	return false;
@@ -2022,42 +2016,86 @@ static int __change_page_attr(struct cpa_data *cpa)
 static int __change_page_attr_set_clr(struct cpa_data *cpa);
 
 /*
- * Check the directmap and "high kernel map" 'aliases'.
+ * The direct map aliases all of physical memory, and on 64-bit the kernel
+ * text is aliased by the high mapping.  A change to one alias has to be
+ * applied to the others.
+ *
+ * Keep this inline: it runs once per page and says no most of the time.
  */
-static int cpa_process_alias(struct cpa_data *cpa)
+static inline bool __cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 {
-	struct cpa_data alias_cpa;
-	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
-	unsigned long vaddr;
+	unsigned long dmap_end = PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT);
+
+	if (!pfn_range_is_mapped(pfn, pfn + 1))
+		return false;
+
+	if (vaddr < PAGE_OFFSET || vaddr >= dmap_end)
+		return true;
+
+	return !(vaddr >= (unsigned long)_text && vaddr < _brk_end) &&
+	       __cpa_pfn_in_highmap(pfn);
+}
+
+/*
+ * Does this page have an alias that the change has to be applied to as well?
+ * Not if the caller asked otherwise, and not if this walk is itself already
+ * updating an alias.
+ */
+static inline bool cpa_needs_alias(struct cpa_data *cpa)
+{
+	if (cpa->state & CPA_ST_ALIAS || cpa->req & CPA_REQ_NO_ALIAS)
+		return false;
+
+	return __cpa_needs_alias(__cpa_addr(cpa, cpa->curpage), cpa->pfn);
+}
+
+/*
+ * Apply the change described by @cpa to its alias at @addr, except for the
+ * protections in @keep.
+ */
+static int cpa_change_alias(struct cpa_data *cpa, unsigned long addr,
+			    pgprot_t keep)
+{
+	struct cpa_data alias_cpa = *cpa;
 	int ret;
 
-	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
-		return 0;
+	alias_cpa.vaddr = &addr;
+	alias_cpa.req &= ~CPA_REQ_PAGES_ARRAY;
+	alias_cpa.state |= CPA_ST_ALIAS;
+	alias_cpa.state &= ~CPA_ST_FLUSHTLB;
+	alias_cpa.curpage = 0;
+	pgprot_val(alias_cpa.mask_set) &= ~pgprot_val(keep);
+	pgprot_val(alias_cpa.mask_clr) &= ~pgprot_val(keep);
+
+	ret = __change_page_attr_set_clr(&alias_cpa);
+
+	/* The alias is outside of the range being changed */
+	if (alias_cpa.state & CPA_ST_FLUSHTLB)
+		cpa->state |= CPA_ST_FLUSHTLB_ALL;
+
+	return ret;
+}
+
+static int cpa_process_alias(struct cpa_data *cpa)
+{
+	unsigned long vaddr = __cpa_addr(cpa, cpa->curpage);
+	/*
+	 * Directmap always has NX set, do not modify.
+	 * [_text, _brk_end) also covers data, do not modify NX except in
+	 * cases where the highmap is the primary target.
+	 */
+	pgprot_t keep = __pgprot(__supported_pte_mask & _PAGE_NX);
+	unsigned long laddr;
+	int ret;
 
 	/*
 	 * No need to redo, when the primary call touched the direct
 	 * mapping already:
 	 */
-	vaddr = __cpa_addr(cpa, cpa->curpage);
-	if (!(within(vaddr, PAGE_OFFSET,
-		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT)))) {
-
-		alias_cpa = *cpa;
-		alias_cpa.vaddr = &laddr;
-		alias_cpa.req &= ~CPA_REQ_PAGES_ARRAY;
-		alias_cpa.state |= CPA_ST_ALIAS;
-		alias_cpa.state &= ~CPA_ST_FLUSHTLB;
-		alias_cpa.curpage = 0;
-
-		/* Directmap always has NX set, do not modify. */
-		if (__supported_pte_mask & _PAGE_NX) {
-			alias_cpa.mask_clr.pgprot &= ~_PAGE_NX;
-			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
-		}
-
-		ret = __change_page_attr_set_clr(&alias_cpa);
-		if (alias_cpa.state & CPA_ST_FLUSHTLB)
-			cpa->state |= CPA_ST_FLUSHTLB_ALL;
+	if (!within(vaddr, PAGE_OFFSET,
+		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT))) {
+		laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
+		ret = cpa_change_alias(cpa, laddr, keep);
 		if (ret)
 			return ret;
 	}
@@ -2070,31 +2108,9 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	 */
 	if (!within(vaddr, (unsigned long)_text, _brk_end) &&
 	    __cpa_pfn_in_highmap(cpa->pfn)) {
-		unsigned long temp_cpa_vaddr = (cpa->pfn << PAGE_SHIFT) +
-					       __START_KERNEL_map - phys_base;
-		alias_cpa = *cpa;
-		alias_cpa.vaddr = &temp_cpa_vaddr;
-		alias_cpa.req &= ~CPA_REQ_PAGES_ARRAY;
-		alias_cpa.state |= CPA_ST_ALIAS;
-		alias_cpa.state &= ~CPA_ST_FLUSHTLB;
-		alias_cpa.curpage = 0;
-
-		/*
-		 * [_text, _brk_end) also covers data, do not modify NX except
-		 * in cases where the highmap is the primary target.
-		 */
-		if (__supported_pte_mask & _PAGE_NX) {
-			alias_cpa.mask_clr.pgprot &= ~_PAGE_NX;
-			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
-		}
-
-		/*
-		 * The high mapping range is imprecise, so ignore the
-		 * return value.
-		 */
-		__change_page_attr_set_clr(&alias_cpa);
-		if (alias_cpa.state & CPA_ST_FLUSHTLB)
-			cpa->state |= CPA_ST_FLUSHTLB_ALL;
+		laddr = (cpa->pfn << PAGE_SHIFT) + __START_KERNEL_map - phys_base;
+		/* The high mapping range is imprecise, so ignore errors. */
+		cpa_change_alias(cpa, laddr, keep);
 	}
 #endif
 
@@ -2129,8 +2145,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa)
 		if (ret)
 			goto out;
 
-		if (!(cpa->state & CPA_ST_ALIAS) &&
-		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
+		if (cpa_needs_alias(cpa)) {
 			ret = cpa_process_alias(cpa);
 			if (ret)
 				goto out;
