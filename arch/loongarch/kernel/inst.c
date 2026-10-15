@@ -7,6 +7,7 @@
 #include <linux/set_memory.h>
 #include <linux/stop_machine.h>
 
+#include <asm/addrspace.h>
 #include <asm/cacheflush.h>
 #include <asm/inst.h>
 
@@ -274,6 +275,10 @@ int larch_insn_text_copy(void *dst, void *src, size_t len)
 	 * If it is removed nobody will really update the text.
 	 */
 	lockdep_assert_cpus_held();
+
+	/* The direct mapping windows cannot be write protected */
+	if ((unsigned long)dst < vm_map_base)
+		return stop_machine_cpuslocked(text_copy_cb, &copy, cpu_online_mask);
 
 	start = round_down((size_t)dst, PAGE_SIZE);
 	end   = round_up((size_t)dst + len, PAGE_SIZE);
