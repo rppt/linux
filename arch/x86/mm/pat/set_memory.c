@@ -108,6 +108,30 @@ DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
 #define CPA_ST_STATIC_PROT	BIT(3) /* enforce static protections */
 #define CPA_ST_ALIAS		BIT(4) /* updating an alias */
 
+enum cpa_op {
+	CPA_SET_RO,
+	CPA_SET_RW,
+	CPA_SET_X,
+	CPA_SET_NX,
+	CPA_SET_DEFAULT,
+	CPA_SET_INVALID,
+	CPA_OP_NUM,
+};
+
+/* The protection changes and the request flags that implement a cpa_op. */
+struct cpa_op_desc {
+	pgprot_t mask_set;
+	pgprot_t mask_clr;
+	unsigned int req;
+};
+
+#define CPA_OP_DESC(_set, _clr, _req)		\
+	{					\
+		.mask_set = __pgprot(_set),	\
+		.mask_clr = __pgprot(_clr),	\
+		.req = (_req),			\
+	}
+
 static inline pgprot_t cachemode2pgprot(enum page_cache_mode pcm)
 {
 	return __pgprot(cachemode2protval(pcm));
@@ -2248,6 +2272,74 @@ static inline int change_page_attr_clear(unsigned long *addr, int numpages,
 		(array ? CPA_REQ_ARRAY : 0), NULL);
 }
 
+/*
+ * No alias checking needed for the direct map updates. Otherwise, we may need
+ * to break large pages for 64-bit kernel text mappings (this adds to
+ * complexity if we want to do this from atomic context especially). Let's
+ * keep it simple!
+ */
+static struct cpa_op_desc cpa_op_descs[CPA_OP_NUM] __ro_after_init = {
+	[CPA_SET_RO]	  = CPA_OP_DESC(0, _PAGE_RW | _PAGE_DIRTY, 0),
+	[CPA_SET_RW]	  = CPA_OP_DESC(_PAGE_RW, 0, 0),
+	[CPA_SET_X]	  = CPA_OP_DESC(0, _PAGE_NX, 0),
+	[CPA_SET_NX]	  = CPA_OP_DESC(_PAGE_NX, 0, 0),
+	[CPA_SET_DEFAULT] = CPA_OP_DESC(_PAGE_PRESENT | _PAGE_RW, 0,
+					CPA_REQ_NO_ALIAS),
+	[CPA_SET_INVALID] = CPA_OP_DESC(0,
+					_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY,
+					CPA_REQ_NO_ALIAS),
+};
+
+static const struct cpa_op_desc *cpa_get_op_desc(enum cpa_op op)
+{
+	return &cpa_op_descs[op];
+}
+
+void __init cpa_init_op_descs(void)
+{
+	int i;
+
+	if (__supported_pte_mask & _PAGE_NX)
+		return;
+
+	for (i = 0; i < CPA_OP_NUM; i++) {
+		pgprot_val(cpa_op_descs[i].mask_set) &= ~_PAGE_NX;
+		pgprot_val(cpa_op_descs[i].mask_clr) &= ~_PAGE_NX;
+	}
+}
+
+static int cpa_change_memory(unsigned long addr, int numpages, enum cpa_op op)
+{
+	const struct cpa_op_desc *desc = cpa_get_op_desc(op);
+
+	if (!pgprot_val(desc->mask_set) && !pgprot_val(desc->mask_clr))
+		return 0;
+
+	return change_page_attr_set_clr(&addr, numpages, desc->mask_set,
+					desc->mask_clr, desc->req, NULL);
+}
+
+/*
+ * Change the direct map without flushing the TLB or taking mmap_lock.
+ * Splitting a large page allocates a page table and may sleep.
+ */
+static int cpa_change_direct_map(struct page *page, int numpages,
+				 enum cpa_op op)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+	struct cpa_data cpa = {
+		.vaddr = &addr,
+		.numpages = numpages,
+	};
+	const struct cpa_op_desc *desc = cpa_get_op_desc(op);
+
+	cpa.mask_set = desc->mask_set;
+	cpa.mask_clr = desc->mask_clr;
+	cpa.req = desc->req;
+
+	return __change_page_attr_set_clr(&cpa);
+}
+
 static inline int cpa_set_pages_array(struct page **pages, int numpages,
 				       pgprot_t mask)
 {
@@ -2402,23 +2494,17 @@ EXPORT_SYMBOL_GPL(clear_mce_nospec);
 
 int set_memory_x(unsigned long addr, int numpages)
 {
-	if (!(__supported_pte_mask & _PAGE_NX))
-		return 0;
-
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_NX), 0);
+	return cpa_change_memory(addr, numpages, CPA_SET_X);
 }
 
 int set_memory_nx(unsigned long addr, int numpages)
 {
-	if (!(__supported_pte_mask & _PAGE_NX))
-		return 0;
-
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_NX), 0);
+	return cpa_change_memory(addr, numpages, CPA_SET_NX);
 }
 
 int set_memory_ro(unsigned long addr, int numpages)
 {
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW | _PAGE_DIRTY), 0);
+	return cpa_change_memory(addr, numpages, CPA_SET_RO);
 }
 
 int set_memory_rox(unsigned long addr, int numpages)
@@ -2434,7 +2520,7 @@ int set_memory_rox(unsigned long addr, int numpages)
 
 int set_memory_rw(unsigned long addr, int numpages)
 {
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_RW), 0);
+	return cpa_change_memory(addr, numpages, CPA_SET_RW);
 }
 
 int set_memory_np(unsigned long addr, int numpages)
@@ -2704,52 +2790,14 @@ int set_pages_rw(struct page *page, int numpages)
 	return set_memory_rw(addr, numpages);
 }
 
-static int __set_pages_p(struct page *page, int numpages)
-{
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
-				.mask_clr = __pgprot(0),
-				.req = CPA_REQ_NO_ALIAS };
-
-	/*
-	 * No alias checking needed for setting present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
-	return __change_page_attr_set_clr(&cpa);
-}
-
-static int __set_pages_np(struct page *page, int numpages)
-{
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = &tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
-				.req = CPA_REQ_NO_ALIAS };
-
-	/*
-	 * No alias checking needed for setting not present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
-	return __change_page_attr_set_clr(&cpa);
-}
-
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
 {
-	return __set_pages_np(page, nr);
+	return cpa_change_direct_map(page, nr, CPA_SET_INVALID);
 }
 
 int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 {
-	return __set_pages_p(page, nr);
+	return cpa_change_direct_map(page, nr, CPA_SET_DEFAULT);
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC

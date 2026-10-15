@@ -37,6 +37,7 @@ void entry_SYSRETL_compat_end(void);
 #endif
 
 void x86_configure_nx(void);
+void cpa_init_op_descs(void);
 
 extern int reboot_force;
 

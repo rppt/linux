@@ -985,6 +985,7 @@ void __init setup_arch(char **cmdline_p)
 	 * console setup can safely call set_fixmap()).
 	 */
 	x86_configure_nx();
+	cpa_init_op_descs();
 
 	parse_early_param();
 
