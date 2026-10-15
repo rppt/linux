@@ -6,6 +6,7 @@
 #include <linux/pagewalk.h>
 #include <linux/pgtable.h>
 #include <linux/vmalloc.h>
+#include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/bitops.h>
 #include <asm/set_memory.h>
@@ -260,7 +261,7 @@ static int split_linear_mapping(unsigned long start, unsigned long end)
 #endif	/* CONFIG_64BIT */
 
 static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask,
-			pgprot_t clear_mask)
+			pgprot_t clear_mask, bool flush)
 {
 	int ret;
 	unsigned long start = addr;
@@ -333,14 +334,16 @@ unlock:
 	 * We can't use flush_tlb_kernel_range() here as we may have split a
 	 * hugepage that is larger than that, so let's flush everything.
 	 */
-	flush_tlb_all();
+	if (flush)
+		flush_tlb_all();
 #else
 	ret =  walk_kernel_page_table_range(start, end, &pageattr_ops, NULL,
 				     &masks);
 
 	mmap_write_unlock(&init_mm);
 
-	flush_tlb_kernel_range(start, end);
+	if (flush)
+		flush_tlb_kernel_range(start, end);
 #endif
 
 	return ret;
@@ -349,41 +352,50 @@ unlock:
 int set_memory_rw_nx(unsigned long addr, int numpages)
 {
 	return __set_memory(addr, numpages, __pgprot(_PAGE_READ | _PAGE_WRITE),
-			    __pgprot(_PAGE_EXEC));
+			    __pgprot(_PAGE_EXEC), true);
 }
 
 int set_memory_ro(unsigned long addr, int numpages)
 {
 	return __set_memory(addr, numpages, __pgprot(_PAGE_READ),
-			    __pgprot(_PAGE_WRITE));
+			    __pgprot(_PAGE_WRITE), true);
 }
 
 int set_memory_rw(unsigned long addr, int numpages)
 {
 	return __set_memory(addr, numpages, __pgprot(_PAGE_READ | _PAGE_WRITE),
-			    __pgprot(0));
+			    __pgprot(0), true);
 }
 
 int set_memory_x(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(_PAGE_EXEC), __pgprot(0));
+	return __set_memory(addr, numpages, __pgprot(_PAGE_EXEC), __pgprot(0),
+			    true);
 }
 
 int set_memory_nx(unsigned long addr, int numpages)
 {
-	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_EXEC));
+	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_EXEC),
+			    true);
 }
 
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
 {
 	return __set_memory((unsigned long)page_address(page), nr,
-			    __pgprot(0), __pgprot(_PAGE_PRESENT));
+			    __pgprot(0), __pgprot(_PAGE_PRESENT), false);
 }
 
 int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 {
-	return __set_memory((unsigned long)page_address(page), nr,
-			    PAGE_KERNEL, __pgprot(_PAGE_EXEC));
+	int ret;
+
+	ret = __set_memory((unsigned long)page_address(page), nr,
+			   PAGE_KERNEL, __pgprot(_PAGE_EXEC), false);
+
+	/* The TLB may still hold the invalid entries */
+	mark_new_valid_map();
+
+	return ret;
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
