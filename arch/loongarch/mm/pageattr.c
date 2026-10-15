@@ -128,7 +128,7 @@ static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask, pgp
 int set_memory_x(unsigned long addr, int numpages)
 {
 	if (addr < vm_map_base)
-		return 0;
+		return -EINVAL;
 
 	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_NO_EXEC));
 }
@@ -136,7 +136,7 @@ int set_memory_x(unsigned long addr, int numpages)
 int set_memory_nx(unsigned long addr, int numpages)
 {
 	if (addr < vm_map_base)
-		return 0;
+		return -EINVAL;
 
 	return __set_memory(addr, numpages, __pgprot(_PAGE_NO_EXEC), __pgprot(0));
 }
@@ -144,7 +144,7 @@ int set_memory_nx(unsigned long addr, int numpages)
 int set_memory_ro(unsigned long addr, int numpages)
 {
 	if (addr < vm_map_base)
-		return 0;
+		return -EINVAL;
 
 	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_WRITE | _PAGE_DIRTY));
 }
@@ -152,7 +152,7 @@ int set_memory_ro(unsigned long addr, int numpages)
 int set_memory_rw(unsigned long addr, int numpages)
 {
 	if (addr < vm_map_base)
-		return 0;
+		return -EINVAL;
 
 	return __set_memory(addr, numpages, __pgprot(_PAGE_WRITE | _PAGE_DIRTY), __pgprot(0));
 }
