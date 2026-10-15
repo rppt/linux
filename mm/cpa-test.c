@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/mm.h>
+#include <linux/pageattr.h>
 #include <linux/vmalloc.h>
 
 #include <asm/cacheflush.h>
@@ -179,15 +180,20 @@ static int pageattr_test(void)
 
 		switch (i % 3) {
 		case 0:
-			err = change_page_attr_set(&addr[i], len[i], PAGE_CPA_TEST, 0);
+			err = change_page_attr_set_clr(&addr[i], len[i], PAGE_CPA_TEST,
+						       __pgprot(0), 0, NULL);
 			break;
 
 		case 1:
-			err = change_page_attr_set(addrs, len[i], PAGE_CPA_TEST, 1);
+			err = change_page_attr_set_clr(addrs, len[i], PAGE_CPA_TEST,
+						       __pgprot(0), CPA_REQ_ARRAY,
+						       NULL);
 			break;
 
 		case 2:
-			err = cpa_set_pages_array(pages, len[i], PAGE_CPA_TEST);
+			err = change_page_attr_set_clr(NULL, len[i], PAGE_CPA_TEST,
+						       __pgprot(0),
+						       CPA_REQ_PAGES_ARRAY, pages);
 			break;
 		}
 
@@ -223,7 +229,8 @@ static int pageattr_test(void)
 			failed++;
 			continue;
 		}
-		err = change_page_attr_clear(&addr[i], len[i], PAGE_CPA_TEST, 0);
+		err = change_page_attr_set_clr(&addr[i], len[i], __pgprot(0),
+					       PAGE_CPA_TEST, 0, NULL);
 		if (err < 0) {
 			printk(KERN_ERR "CPA reverting failed: %d\n", err);
 			failed++;
