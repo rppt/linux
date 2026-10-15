@@ -90,6 +90,15 @@ enum cpa_op {
 	CPA_SET_INVALID,
 };
 
+/* An alias of the range being changed that has to be changed as well. */
+struct cpa_alias {
+	unsigned long addr;
+	pgprot_t keep;		/* protections not to change in the alias */
+	bool ignore_err;
+};
+
+#define CPA_MAX_ALIASES	2
+
 /* The protection changes and the request flags that implement a cpa_op. */
 struct cpa_op_desc {
 	pgprot_t mask_set;
@@ -1987,14 +1996,20 @@ repeat:
 static int __change_page_attr_set_clr(struct cpa_data *cpa);
 
 /*
- * Check the directmap and "high kernel map" 'aliases'.
+ * The direct map aliases all of physical memory, and on 64-bit the kernel
+ * text is aliased by the high mapping.  A change to one alias has to be
+ * applied to the others.
  */
-static int cpa_process_alias(struct cpa_data *cpa)
+static int arch_cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
+			    struct cpa_alias *aliases)
 {
-	struct cpa_data alias_cpa;
-	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
-	unsigned long vaddr;
-	int ret;
+	/*
+	 * Directmap always has NX set, do not modify.
+	 * [_text, _brk_end) also covers data, do not modify NX except in
+	 * cases where the highmap is the primary target.
+	 */
+	pgprot_t keep = __pgprot(__supported_pte_mask & _PAGE_NX);
+	int nr = 0;
 
 	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
 		return 0;
@@ -2003,28 +2018,12 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	 * No need to redo, when the primary call touched the direct
 	 * mapping already:
 	 */
-	vaddr = __cpa_addr(cpa, cpa->curpage);
-	if (!(within(vaddr, PAGE_OFFSET,
-		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT)))) {
-
-		alias_cpa = *cpa;
-		alias_cpa.vaddr = &laddr;
-		alias_cpa.req &= ~(CPA_REQ_PAGES_ARRAY | CPA_REQ_ARRAY);
-		alias_cpa.state |= CPA_ST_ALIAS;
-		alias_cpa.curpage = 0;
-
-		/* Directmap always has NX set, do not modify. */
-		if (__supported_pte_mask & _PAGE_NX) {
-			alias_cpa.mask_clr.pgprot &= ~_PAGE_NX;
-			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
-		}
-
-		cpa->state |= CPA_ST_FLUSHTLB_ALL;
-
-		ret = __change_page_attr_set_clr(&alias_cpa);
-		cpa->state |= alias_cpa.state & CPA_ST_FLUSHTLB;
-		if (ret)
-			return ret;
+	if (!within(vaddr, PAGE_OFFSET,
+		    PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT))) {
+		aliases[nr].addr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
+		aliases[nr].keep = keep;
+		aliases[nr].ignore_err = false;
+		nr++;
 	}
 
 #ifdef CONFIG_X86_64
@@ -2035,32 +2034,48 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	 */
 	if (!within(vaddr, (unsigned long)_text, _brk_end) &&
 	    __cpa_pfn_in_highmap(cpa->pfn)) {
-		unsigned long temp_cpa_vaddr = (cpa->pfn << PAGE_SHIFT) +
-					       __START_KERNEL_map - phys_base;
-		alias_cpa = *cpa;
-		alias_cpa.vaddr = &temp_cpa_vaddr;
+		aliases[nr].addr = (cpa->pfn << PAGE_SHIFT) +
+				   __START_KERNEL_map - phys_base;
+		aliases[nr].keep = keep;
+		/* The high mapping range is imprecise, so ignore errors. */
+		aliases[nr].ignore_err = true;
+		nr++;
+	}
+#endif
+
+	return nr;
+}
+
+static inline bool cpa_needs_alias(struct cpa_data *cpa)
+{
+	return !(cpa->state & CPA_ST_ALIAS || cpa->req & CPA_REQ_NO_ALIAS);
+}
+
+static int cpa_process_alias(struct cpa_data *cpa)
+{
+	unsigned long vaddr = __cpa_addr(cpa, cpa->curpage);
+	struct cpa_alias aliases[CPA_MAX_ALIASES];
+	int i, nr, ret;
+
+	nr = arch_cpa_aliases(cpa, vaddr, aliases);
+
+	for (i = 0; i < nr; i++) {
+		struct cpa_data alias_cpa = *cpa;
+
+		alias_cpa.vaddr = &aliases[i].addr;
 		alias_cpa.req &= ~(CPA_REQ_PAGES_ARRAY | CPA_REQ_ARRAY);
 		alias_cpa.state |= CPA_ST_ALIAS;
 		alias_cpa.curpage = 0;
-
-		/*
-		 * [_text, _brk_end) also covers data, do not modify NX except
-		 * in cases where the highmap is the primary target.
-		 */
-		if (__supported_pte_mask & _PAGE_NX) {
-			alias_cpa.mask_clr.pgprot &= ~_PAGE_NX;
-			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
-		}
+		pgprot_val(alias_cpa.mask_set) &= ~pgprot_val(aliases[i].keep);
+		pgprot_val(alias_cpa.mask_clr) &= ~pgprot_val(aliases[i].keep);
 
 		cpa->state |= CPA_ST_FLUSHTLB_ALL;
-		/*
-		 * The high mapping range is imprecise, so ignore the
-		 * return value.
-		 */
-		__change_page_attr_set_clr(&alias_cpa);
+
+		ret = __change_page_attr_set_clr(&alias_cpa);
 		cpa->state |= alias_cpa.state & CPA_ST_FLUSHTLB;
+		if (ret && !aliases[i].ignore_err)
+			return ret;
 	}
-#endif
 
 	return 0;
 }
@@ -2093,8 +2108,7 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa)
 		if (ret)
 			goto out;
 
-		if (!(cpa->state & CPA_ST_ALIAS) &&
-		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
+		if (cpa_needs_alias(cpa)) {
 			ret = cpa_process_alias(cpa);
 			if (ret)
 				goto out;
