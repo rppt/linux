@@ -36,12 +36,15 @@
 
 #include "../mm_internal.h"
 
+struct arch_cpa_data {
+	pgd_t *pgd;
+};
+
 /*
  * The current flushing context - we pass it instead of 5 arguments:
  */
 struct cpa_data {
 	unsigned long	*vaddr;
-	pgd_t		*pgd;
 	pgprot_t	mask_set;
 	pgprot_t	mask_clr;
 	unsigned long	numpages;
@@ -50,6 +53,7 @@ struct cpa_data {
 	unsigned int	state;
 	unsigned int	req;
 	struct page	**pages;
+	struct arch_cpa_data arch;
 };
 
 struct cpa_leaf {
@@ -100,13 +104,31 @@ DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
 #define CPA_REQ_NO_ALIAS	BIT(2) /* do not check aliases */
 #define CPA_REQ_COLLAPSE	BIT(3) /* try to collapse large pages */
 #define CPA_REQ_SPLIT		BIT(4) /* split large pages unconditionally */
+#define CPA_REQ_ARCH(n)		BIT(16 + (n)) /* architecture specific */
 
 /* Internally maintained state, stored in cpa_data.state. */
 #define CPA_ST_FLUSHTLB		BIT(0) /* flush the TLB for changed pages */
 #define CPA_ST_FLUSHTLB_ALL	BIT(1) /* flush all TLBs */
 #define CPA_ST_MM_LOCKED	BIT(2) /* mmap read lock on init_mm */
-#define CPA_ST_STATIC_PROT	BIT(3) /* enforce static protections */
-#define CPA_ST_ALIAS		BIT(4) /* updating an alias */
+#define CPA_ST_ALIAS		BIT(3) /* updating an alias */
+#define CPA_ST_ARCH(n)		BIT(16 + (n)) /* architecture specific */
+
+#define CPA_ST_STATIC_PROT	CPA_ST_ARCH(0) /* enforce static protections */
+
+/* Drop the CPA locks, e.g. to allocate memory, and take them again */
+static void cpa_unlock(struct cpa_data *cpa)
+{
+	spin_unlock(&cpa_lock);
+	if (cpa->state & CPA_ST_MM_LOCKED)
+		mmap_read_unlock(&init_mm);
+}
+
+static void cpa_relock(struct cpa_data *cpa)
+{
+	if (cpa->state & CPA_ST_MM_LOCKED)
+		mmap_read_lock(&init_mm);
+	spin_lock(&cpa_lock);
+}
 
 enum cpa_op {
 	CPA_SET_RO,
@@ -924,10 +946,10 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	unsigned int level;
 	pgd_t *pgd;
 
-	if (!cpa->pgd)
+	if (!cpa->arch.pgd)
 		pgd = pgd_offset_k(address);
 	else
-		pgd = cpa->pgd + pgd_index(address);
+		pgd = cpa->arch.pgd + pgd_index(address);
 
 	leaf->kpte = lookup_address_in_pgd_attr(pgd, address, &level,
 						&leaf->nx, &leaf->rw);
@@ -1339,13 +1361,9 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	int ret = 1;
 	pte_t *pte;
 
-	spin_unlock(&cpa_lock);
-	if (cpa->state & CPA_ST_MM_LOCKED)
-		mmap_read_unlock(&init_mm);
+	cpa_unlock(cpa);
 	pte = pte_alloc_one_kernel(&init_mm);
-	if (cpa->state & CPA_ST_MM_LOCKED)
-		mmap_read_lock(&init_mm);
-	spin_lock(&cpa_lock);
+	cpa_relock(cpa);
 	if (!pte)
 		return -ENOMEM;
 
@@ -1896,7 +1914,7 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	pgd_t *pgd_entry;
 	long ret;
 
-	pgd_entry = cpa->pgd + pgd_index(addr);
+	pgd_entry = cpa->arch.pgd + pgd_index(addr);
 
 	if (pgd_none(*pgd_entry)) {
 		/*
@@ -1947,7 +1965,7 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 
 static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 {
-	if (cpa->pgd) {
+	if (cpa->arch.pgd) {
 		/*
 		 * Right now, we only execute this code path when mapping
 		 * the EFI virtual memory map regions, no other users
@@ -2597,7 +2615,7 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	cpa.numpages = numpages;
 	cpa.mask_set = enc ? pgprot_encrypted(empty) : pgprot_decrypted(empty);
 	cpa.mask_clr = enc ? pgprot_decrypted(empty) : pgprot_encrypted(empty);
-	cpa.pgd = init_mm.pgd;
+	cpa.arch.pgd = init_mm.pgd;
 
 	/* Must avoid aliasing mappings in the highmem code */
 	kmap_flush_unused();
@@ -2903,7 +2921,7 @@ int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn, unsigned long address,
 	struct cpa_data cpa = {
 		.vaddr = &address,
 		.pfn = pfn,
-		.pgd = pgd,
+		.arch.pgd = pgd,
 		.numpages = numpages,
 		.mask_set = __pgprot(0),
 		.mask_clr = __pgprot(~page_flags & (_PAGE_NX|_PAGE_RW|_PAGE_DIRTY)),
@@ -2946,7 +2964,7 @@ int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
 	struct cpa_data cpa = {
 		.vaddr		= &address,
 		.pfn		= 0,
-		.pgd		= pgd,
+		.arch.pgd	= pgd,
 		.numpages	= numpages,
 		.mask_set	= __pgprot(0),
 		.mask_clr	= __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
