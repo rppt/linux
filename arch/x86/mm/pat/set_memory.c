@@ -78,6 +78,22 @@ static const int cpa_warn_level = CPA_PROTECT;
  */
 static DEFINE_SPINLOCK(cpa_lock);
 
+/*
+ * CPA walks the kernel page tables, so it has to serialize against everything
+ * else that does, not just against other CPA calls.
+ */
+static inline void cpa_pgtable_lock(void)
+{
+	spin_lock(&pgd_lock);
+}
+
+static inline void cpa_pgtable_unlock(void)
+{
+	spin_unlock(&pgd_lock);
+}
+
+DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
+
 /* Caller-requested behavior, stored in cpa_data.req. */
 #define CPA_REQ_ARRAY		BIT(0) /* cpa->vaddr is an array of addresses */
 #define CPA_REQ_PAGES_ARRAY	BIT(1) /* cpa->pages is an array of pages */
@@ -1121,7 +1137,7 @@ static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (cpa->req & CPA_REQ_SPLIT)
 		return 1;
 
-	guard(spinlock)(&pgd_lock);
+	guard(cpa_pgtable)();
 
 	if (!_lookup_address_cpa(cpa, address, leaf) || leaf->kpte != kpte)
 		return 1;
@@ -1275,7 +1291,7 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (!pte)
 		return -ENOMEM;
 
-	scoped_guard(spinlock, &pgd_lock) {
+	scoped_guard(cpa_pgtable) {
 		if (_lookup_address_cpa(cpa, address, leaf) && leaf->kpte == kpte)
 			ret = __split_large_page(cpa, leaf, pte);
 	}
