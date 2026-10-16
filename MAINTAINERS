@@ -17346,6 +17346,15 @@ F:	mm/show_mem.c
 F:	mm/shuffle.c
 F:	mm/shuffle.h
 
+MEMORY MANAGEMENT - PAGE ATTRIBUTES
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Mike Rapoport <rppt@kernel.org>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	arch/*/include/asm/pageattr.h
+F:	include/linux/pageattr.h
+F:	mm/pageattr.c
+
 MEMORY MANAGEMENT - RECLAIM
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Johannes Weiner <hannes@cmpxchg.org>
