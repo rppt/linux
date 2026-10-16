@@ -58,7 +58,7 @@ struct cpa_leaf {
 	unsigned long pfn;
 	pte_t *kpte;
 	pte_t pte;
-	int level;
+	enum pgtable_level level;
 	bool nx;
 	bool rw;
 };
@@ -864,6 +864,26 @@ pte_t *lookup_address(unsigned long address, unsigned int *level)
 }
 EXPORT_SYMBOL_GPL(lookup_address);
 
+/*
+ * FIXME: the CPA code describes page table levels with enum pgtable_level,
+ * but lookup_address_in_pgd_attr() and its many users still use enum pg_level.
+ */
+static enum pgtable_level pg_level_to_pgtable_level(enum pg_level level)
+{
+	switch (level) {
+	case PG_LEVEL_4K:
+		return PGTABLE_LEVEL_PTE;
+	case PG_LEVEL_2M:
+		return PGTABLE_LEVEL_PMD;
+	case PG_LEVEL_1G:
+		return PGTABLE_LEVEL_PUD;
+	case PG_LEVEL_512G:
+		return PGTABLE_LEVEL_P4D;
+	default:
+		return PGTABLE_LEVEL_PGD;
+	}
+}
+
 static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 				  struct cpa_leaf *leaf)
 {
@@ -881,7 +901,7 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 		return NULL;
 
 	leaf->address = address;
-	leaf->level = level;
+	leaf->level = pg_level_to_pgtable_level(level);
 	leaf->psize = page_level_size(level);
 	leaf->pte = *leaf->kpte;
 
@@ -1013,18 +1033,20 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	unsigned long address = leaf->address;
 	unsigned long psize = leaf->psize;
 	pte_t *kpte = leaf->kpte;
-	int level = leaf->level;
+	enum pg_level level;
 	pte_t new_pte;
 
-	switch (level) {
-	case PG_LEVEL_2M:
+	switch (leaf->level) {
+	case PGTABLE_LEVEL_PMD:
 		old_prot = pmd_pgprot(*(pmd_t *)kpte);
 		old_pfn = pmd_pfn(*(pmd_t *)kpte);
+		level = PG_LEVEL_2M;
 		cpa_inc_2m_checked();
 		break;
-	case PG_LEVEL_1G:
+	case PGTABLE_LEVEL_PUD:
 		old_prot = pud_pgprot(*(pud_t *)kpte);
 		old_pfn = pud_pfn(*(pud_t *)kpte);
+		level = PG_LEVEL_1G;
 		cpa_inc_1g_checked();
 		break;
 	default:
@@ -1059,7 +1081,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	 * Calculate the large page base address and the number of 4K pages
 	 * in the large page
 	 */
-	lpaddr = address & page_level_mask(level);
+	lpaddr = address & ~(psize - 1);
 	numpages = psize >> PAGE_SHIFT;
 
 	/*
@@ -1188,14 +1210,15 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	unsigned long address = leaf->address;
 	struct page *base = virt_to_page(pbase);
 	pte_t *kpte = leaf->kpte;
-	int level = leaf->level;
+	enum pg_level level;
 	pgprot_t ref_prot;
 	unsigned int i;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 
-	switch (level) {
-	case PG_LEVEL_2M:
+	switch (leaf->level) {
+	case PGTABLE_LEVEL_PMD:
+		level = PG_LEVEL_2M;
 		ref_prot = pmd_pgprot(*(pmd_t *)kpte);
 		/*
 		 * Clear PSE (aka _PAGE_PAT) and move
@@ -1207,7 +1230,8 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 		lpinc = PAGE_SIZE;
 		break;
 
-	case PG_LEVEL_1G:
+	case PGTABLE_LEVEL_PUD:
+		level = PG_LEVEL_1G;
 		ref_prot = pud_pgprot(*(pud_t *)kpte);
 		ref_pfn = pud_pfn(*(pud_t *)kpte);
 		pfninc = PMD_SIZE >> PAGE_SHIFT;
@@ -1304,7 +1328,6 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 
 static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
-	unsigned long pmask = page_level_mask(leaf->level);
 	unsigned long psize = leaf->psize;
 	int do_split, err;
 
@@ -1321,7 +1344,7 @@ static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	 * required.
 	 */
 	if (!do_split) {
-		unsigned long offset = (leaf->address & ~pmask) >> PAGE_SHIFT;
+		unsigned long offset = (leaf->address & (psize - 1)) >> PAGE_SHIFT;
 		unsigned long numpages = psize >> PAGE_SHIFT;
 
 		cpa->numpages = min(cpa->numpages, numpages - offset);
@@ -1981,7 +2004,7 @@ static int __change_page_attr(struct cpa_data *cpa)
 		if (!_lookup_address_cpa(cpa, address, &leaf) || pte_none(leaf.pte))
 			return __cpa_process_fault(cpa, address);
 
-		if (leaf.level == PG_LEVEL_4K)
+		if (leaf.level == PGTABLE_LEVEL_PTE)
 			break;
 
 		/* Update large page or split it */
