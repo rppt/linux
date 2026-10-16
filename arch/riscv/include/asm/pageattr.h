@@ -11,4 +11,7 @@ int arch_cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
 		     struct cpa_alias *aliases);
 #define arch_cpa_aliases arch_cpa_aliases
 
+/* A software bit the CPA self test toggles. */
+#define ARCH_PAGE_CPA_TEST	__pgprot(_PAGE_SPECIAL)
+
 #endif /* _ASM_RISCV_PAGEATTR_H */
