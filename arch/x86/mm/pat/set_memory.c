@@ -34,23 +34,9 @@
 #include <asm/proto.h>
 #include <asm/memtype.h>
 
-#include "../mm_internal.h"
+#include <linux/pageattr.h>
 
-/*
- * The current flushing context - we pass it instead of 5 arguments:
- */
-struct cpa_data {
-	unsigned long	vaddr;
-	pgd_t		*pgd;
-	pgprot_t	mask_set;
-	pgprot_t	mask_clr;
-	unsigned long	numpages;
-	unsigned long	curpage;
-	unsigned long	pfn;
-	unsigned int	state;
-	unsigned int	req;
-	struct page	**pages;
-};
+#include "../mm_internal.h"
 
 enum cpa_warn {
 	CPA_CONFLICT,
@@ -59,62 +45,6 @@ enum cpa_warn {
 };
 
 static const int cpa_warn_level = CPA_PROTECT;
-
-struct cpa_leaf {
-	unsigned long address;
-	unsigned long psize;
-	unsigned long pfn;
-	pte_t *kpte;
-	pte_t pte;
-	pgprot_t prot;
-	enum pgtable_level level;
-	bool nx;
-	bool rw;
-};
-
-static pgprot_t cpa_new_prot(struct cpa_data *cpa, pgprot_t prot)
-{
-	pgprot_val(prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(prot) |= pgprot_val(cpa->mask_set);
-
-	return prot;
-}
-
-/*
- * Serialize cpa() using cpa_lock so that we don't allow any other cpu, with
- * stale large tlb entries, to change the page attribute in parallel to some
- * other cpu splitting a large page entry along with changing the attribute.
- */
-static DEFINE_SPINLOCK(cpa_lock);
-
-/*
- * CPA walks the kernel page tables, so it has to serialize against everything
- * else that does, not just against other CPA calls.
- */
-static inline void cpa_pgtable_lock(void)
-{
-	spin_lock(&pgd_lock);
-}
-
-static inline void cpa_pgtable_unlock(void)
-{
-	spin_unlock(&pgd_lock);
-}
-
-DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
-
-/* Caller-requested behavior, stored in cpa_data.req. */
-#define CPA_REQ_PAGES_ARRAY	BIT(0) /* cpa->pages is an array of pages */
-#define CPA_REQ_NO_ALIAS	BIT(1) /* do not check aliases */
-#define CPA_REQ_COLLAPSE	BIT(2) /* try to collapse large pages */
-#define CPA_REQ_SPLIT		BIT(3) /* split large pages unconditionally */
-
-/* Internally maintained state, stored in cpa_data.state. */
-#define CPA_ST_FLUSHTLB		BIT(0) /* flush the TLB for changed pages */
-#define CPA_ST_FLUSHTLB_ALL	BIT(1) /* flush all TLBs */
-#define CPA_ST_MM_LOCKED	BIT(2) /* mmap read lock on init_mm */
-#define CPA_ST_ALIAS		BIT(3) /* updating an alias */
-#define CPA_ST_STATIC_PROT	BIT(4) /* enforce static protections on split */
 
 static inline pgprot_t cachemode2pgprot(enum page_cache_mode pcm)
 {
@@ -343,20 +273,6 @@ static inline unsigned long fix_addr(unsigned long addr)
 #endif
 }
 
-static unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
-{
-	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
-		struct page *page = cpa->pages[idx];
-
-		if (unlikely(PageHighMem(page)))
-			return 0;
-
-		return (unsigned long)page_address(page);
-	}
-
-	return cpa->vaddr + idx * PAGE_SIZE;
-}
-
 /*
  * Flushing functions
  */
@@ -445,48 +361,6 @@ static void __cpa_flush_tlb(void *data)
 		flush_tlb_one_kernel(fix_addr(__cpa_addr(cpa, i)));
 }
 
-static int collapse_large_pages(unsigned long addr, struct list_head *pgtables);
-
-static void __cpa_collapse_large_pages(struct cpa_data *cpa)
-{
-	unsigned long start, addr, end;
-	struct ptdesc *ptdesc, *tmp;
-	LIST_HEAD(pgtables);
-	int collapsed = 0;
-	int i;
-
-	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
-		for (i = 0; i < cpa->numpages; i++)
-			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
-							  &pgtables);
-	} else {
-		addr = __cpa_addr(cpa, 0);
-		start = addr & PMD_MASK;
-		end = addr + PAGE_SIZE * cpa->numpages;
-
-		for (addr = start; within(addr, start, end); addr += PMD_SIZE)
-			collapsed += collapse_large_pages(addr, &pgtables);
-	}
-
-	if (!collapsed)
-		return;
-
-	flush_tlb_all();
-
-	list_for_each_entry_safe(ptdesc, tmp, &pgtables, pt_list) {
-		list_del(&ptdesc->pt_list);
-		/*
-		 * Only early alloc'd direct map should not be flagged PG_table
-		 * here and those shouldn't be collapsed. However be abundantly
-		 * cautious and handle the !PG_table case too.
-		 */
-		if (PageTable((ptdesc_page(ptdesc))))
-			pagetable_dtor_free(ptdesc);
-		else
-			pagetable_free(ptdesc);
-	}
-}
-
 static void __cpa_flush(struct cpa_data *cpa, int cache)
 {
 	unsigned int i;
@@ -523,7 +397,7 @@ static void __cpa_flush(struct cpa_data *cpa, int cache)
 	mb();
 }
 
-static void cpa_flush(struct cpa_data *cpa)
+void cpa_flush(struct cpa_data *cpa)
 {
 	/*
 	 * No need to flush, when we did not set any of the caching
@@ -876,8 +750,8 @@ static enum pgtable_level pg_level_to_pgtable_level(enum pg_level level)
 	}
 }
 
-static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-				  struct cpa_leaf *leaf)
+pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+			   struct cpa_leaf *leaf)
 {
 	unsigned int level;
 	pgd_t *pgd;
@@ -1033,8 +907,7 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
-static int __should_split_large_page(struct cpa_data *cpa,
-				     struct cpa_leaf *leaf)
+int __should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
 	pgprot_t old_prot, new_prot, req_prot, chk_prot;
 	unsigned long old_pfn = leaf->pfn;
@@ -1148,22 +1021,6 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	return 0;
 }
 
-static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
-{
-	unsigned long address = leaf->address;
-	pte_t *kpte = leaf->kpte;
-
-	if (cpa->req & CPA_REQ_SPLIT)
-		return 1;
-
-	guard(cpa_pgtable)();
-
-	if (!_lookup_address_cpa(cpa, address, leaf) || leaf->kpte != kpte)
-		return 1;
-
-	return __should_split_large_page(cpa, leaf);
-}
-
 static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
 			  pgprot_t ref_prot, unsigned long address,
 			  unsigned long size)
@@ -1200,8 +1057,8 @@ set:
 	set_pte(pte, pfn_pte(pfn, ref_prot));
 }
 
-static int
-__split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
+int __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
+		       pte_t *pbase)
 {
 	unsigned long lpaddr, lpinc, pfn, pfninc = 1;
 	unsigned long address = leaf->address;
@@ -1283,71 +1140,6 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	flush_tlb_all();
 
 	return 0;
-}
-
-static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
-{
-	unsigned long address = leaf->address;
-	pte_t *kpte = leaf->kpte;
-	int ret = 1;
-	pte_t *pte;
-
-	spin_unlock(&cpa_lock);
-	if (cpa->state & CPA_ST_MM_LOCKED)
-		mmap_read_unlock(&init_mm);
-	pte = pte_alloc_one_kernel(&init_mm);
-	if (cpa->state & CPA_ST_MM_LOCKED)
-		mmap_read_lock(&init_mm);
-	spin_lock(&cpa_lock);
-	if (!pte)
-		return -ENOMEM;
-
-	scoped_guard(cpa_pgtable) {
-		if (_lookup_address_cpa(cpa, address, leaf) && leaf->kpte == kpte)
-			ret = __split_large_page(cpa, leaf, pte);
-	}
-
-	if (ret)
-		pte_free_kernel(&init_mm, pte);
-
-	return 0;
-}
-
-static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
-{
-	unsigned long pmask = ~(leaf->psize - 1);
-	unsigned long psize = leaf->psize;
-	int do_split, err;
-
-	/*
-	 * Check, whether we can keep the large page intact
-	 * and just change the pte:
-	 */
-	do_split = should_split_large_page(cpa, leaf);
-	if (do_split < 0)
-		return do_split;
-
-	/*
-	 * When the range fits into the existing large page, no split is
-	 * required.
-	 */
-	if (!do_split) {
-		unsigned long offset = (leaf->address & ~pmask) >> PAGE_SHIFT;
-		unsigned long numpages = psize >> PAGE_SHIFT;
-
-		cpa->numpages = min(cpa->numpages, numpages - offset);
-		cpa->pfn = leaf->pfn + offset;
-		return 0;
-	}
-
-	/*
-	 * We have to split the large page:
-	 */
-	err = split_large_page(cpa, leaf);
-	if (err)
-		return err;
-
-	return do_split;
 }
 
 static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
@@ -1475,7 +1267,7 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
  * touching the new entries. CPU must not see TLB entries of different size
  * with different attributes.
  */
-static int collapse_large_pages(unsigned long addr, struct list_head *pgtables)
+int collapse_large_pages(unsigned long addr, struct list_head *pgtables)
 {
 	int collapsed;
 	pgd_t *pgd;
@@ -1899,7 +1691,7 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	return 0;
 }
 
-static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
+int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 {
 	if (cpa->pgd) {
 		/*
@@ -1943,7 +1735,7 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 	}
 }
 
-static void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
+void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
 	pgprot_t new_prot = cpa_new_prot(cpa, leaf->prot);
 	unsigned long address = leaf->address;
@@ -1979,62 +1771,10 @@ static void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	cpa->numpages = 1;
 }
 
-static int __change_page_attr(struct cpa_data *cpa)
-{
-	unsigned long address = __cpa_addr(cpa, cpa->curpage);
-	struct cpa_leaf leaf;
-	int split_res;
-
-	for (;;) {
-		if (!_lookup_address_cpa(cpa, address, &leaf) || pte_none(leaf.pte))
-			return __cpa_process_fault(cpa, address);
-
-		if (leaf.level == PGTABLE_LEVEL_PTE)
-			break;
-
-		/* Update large page or split it */
-		split_res = cpa_handle_large_page(cpa, &leaf);
-		if (split_res <= 0)
-			return split_res;
-	}
-
-	__change_pte(cpa, &leaf);
-	return 0;
-}
-
-static int __change_page_attr_set_clr(struct cpa_data *cpa);
-
-/*
- * Apply the change described by @cpa to its alias at @addr, except for the
- * protections in @keep.
- */
-static int cpa_change_alias(struct cpa_data *cpa, unsigned long addr,
-			    pgprot_t keep)
-{
-	struct cpa_data alias_cpa = *cpa;
-	int ret;
-
-	alias_cpa.vaddr = addr;
-	alias_cpa.req &= ~CPA_REQ_PAGES_ARRAY;
-	alias_cpa.state |= CPA_ST_ALIAS;
-	alias_cpa.state &= ~CPA_ST_FLUSHTLB;
-	alias_cpa.curpage = 0;
-	pgprot_val(alias_cpa.mask_set) &= ~pgprot_val(keep);
-	pgprot_val(alias_cpa.mask_clr) &= ~pgprot_val(keep);
-
-	ret = __change_page_attr_set_clr(&alias_cpa);
-
-	/* The alias is outside of the range being changed */
-	if (alias_cpa.state & CPA_ST_FLUSHTLB)
-		cpa->state |= CPA_ST_FLUSHTLB_ALL;
-
-	return ret;
-}
-
 /*
  * Check the directmap and "high kernel map" 'aliases'.
  */
-static int cpa_process_alias(struct cpa_data *cpa)
+int cpa_process_alias(struct cpa_data *cpa)
 {
 	unsigned long vaddr = __cpa_addr(cpa, cpa->curpage);
 	/*
@@ -2076,162 +1816,6 @@ static int cpa_process_alias(struct cpa_data *cpa)
 #endif
 
 	return 0;
-}
-
-static int __change_page_attr_set_clr(struct cpa_data *cpa)
-{
-	unsigned long numpages = cpa->numpages;
-	unsigned long rempages = numpages;
-	int ret = 0;
-
-	/*
-	 * No changes, easy!
-	 */
-	if (!(pgprot_val(cpa->mask_set) | pgprot_val(cpa->mask_clr)) &&
-	    !(cpa->req & CPA_REQ_SPLIT))
-		return ret;
-
-	while (rempages) {
-		/*
-		 * Store the remaining nr of pages for the large page
-		 * preservation check.
-		 */
-		cpa->numpages = rempages;
-		/* for array changes, we can't use large page */
-		if (cpa->req & CPA_REQ_PAGES_ARRAY)
-			cpa->numpages = 1;
-
-		scoped_guard(spinlock, &cpa_lock)
-			ret = __change_page_attr(cpa);
-		if (ret)
-			goto out;
-
-		if (!(cpa->state & CPA_ST_ALIAS) &&
-		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
-			ret = cpa_process_alias(cpa);
-			if (ret)
-				goto out;
-		}
-
-		/*
-		 * Adjust the number of pages with the result of the
-		 * CPA operation. Either a large page has been
-		 * preserved or a single page update happened.
-		 */
-		if (WARN_ON_ONCE(cpa->numpages > rempages || !cpa->numpages)) {
-			ret = -EINVAL;
-			goto out;
-		}
-		rempages -= cpa->numpages;
-		cpa->curpage += cpa->numpages;
-	}
-
-out:
-	/* Restore the original numpages */
-	cpa->numpages = numpages;
-	return ret;
-}
-
-static void cpa_collapse_large_pages(struct cpa_data *cpa)
-{
-	/*
-	 * Take the mmap write lock on init_mm to:
-	 * - Avoid a use-after-free if raced by ptdump (which takes its own
-	 *   write lock on init_mm).
-	 * - Serialise concurrent CPA walkers.
-	 */
-	guard(mmap_write_lock)(&init_mm);
-	guard(spinlock)(&cpa_lock);
-
-	__cpa_collapse_large_pages(cpa);
-}
-
-static int change_page_attr_set_clr(unsigned long addr, int numpages,
-				    pgprot_t mask_set, pgprot_t mask_clr,
-				    unsigned int request,
-				    struct page **pages)
-{
-	struct cpa_data cpa;
-	int ret;
-
-	memset(&cpa, 0, sizeof(cpa));
-
-	/*
-	 * Check, if we are requested to set a not supported
-	 * feature.  Clearing non-supported features is OK.
-	 */
-	mask_set = canon_pgprot(mask_set);
-
-	if (!pgprot_val(mask_set) && !pgprot_val(mask_clr) &&
-	    !(request & CPA_REQ_SPLIT))
-		return 0;
-
-	/* Ensure we are PAGE_SIZE aligned */
-	if (!(request & CPA_REQ_PAGES_ARRAY)) {
-		/*
-		 * CPA_REQ_PAGES_ARRAY implies it is aligned.
-		 * No need to check in that case
-		 */
-		if (addr & ~PAGE_MASK) {
-			addr &= PAGE_MASK;
-			/*
-			 * People should not be passing in unaligned addresses:
-			 */
-			WARN_ON_ONCE(1);
-		}
-	}
-
-	/* Must avoid aliasing mappings in the highmem code */
-	kmap_flush_unused();
-
-	vm_unmap_aliases();
-
-	cpa.vaddr = addr;
-	cpa.pages = pages;
-	cpa.numpages = numpages;
-	cpa.mask_set = mask_set;
-	cpa.mask_clr = mask_clr;
-	cpa.req = request;
-	cpa.curpage = 0;
-
-	/* Avoid race with concurrent CPA collapse. */
-	cpa.state |= CPA_ST_MM_LOCKED;
-	scoped_guard(mmap_read_lock, &init_mm)
-		ret = __change_page_attr_set_clr(&cpa);
-	cpa.state &= ~CPA_ST_MM_LOCKED;
-
-	/*
-	 * Check whether we really changed something:
-	 */
-	if (!(cpa.state & (CPA_ST_FLUSHTLB | CPA_ST_FLUSHTLB_ALL)))
-		return ret;
-
-	/*
-	 * On error; flush everything to be sure.
-	 */
-	if (ret)
-		cpa.state |= CPA_ST_FLUSHTLB_ALL;
-
-	cpa_flush(&cpa);
-
-	if (!ret && (cpa.req & CPA_REQ_COLLAPSE))
-		cpa_collapse_large_pages(&cpa);
-
-	return ret;
-}
-
-static inline int change_page_attr_set(unsigned long addr, int numpages,
-				       pgprot_t mask)
-{
-	return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0),
-					0, NULL);
-}
-
-static inline int change_page_attr_clear(unsigned long addr, int numpages,
-					 pgprot_t mask)
-{
-	return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask,
-					0, NULL);
 }
 
 static inline int cpa_set_pages_array(struct page **pages, int numpages,
@@ -2686,30 +2270,6 @@ int set_pages_rw(struct page *page, int numpages)
 	unsigned long addr = (unsigned long)page_address(page);
 
 	return set_memory_rw(addr, numpages);
-}
-
-/*
- * Change the direct map without flushing the TLB or taking mmap_lock.
- * Splitting a large page allocates a page table and may sleep.
- *
- * No alias checking needed for the direct map updates. Otherwise, we may need
- * to break large pages for 64-bit kernel text mappings (this adds to
- * complexity if we want to do this from atomic context especially). Let's
- * keep it simple!
- */
-static int cpa_change_direct_map(struct page *page, int numpages,
-				 pgprot_t mask_set, pgprot_t mask_clr)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-	struct cpa_data cpa = {
-		.vaddr = addr,
-		.numpages = numpages,
-		.mask_set = mask_set,
-		.mask_clr = mask_clr,
-		.req = CPA_REQ_NO_ALIAS,
-	};
-
-	return __change_page_attr_set_clr(&cpa);
 }
 
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)

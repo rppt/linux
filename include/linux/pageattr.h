@@ -1,0 +1,106 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _LINUX_PAGEATTR_H
+#define _LINUX_PAGEATTR_H
+
+#include <linux/bits.h>
+#include <linux/mm.h>
+#include <linux/pgtable.h>
+#include <linux/types.h>
+
+/* Caller-requested behavior, stored in cpa_data.req. */
+#define CPA_REQ_PAGES_ARRAY	BIT(0) /* cpa->pages is an array of pages */
+#define CPA_REQ_NO_ALIAS	BIT(1) /* do not check aliases */
+#define CPA_REQ_COLLAPSE	BIT(2) /* try to collapse large pages */
+#define CPA_REQ_SPLIT		BIT(3) /* split large pages unconditionally */
+
+/* Internally maintained state, stored in cpa_data.state. */
+#define CPA_ST_FLUSHTLB		BIT(0) /* flush the TLB for changed pages */
+#define CPA_ST_FLUSHTLB_ALL	BIT(1) /* flush all TLBs */
+#define CPA_ST_MM_LOCKED	BIT(2) /* mmap read lock on init_mm */
+#define CPA_ST_ALIAS		BIT(3) /* updating an alias */
+#define CPA_ST_STATIC_PROT	BIT(4) /* enforce static protections on split */
+
+#include <asm/pageattr.h>
+
+/*
+ * The current flushing context - we pass it instead of 5 arguments:
+ */
+struct cpa_data {
+	unsigned long	vaddr;
+	pgd_t		*pgd;
+	pgprot_t	mask_set;
+	pgprot_t	mask_clr;
+	unsigned long	numpages;
+	unsigned long	curpage;
+	unsigned long	pfn;
+	unsigned int	state;
+	unsigned int	req;
+	struct page	**pages;
+};
+
+/* A leaf entry in the kernel page tables that maps an address. */
+struct cpa_leaf {
+	unsigned long address;
+	unsigned long psize;
+	unsigned long pfn;
+	pte_t *kpte;
+	pte_t pte;
+	pgprot_t prot;
+	enum pgtable_level level;
+	bool nx;
+	bool rw;
+};
+
+pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
+			   struct cpa_leaf *leaf);
+int __should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf);
+int __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
+		       pte_t *pbase);
+int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr);
+void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf);
+
+static inline pgprot_t cpa_new_prot(struct cpa_data *cpa, pgprot_t prot)
+{
+	pgprot_val(prot) &= ~pgprot_val(cpa->mask_clr);
+	pgprot_val(prot) |= pgprot_val(cpa->mask_set);
+
+	return prot;
+}
+
+static inline unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
+{
+	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
+		struct page *page = cpa->pages[idx];
+
+		if (unlikely(PageHighMem(page)))
+			return 0;
+
+		return (unsigned long)page_address(page);
+	}
+
+	return cpa->vaddr + idx * PAGE_SIZE;
+}
+
+int __change_page_attr_set_clr(struct cpa_data *cpa);
+int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep);
+int change_page_attr_set_clr(unsigned long addr, int numpages,
+			     pgprot_t mask_set, pgprot_t mask_clr,
+			     unsigned int request, struct page **pages);
+int cpa_change_direct_map(struct page *page, int numpages,
+			  pgprot_t mask_set, pgprot_t mask_clr);
+
+static inline int change_page_attr_set(unsigned long addr, int numpages,
+				       pgprot_t mask)
+{
+	return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0),
+					0, NULL);
+}
+
+static inline int change_page_attr_clear(unsigned long addr, int numpages,
+					 pgprot_t mask)
+{
+	return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask,
+					0, NULL);
+}
+
+#endif /* _LINUX_PAGEATTR_H */
