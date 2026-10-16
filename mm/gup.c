@@ -976,9 +976,7 @@ static struct page *follow_p4d_mask(struct vm_area_struct *vma,
 
 	p4dp = p4d_offset(pgdp, address);
 	p4d = p4dp_get(p4dp);
-	BUILD_BUG_ON(p4d_leaf(p4d));
-
-	if (!p4d_present(p4d) || p4d_bad(p4d))
+	if (!p4d_present(p4d) || p4d_bad(p4d) || p4d_leaf(p4d))
 		return no_page_table(vma, flags, address);
 
 	return follow_pud_mask(vma, address, p4dp, flags, page_mask);
@@ -3080,9 +3078,8 @@ static unsigned long gup_fast_p4d_range(pgd_t *pgdp, pgd_t pgd, unsigned long ad
 		p4d_t p4d = p4dp_get(p4dp);
 
 		next = p4d_addr_end(addr, end);
-		if (!p4d_present(p4d))
+		if (!p4d_present(p4d) || p4d_leaf(p4d))
 			break;
-		BUILD_BUG_ON(p4d_leaf(p4d));
 		chunk_nr_pages = gup_fast_pud_range(p4dp, p4d, addr, next,
 						    flags, &pages[nr_pages]);
 		nr_pages += chunk_nr_pages;
