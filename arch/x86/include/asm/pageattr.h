@@ -18,19 +18,19 @@ struct arch_cpa_data {
  * CPA walks the kernel page tables, so it has to serialize against everything
  * else that does, not just against other CPA calls.
  */
-static inline void cpa_pgtable_lock(void)
+static inline void arch_cpa_pgtable_lock(void)
 {
 	spin_lock(&pgd_lock);
 }
 
-static inline void cpa_pgtable_unlock(void)
+static inline void arch_cpa_pgtable_unlock(void)
 {
 	spin_unlock(&pgd_lock);
 }
 
-int cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
-		struct cpa_alias *aliases);
-void cpa_flush_changes(struct cpa_data *cpa, int err);
-void __cpa_collapse_large_pages(struct cpa_data *cpa);
+int arch_cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
+		     struct cpa_alias *aliases);
+void arch_cpa_flush(struct cpa_data *cpa, int err);
+void arch_cpa_collapse(struct cpa_data *cpa);
 
 #endif /* _ASM_X86_PAGEATTR_H */
