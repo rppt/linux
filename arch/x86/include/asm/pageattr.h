@@ -73,6 +73,7 @@ static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 	return !(vaddr >= (unsigned long)_text && vaddr < _brk_end) &&
 	       __cpa_pfn_in_highmap(pfn);
 }
+#define arch_cpa_needs_alias arch_cpa_needs_alias
 
 /*
  * CPA walks the kernel page tables, so it has to serialize against everything
@@ -82,14 +83,19 @@ static inline void arch_cpa_pgtable_lock(void)
 {
 	spin_lock(&pgd_lock);
 }
+#define arch_cpa_pgtable_lock arch_cpa_pgtable_lock
 
 static inline void arch_cpa_pgtable_unlock(void)
 {
 	spin_unlock(&pgd_lock);
 }
+#define arch_cpa_pgtable_unlock arch_cpa_pgtable_unlock
 
 int arch_cpa_process_alias(struct cpa_data *cpa);
+#define arch_cpa_process_alias arch_cpa_process_alias
 void arch_cpa_flush(struct cpa_data *cpa);
+#define arch_cpa_flush arch_cpa_flush
 int arch_cpa_collapse(unsigned long addr, struct list_head *pgtables);
+#define arch_cpa_collapse arch_cpa_collapse
 
 #endif /* _ASM_X86_PAGEATTR_H */
