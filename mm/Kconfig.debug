@@ -350,7 +350,7 @@ config MEM_ALLOC_PROFILING_DEBUG
 
 config CPA_DEBUG
 	bool "CPA self-test code"
-	depends on X86 && GENERIC_PAGEATTR
+	depends on GENERIC_PAGEATTR && ARCH_HAS_CPA_TEST
 	depends on DEBUG_KERNEL
 	help
 	  Do change_page_attr() self-tests every 30 seconds.

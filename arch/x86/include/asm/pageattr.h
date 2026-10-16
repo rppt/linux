@@ -11,6 +11,9 @@ struct arch_cpa_data {
 	pgd_t *pgd;
 };
 
+/* A software bit the CPA self test toggles. */
+#define ARCH_PAGE_CPA_TEST	__pgprot(_PAGE_CPA_TEST)
+
 #define CPA_ST_STATIC_PROT	CPA_ST_ARCH(0) /* enforce static protections */
 
 int arch_cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
