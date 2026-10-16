@@ -1992,6 +1992,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		cpa->state |= CPA_ST_FLUSHTLB_ALL;
 
 		ret = __change_page_attr_set_clr(&alias_cpa);
+		cpa->state |= alias_cpa.state & CPA_ST_FLUSHTLB;
 		if (ret)
 			return ret;
 	}
@@ -2027,6 +2028,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		 * return value.
 		 */
 		__change_page_attr_set_clr(&alias_cpa);
+		cpa->state |= alias_cpa.state & CPA_ST_FLUSHTLB;
 	}
 #endif
 
