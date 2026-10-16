@@ -14,6 +14,54 @@
 #include <linux/spinlock.h>
 #include <linux/vmalloc.h>
 
+#include <asm/tlbflush.h>
+
+#ifndef canon_pgprot
+#define canon_pgprot(prot)	(prot)
+#endif
+
+#ifndef arch_cpa_pgtable_lock
+static inline void arch_cpa_pgtable_lock(void)
+{
+}
+#endif
+
+#ifndef arch_cpa_pgtable_unlock
+static inline void arch_cpa_pgtable_unlock(void)
+{
+}
+#endif
+
+#ifndef arch_cpa_aliases
+static int arch_cpa_aliases(struct cpa_data *cpa, unsigned long vaddr,
+			    struct cpa_alias *aliases)
+{
+	return 0;
+}
+#endif
+
+#ifndef arch_cpa_flush
+static void arch_cpa_flush(struct cpa_data *cpa, int err)
+{
+	unsigned long start;
+
+	if (err || cpa->state & CPA_ST_FLUSHTLB_ALL ||
+	    cpa->req & (CPA_REQ_ARRAY | CPA_REQ_PAGES_ARRAY)) {
+		flush_tlb_all();
+		return;
+	}
+
+	start = __cpa_addr(cpa, 0);
+	flush_tlb_kernel_range(start, start + cpa->numpages * PAGE_SIZE);
+}
+#endif
+
+#ifndef arch_cpa_collapse
+static void arch_cpa_collapse(struct cpa_data *cpa)
+{
+}
+#endif
+
 /*
  * Serialize cpa() using cpa_lock so that we don't allow any other cpu, with
  * stale large tlb entries, to change the page attribute in parallel to some
