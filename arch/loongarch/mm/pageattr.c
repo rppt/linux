@@ -3,156 +3,97 @@
  * Copyright (C) 2024 Loongson Technology Corporation Limited
  */
 
-#include <linux/pagewalk.h>
+#include <linux/mm.h>
+#include <linux/pageattr.h>
 #include <linux/pgtable.h>
-#include <asm/set_memory.h>
-#include <asm/tlbflush.h>
+#include <linux/set_memory.h>
 
-struct pageattr_masks {
-	pgprot_t set_mask;
-	pgprot_t clear_mask;
-};
-
-static unsigned long set_pageattr_masks(unsigned long val, struct mm_walk *walk)
+static pte_t *cpa_lookup_pte(unsigned long addr)
 {
-	unsigned long new_val = val;
-	struct pageattr_masks *masks = walk->private;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
 
-	new_val &= ~(pgprot_val(masks->clear_mask));
-	new_val |= (pgprot_val(masks->set_mask));
+	pgd = pgd_offset_k(addr);
+	if (pgd_none(pgdp_get(pgd)))
+		return NULL;
 
-	return new_val;
+	p4d = p4d_offset(pgd, addr);
+	if (p4d_none(p4dp_get(p4d)))
+		return NULL;
+
+	pud = pud_offset(p4d, addr);
+	if (pud_none(pudp_get(pud)))
+		return NULL;
+
+	pmd = pmd_offset(pud, addr);
+	if (pmd_none(pmdp_get(pmd)))
+		return NULL;
+
+	/* Splitting huge leaves is not supported */
+	if (WARN_ON_ONCE(pmd_leaf(pmdp_get(pmd))))
+		return ERR_PTR(-EINVAL);
+
+	return pte_offset_kernel(pmd, addr);
 }
 
-static int pageattr_pgd_entry(pgd_t *pgd, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
+int arch_change_page_attr(struct cpa_data *cpa)
 {
-	pgd_t val = pgdp_get(pgd);
+	unsigned long addr = __cpa_addr(cpa, cpa->curpage);
+	pte_t *ptep, old, new;
 
-	if (pgd_leaf(val)) {
-		val = __pgd(set_pageattr_masks(pgd_val(val), walk));
-		set_pgd(pgd, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_p4d_entry(p4d_t *p4d, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	p4d_t val = p4dp_get(p4d);
-
-	if (p4d_leaf(val)) {
-		val = __p4d(set_pageattr_masks(p4d_val(val), walk));
-		set_p4d(p4d, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pud_entry(pud_t *pud, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pud_t val = pudp_get(pud);
-
-	if (pud_leaf(val)) {
-		val = __pud(set_pageattr_masks(pud_val(val), walk));
-		set_pud(pud, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pmd_entry(pmd_t *pmd, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pmd_t val = pmdp_get(pmd);
-
-	if (pmd_leaf(val)) {
-		val = __pmd(set_pageattr_masks(pmd_val(val), walk));
-		set_pmd(pmd, val);
-	}
-
-	return 0;
-}
-
-static int pageattr_pte_entry(pte_t *pte, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pte_t val = ptep_get(pte);
-
-	val = __pte(set_pageattr_masks(pte_val(val), walk));
-	set_pte(pte, val);
-
-	return 0;
-}
-
-static int pageattr_pte_hole(unsigned long addr, unsigned long next,
-			     int depth, struct mm_walk *walk)
-{
-	return 0;
-}
-
-static const struct mm_walk_ops pageattr_ops = {
-	.pgd_entry = pageattr_pgd_entry,
-	.p4d_entry = pageattr_p4d_entry,
-	.pud_entry = pageattr_pud_entry,
-	.pmd_entry = pageattr_pmd_entry,
-	.pte_entry = pageattr_pte_entry,
-	.pte_hole = pageattr_pte_hole,
-	.walk_lock = PGWALK_RDLOCK,
-};
-
-static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask, pgprot_t clear_mask)
-{
-	int ret;
-	unsigned long start = addr;
-	unsigned long end = start + PAGE_SIZE * numpages;
-	struct pageattr_masks masks = {
-		.set_mask = set_mask,
-		.clear_mask = clear_mask
-	};
-
-	if (!numpages)
-		return 0;
-
-	mmap_write_lock(&init_mm);
-	ret = walk_kernel_page_table_range(start, end, &pageattr_ops, NULL, &masks);
-	mmap_write_unlock(&init_mm);
-
-	flush_tlb_kernel_range(start, end);
-
-	return ret;
-}
-
-int set_memory_x(unsigned long addr, int numpages)
-{
+	/* The direct mapping windows have no page tables */
 	if (addr < vm_map_base)
 		return -EINVAL;
 
-	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_NO_EXEC));
+	ptep = cpa_lookup_pte(addr);
+	if (IS_ERR(ptep))
+		return PTR_ERR(ptep);
+
+	if (!ptep || pte_none(ptep_get(ptep))) {
+		VM_WARN_ONCE(1, "CPA: no mapping for %lx\n", addr);
+		return -EFAULT;
+	}
+
+	old = ptep_get(ptep);
+	new = __pte((pte_val(old) & ~pgprot_val(cpa->mask_clr)) |
+		    pgprot_val(cpa->mask_set));
+	if (pte_val(new) != pte_val(old)) {
+		set_pte(ptep, new);
+		cpa->state |= CPA_ST_FLUSHTLB;
+	}
+
+	cpa->numpages = 1;
+	cpa->pfn = pte_pfn(old);
+
+	return 0;
 }
 
-int set_memory_nx(unsigned long addr, int numpages)
+int arch_cpa_op_desc(enum cpa_op op, struct cpa_op_desc *desc)
 {
-	if (addr < vm_map_base)
-		return -EINVAL;
+	unsigned long set = 0, clr = 0;
 
-	return __set_memory(addr, numpages, __pgprot(_PAGE_NO_EXEC), __pgprot(0));
-}
+	switch (op) {
+	case CPA_SET_RO:
+		clr = _PAGE_WRITE | _PAGE_DIRTY;
+		break;
+	case CPA_SET_RW:
+		set = _PAGE_WRITE | _PAGE_DIRTY;
+		break;
+	case CPA_SET_X:
+		clr = _PAGE_NO_EXEC;
+		break;
+	case CPA_SET_NX:
+		set = _PAGE_NO_EXEC;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
 
-int set_memory_ro(unsigned long addr, int numpages)
-{
-	if (addr < vm_map_base)
-		return -EINVAL;
+	desc->mask_set = __pgprot(set);
+	desc->mask_clr = __pgprot(clr);
+	desc->req = 0;
 
-	return __set_memory(addr, numpages, __pgprot(0), __pgprot(_PAGE_WRITE | _PAGE_DIRTY));
-}
-
-int set_memory_rw(unsigned long addr, int numpages)
-{
-	if (addr < vm_map_base)
-		return -EINVAL;
-
-	return __set_memory(addr, numpages, __pgprot(_PAGE_WRITE | _PAGE_DIRTY), __pgprot(0));
+	return 0;
 }
