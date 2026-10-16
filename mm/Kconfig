@@ -1452,6 +1452,10 @@ config IOMMU_MM_DATA
 config EXECMEM
 	bool
 
+config GENERIC_PAGEATTR
+	bool
+	select ARCH_HAS_SET_MEMORY
+
 config NUMA_MEMBLKS
 	bool
 
