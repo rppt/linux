@@ -197,23 +197,3 @@ bool kernel_page_present(struct page *page)
 	pte = pte_offset_kernel(pmd, addr);
 	return pte_present(ptep_get(pte));
 }
-
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	if (addr < vm_map_base)
-		return 0;
-
-	return __set_memory(addr, nr, PAGE_KERNEL, __pgprot(0));
-}
-
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
-{
-	unsigned long addr = (unsigned long)page_address(page);
-
-	if (addr < vm_map_base)
-		return 0;
-
-	return __set_memory(addr, nr, __pgprot(0), __pgprot(_PAGE_PRESENT | _PAGE_VALID));
-}
