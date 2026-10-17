@@ -262,7 +262,7 @@ Arch       `ARCH_HAS_SET_MEMORY`  `ARCH_HAS_SET_DIRECT_MAP`
 =========  =====================  =========================
 arm        yes                    no
 arm64      yes                    yes
-loongarch  yes                    yes
+loongarch  yes                    no
 powerpc    yes                    no
 riscv      yes (MMU only)         yes (MMU only)
 s390       yes                    yes
@@ -331,12 +331,12 @@ arm64
 LoongArch
 ---------
 
+* Does not implement `set_direct_map()`.
 * Accepts only the addresses above the hardware window and silently returns
   success for the rest, see `Direct map`_.
 * Does not update mapping aliases.
 * Does not split anything: a leaf entry is updated as a whole, which changes
   the permissions of the entire large mapping.
-* Flushes the TLB in `set_direct_map()`.
 
 PowerPC
 -------
