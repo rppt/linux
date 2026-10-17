@@ -59,6 +59,16 @@ extern int swsusp_asm_resume(void);
 
 int swsusp_arch_resume(void)
 {
+	struct pbe *pbe;
+
+	/*
+	 * page_address() of KFENCE pages is mapped by page tables that are
+	 * overwritten during restore, copy through DMW instead.
+	 */
+	if (IS_ENABLED(CONFIG_KFENCE))
+		for (pbe = restore_pblist; pbe; pbe = pbe->next)
+			pbe->orig_address = __va(virt_to_phys(pbe->orig_address));
+
 	/* Avoid TLB mismatch during and after kernel resume */
 	local_flush_tlb_all();
 	return swsusp_asm_resume();
