@@ -63,5 +63,6 @@ __SET_MEMORY_FUNC(set_memory_4k, SET_MEMORY_4K)
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr);
 int set_direct_map_default_noflush(struct page *page, unsigned int nr);
 bool kernel_page_present(struct page *page);
+#define kernel_page_present kernel_page_present
 
 #endif
