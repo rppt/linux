@@ -4,6 +4,7 @@
 #include <asm/sections.h>
 #include <asm/time.h>
 #include <asm/tlbflush.h>
+#include <linux/memblock.h>
 #include <linux/suspend.h>
 
 static u32 saved_crmd;
@@ -44,7 +45,10 @@ int pfn_is_nosave(unsigned long pfn)
 	unsigned long nosave_begin_pfn = PFN_DOWN(__pa(&__nosave_begin));
 	unsigned long nosave_end_pfn = PFN_UP(__pa(&__nosave_end));
 
-	return	(pfn >= nosave_begin_pfn) && (pfn < nosave_end_pfn);
+	if (pfn >= nosave_begin_pfn && pfn < nosave_end_pfn)
+		return 1;
+
+	return !memblock_is_memory(PFN_PHYS(pfn));
 }
 
 extern int swsusp_asm_suspend(void);
