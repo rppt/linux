@@ -6,6 +6,7 @@ generated-y += orc_hash.h
 generic-y += mcs_spinlock.h
 generic-y += parport.h
 generic-y += early_ioremap.h
+generic-y += pageattr.h
 generic-y += qrwlock.h
 generic-y += user.h
 generic-y += ioctl.h
