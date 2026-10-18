@@ -303,7 +303,7 @@ static void __cpa_flush_tlb(void *data)
 	unsigned int i;
 
 	for (i = 0; i < cpa->numpages; i++)
-		flush_tlb_one_kernel(fix_addr(__cpa_addr(cpa, i)));
+		flush_tlb_one_kernel(fix_addr(cpa_addr(cpa, i)));
 }
 
 static void __cpa_flush(struct cpa_data *cpa, int cache)
@@ -328,7 +328,7 @@ static void __cpa_flush(struct cpa_data *cpa, int cache)
 
 	mb();
 	for (i = 0; i < cpa->numpages; i++) {
-		unsigned long addr = __cpa_addr(cpa, i);
+		unsigned long addr = cpa_addr(cpa, i);
 		unsigned int level;
 
 		pte_t *pte = lookup_address(addr, &level);
@@ -1737,7 +1737,7 @@ void arch_cpa_change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
  */
 int arch_cpa_process_alias(struct cpa_data *cpa)
 {
-	unsigned long vaddr = __cpa_addr(cpa, cpa->curpage);
+	unsigned long vaddr = cpa_addr(cpa, cpa->curpage);
 	/*
 	 * Directmap always has NX set, do not modify.
 	 * [_text, _brk_end) also covers data, do not modify NX except in
@@ -1779,15 +1779,13 @@ int arch_cpa_process_alias(struct cpa_data *cpa)
 static inline int change_page_attr_set(unsigned long *addr, int numpages,
 				       pgprot_t mask)
 {
-	return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0),
-					0, NULL);
+	return cpa_set_clr(addr, numpages, mask, __pgprot(0), 0, NULL);
 }
 
 static inline int change_page_attr_clear(unsigned long *addr, int numpages,
 					 pgprot_t mask)
 {
-	return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask,
-					0, NULL);
+	return cpa_set_clr(addr, numpages, __pgprot(0), mask, 0, NULL);
 }
 
 /*
@@ -1822,14 +1820,14 @@ const struct cpa_op_desc *arch_cpa_get_op_desc(enum cpa_op op)
 static inline int cpa_set_pages_array(struct page **pages, int numpages,
 				       pgprot_t mask)
 {
-	return change_page_attr_set_clr(NULL, numpages, mask, __pgprot(0),
+	return cpa_set_clr(NULL, numpages, mask, __pgprot(0),
 		CPA_REQ_PAGES_ARRAY, pages);
 }
 
 static inline int cpa_clear_pages_array(struct page **pages, int numpages,
 					 pgprot_t mask)
 {
-	return change_page_attr_set_clr(NULL, numpages, __pgprot(0), mask,
+	return cpa_set_clr(NULL, numpages, __pgprot(0), mask,
 		CPA_REQ_PAGES_ARRAY, pages);
 }
 
@@ -1877,10 +1875,9 @@ int _set_memory_wc(unsigned long addr, int numpages)
 	ret = change_page_attr_set(&addr, numpages,
 				   cachemode2pgprot(_PAGE_CACHE_MODE_UC_MINUS));
 	if (!ret) {
-		ret = change_page_attr_set_clr(&addr, numpages,
-					       cachemode2pgprot(_PAGE_CACHE_MODE_WC),
-					       __pgprot(_PAGE_CACHE_MASK),
-					       0, NULL);
+		ret = cpa_set_clr(&addr, numpages,
+				  cachemode2pgprot(_PAGE_CACHE_MODE_WC),
+				  __pgprot(_PAGE_CACHE_MASK), 0, NULL);
 	}
 	return ret;
 }
@@ -1976,8 +1973,8 @@ int set_memory_rox(unsigned long addr, int numpages)
 	if (__supported_pte_mask & _PAGE_NX)
 		clr.pgprot |= _PAGE_NX;
 
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(0), clr,
-					CPA_REQ_COLLAPSE, NULL);
+	return cpa_set_clr(&addr, numpages, __pgprot(0), clr,
+			   CPA_REQ_COLLAPSE, NULL);
 }
 
 int set_memory_np(unsigned long addr, int numpages)
@@ -1987,9 +1984,8 @@ int set_memory_np(unsigned long addr, int numpages)
 
 int set_memory_np_noalias(unsigned long addr, int numpages)
 {
-	return change_page_attr_set_clr(&addr, numpages, __pgprot(0),
-					__pgprot(_PAGE_PRESENT),
-					CPA_REQ_NO_ALIAS, NULL);
+	return cpa_set_clr(&addr, numpages, __pgprot(0),
+			   __pgprot(_PAGE_PRESENT), CPA_REQ_NO_ALIAS, NULL);
 }
 
 int set_memory_p(unsigned long addr, int numpages)
@@ -1999,9 +1995,8 @@ int set_memory_p(unsigned long addr, int numpages)
 
 int set_memory_4k(unsigned long addr, int numpages)
 {
-	return change_page_attr_set_clr(&addr, numpages,
-					__pgprot(_PAGE_KERNEL_4K),
-					__pgprot(0), CPA_REQ_SPLIT, NULL);
+	return cpa_set_clr(&addr, numpages, __pgprot(_PAGE_KERNEL_4K),
+			   __pgprot(0), CPA_REQ_SPLIT, NULL);
 }
 
 int set_memory_nonglobal(unsigned long addr, int numpages)
@@ -2050,7 +2045,7 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	if (ret)
 		goto vmm_fail;
 
-	ret = __change_page_attr_set_clr(&cpa);
+	ret = __cpa_set_clr(&cpa);
 
 	/*
 	 * After changing the encryption attribute, we need to flush TLBs again
@@ -2168,11 +2163,10 @@ static int _set_pages_array(struct page **pages, int numpages,
 	ret = cpa_set_pages_array(pages, numpages,
 				  cachemode2pgprot(set_type));
 	if (!ret && new_type == _PAGE_CACHE_MODE_WC)
-		ret = change_page_attr_set_clr(NULL, numpages,
-					       cachemode2pgprot(
-						_PAGE_CACHE_MODE_WC),
-					       __pgprot(_PAGE_CACHE_MASK),
-					       CPA_REQ_PAGES_ARRAY, pages);
+		ret = cpa_set_clr(NULL, numpages,
+				  cachemode2pgprot(_PAGE_CACHE_MODE_WC),
+				  __pgprot(_PAGE_CACHE_MASK),
+				  CPA_REQ_PAGES_ARRAY, pages);
 	if (ret)
 		goto err_out;
 	return 0; /* Success */
@@ -2348,7 +2342,7 @@ int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn, unsigned long address,
 
 	cpa.mask_set = __pgprot(_PAGE_PRESENT | page_flags);
 
-	retval = __change_page_attr_set_clr(&cpa);
+	retval = __cpa_set_clr(&cpa);
 	__flush_tlb_all();
 
 out:
@@ -2383,7 +2377,7 @@ int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
 
 	WARN_ONCE(num_online_cpus() > 1, "Don't call after initializing SMP");
 
-	retval = __change_page_attr_set_clr(&cpa);
+	retval = __cpa_set_clr(&cpa);
 	__flush_tlb_all();
 
 	return retval;
