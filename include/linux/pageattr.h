@@ -73,15 +73,15 @@ struct cpa_leaf {
 	bool rw;
 };
 
-const struct cpa_op_desc *cpa_get_op_desc(enum cpa_op op);
+const struct cpa_op_desc *arch_cpa_get_op_desc(enum cpa_op op);
 
-pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-			   struct cpa_leaf *leaf);
-int __should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf);
-int __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
-		       pte_t *pbase);
-int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr);
-void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf);
+pte_t *arch_cpa_lookup_leaf(struct cpa_data *cpa, unsigned long address,
+			    struct cpa_leaf *leaf);
+int arch_cpa_should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf);
+int arch_cpa_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
+			      pte_t *pbase);
+int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr);
+void arch_cpa_change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf);
 
 static inline unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {

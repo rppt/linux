@@ -342,7 +342,7 @@ static void __cpa_flush(struct cpa_data *cpa, int cache)
 	mb();
 }
 
-void cpa_flush(struct cpa_data *cpa)
+void arch_cpa_flush(struct cpa_data *cpa)
 {
 	/*
 	 * No need to flush, when we did not set any of the caching
@@ -710,8 +710,8 @@ static enum pgtable_level pg_level_to_pgtable_level(enum pg_level level)
 	}
 }
 
-pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
-			   struct cpa_leaf *leaf)
+pte_t *arch_cpa_lookup_leaf(struct cpa_data *cpa, unsigned long address,
+			    struct cpa_leaf *leaf)
 {
 	unsigned int level;
 	pgd_t *pgd;
@@ -851,7 +851,7 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 	return prot;
 }
 
-int __should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
+int arch_cpa_should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
 	pgprot_t old_prot, new_prot, req_prot;
 	unsigned long numpages, lpaddr, old_pfn;
@@ -1002,8 +1002,8 @@ set:
 	set_pte(pte, pfn_pte(pfn, ref_prot));
 }
 
-int __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
-		       pte_t *pbase)
+int arch_cpa_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
+			      pte_t *pbase)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
 	unsigned long address = leaf->address;
@@ -1223,7 +1223,7 @@ static int collapse_pud_page(pud_t *pud, unsigned long addr,
  * touching the new entries. CPU must not see TLB entries of different size
  * with different attributes.
  */
-int collapse_large_pages(unsigned long addr, struct list_head *pgtables)
+int arch_cpa_collapse(unsigned long addr, struct list_head *pgtables)
 {
 	int collapsed;
 	pgd_t *pgd;
@@ -1647,7 +1647,7 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	return 0;
 }
 
-int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
+int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 {
 	if (cpa->pgd) {
 		/*
@@ -1691,7 +1691,7 @@ int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 	}
 }
 
-void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
+void arch_cpa_change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
 	pte_t old_pte = leaf->pte;
 	pgprot_t old_prot = pte_pgprot(old_pte);
@@ -1735,7 +1735,7 @@ void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
  * text is aliased by the high mapping.  A change to one alias has to be
  * applied to the others.
  */
-int cpa_process_alias(struct cpa_data *cpa)
+int arch_cpa_process_alias(struct cpa_data *cpa)
 {
 	unsigned long vaddr = __cpa_addr(cpa, cpa->curpage);
 	/*
@@ -1810,7 +1810,7 @@ static const struct cpa_op_desc cpa_op_descs[CPA_OP_NUM] = {
 
 static const struct cpa_op_desc cpa_op_nop;
 
-const struct cpa_op_desc *cpa_get_op_desc(enum cpa_op op)
+const struct cpa_op_desc *arch_cpa_get_op_desc(enum cpa_op op)
 {
 	if ((op == CPA_SET_X || op == CPA_SET_NX) &&
 	    !(__supported_pte_mask & _PAGE_NX))

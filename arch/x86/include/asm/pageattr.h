@@ -60,7 +60,7 @@ static inline bool __cpa_pfn_in_highmap(unsigned long pfn)
  *
  * Keep this inline: it runs once per page and says no most of the time.
  */
-static inline bool __cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
+static inline bool arch_cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
 {
 	unsigned long dmap_end = PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT);
 
@@ -78,18 +78,18 @@ static inline bool __cpa_needs_alias(unsigned long vaddr, unsigned long pfn)
  * CPA walks the kernel page tables, so it has to serialize against everything
  * else that does, not just against other CPA calls.
  */
-static inline void cpa_pgtable_lock(void)
+static inline void arch_cpa_pgtable_lock(void)
 {
 	spin_lock(&pgd_lock);
 }
 
-static inline void cpa_pgtable_unlock(void)
+static inline void arch_cpa_pgtable_unlock(void)
 {
 	spin_unlock(&pgd_lock);
 }
 
-int cpa_process_alias(struct cpa_data *cpa);
-void cpa_flush(struct cpa_data *cpa);
-int collapse_large_pages(unsigned long addr, struct list_head *pgtables);
+int arch_cpa_process_alias(struct cpa_data *cpa);
+void arch_cpa_flush(struct cpa_data *cpa);
+int arch_cpa_collapse(unsigned long addr, struct list_head *pgtables);
 
 #endif /* _ASM_X86_PAGEATTR_H */
