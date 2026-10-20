@@ -111,7 +111,6 @@ static unsigned long addr[NTEST];
 static unsigned int len[NTEST];
 
 static struct page *pages[NPAGES];
-static unsigned long addrs[NPAGES];
 
 /* Change the global bit on random pages in the direct mapping */
 static int pageattr_test(void)
@@ -169,7 +168,6 @@ static int pageattr_test(void)
 				break;
 			}
 			__set_bit(pfn + k, bm);
-			addrs[k] = addr[i] + k*PAGE_SIZE;
 			pages[k] = pfn_to_page(pfn + k);
 		}
 		if (!addr[i] || !pte || !k) {
@@ -177,19 +175,10 @@ static int pageattr_test(void)
 			continue;
 		}
 
-		switch (i % 3) {
-		case 0:
-			err = change_page_attr_set(&addr[i], len[i], PAGE_CPA_TEST, 0);
-			break;
-
-		case 1:
-			err = change_page_attr_set(addrs, len[i], PAGE_CPA_TEST, 1);
-			break;
-
-		case 2:
+		if (i % 2)
 			err = cpa_set_pages_array(pages, len[i], PAGE_CPA_TEST);
-			break;
-		}
+		else
+			err = change_page_attr_set(&addr[i], len[i], PAGE_CPA_TEST);
 
 
 		if (err < 0) {
@@ -223,7 +212,7 @@ static int pageattr_test(void)
 			failed++;
 			continue;
 		}
-		err = change_page_attr_clear(&addr[i], len[i], PAGE_CPA_TEST, 0);
+		err = change_page_attr_clear(&addr[i], len[i], PAGE_CPA_TEST);
 		if (err < 0) {
 			printk(KERN_ERR "CPA reverting failed: %d\n", err);
 			failed++;
