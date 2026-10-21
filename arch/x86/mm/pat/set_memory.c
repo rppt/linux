@@ -2687,52 +2687,40 @@ int set_pages_rw(struct page *page, int numpages)
 	return set_memory_rw(addr, numpages);
 }
 
-static int __set_pages_p(struct page *page, int numpages)
+/*
+ * Change the direct map without flushing the TLB or taking mmap_lock.
+ * Splitting a large page allocates a page table and may sleep.
+ *
+ * No alias checking needed for the direct map updates. Otherwise, we may need
+ * to break large pages for 64-bit kernel text mappings (this adds to
+ * complexity if we want to do this from atomic context especially). Let's
+ * keep it simple!
+ */
+static int cpa_change_direct_map(struct page *page, int numpages,
+				 pgprot_t mask_set, pgprot_t mask_clr)
 {
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
-				.mask_clr = __pgprot(0),
-				.req = CPA_REQ_NO_ALIAS };
+	unsigned long addr = (unsigned long)page_address(page);
+	struct cpa_data cpa = {
+		.vaddr = addr,
+		.numpages = numpages,
+		.mask_set = mask_set,
+		.mask_clr = mask_clr,
+		.req = CPA_REQ_NO_ALIAS,
+	};
 
-	/*
-	 * No alias checking needed for setting present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
-	return __change_page_attr_set_clr(&cpa);
-}
-
-static int __set_pages_np(struct page *page, int numpages)
-{
-	unsigned long tempaddr = (unsigned long) page_address(page);
-	struct cpa_data cpa = { .vaddr = tempaddr,
-				.pgd = NULL,
-				.numpages = numpages,
-				.mask_set = __pgprot(0),
-				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
-				.req = CPA_REQ_NO_ALIAS };
-
-	/*
-	 * No alias checking needed for setting not present flag. otherwise,
-	 * we may need to break large pages for 64-bit kernel text
-	 * mappings (this adds to complexity if we want to do this from
-	 * atomic context especially). Let's keep it simple!
-	 */
 	return __change_page_attr_set_clr(&cpa);
 }
 
 int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
 {
-	return __set_pages_np(page, nr);
+	return cpa_change_direct_map(page, nr, __pgprot(0),
+				     __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY));
 }
 
 int set_direct_map_default_noflush(struct page *page, unsigned int nr)
 {
-	return __set_pages_p(page, nr);
+	return cpa_change_direct_map(page, nr, __pgprot(_PAGE_PRESENT | _PAGE_RW),
+				     __pgprot(0));
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
