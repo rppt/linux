@@ -430,8 +430,6 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	int collapsed = 0;
 	int i;
 
-	guard(spinlock)(&cpa_lock);
-
 	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
 		for (i = 0; i < cpa->numpages; i++)
 			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
@@ -464,19 +462,7 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	}
 }
 
-static void cpa_collapse_large_pages(struct cpa_data *cpa)
-{
-	/*
-	 * Take the mmap write lock on init_mm to:
-	 * - Avoid a use-after-free if raced by ptdump (which takes its own
-	 *   write lock on init_mm).
-	 * - Serialise concurrent CPA walkers.
-	 */
-	scoped_guard(mmap_write_lock, &init_mm)
-		__cpa_collapse_large_pages(cpa);
-}
-
-static void cpa_flush(struct cpa_data *cpa, int cache)
+static void __cpa_flush(struct cpa_data *cpa, int cache)
 {
 	unsigned int i;
 
@@ -484,7 +470,7 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 
 	if (cache && !cpu_feature_enabled(X86_FEATURE_CLFLUSH)) {
 		cpa_flush_all(cache);
-		goto collapse_large_pages;
+		return;
 	}
 
 	if ((cpa->state & CPA_ST_FLUSHTLB_ALL) ||
@@ -494,7 +480,7 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 		on_each_cpu(__cpa_flush_tlb, cpa, 1);
 
 	if (!cache)
-		goto collapse_large_pages;
+		return;
 
 	mb();
 	for (i = 0; i < cpa->numpages; i++) {
@@ -510,10 +496,17 @@ static void cpa_flush(struct cpa_data *cpa, int cache)
 			clflush_cache_range_opt((void *)fix_addr(addr), PAGE_SIZE);
 	}
 	mb();
+}
 
-collapse_large_pages:
-	if (cpa->req & CPA_REQ_COLLAPSE)
-		cpa_collapse_large_pages(cpa);
+static void cpa_flush(struct cpa_data *cpa)
+{
+	/*
+	 * No need to flush, when we did not set any of the caching
+	 * attributes:
+	 */
+	int cache = !!pgprot2cachemode(cpa->mask_set);
+
+	__cpa_flush(cpa, cache);
 }
 
 static bool overlaps(unsigned long r1_start, unsigned long r1_end,
@@ -2104,13 +2097,27 @@ out:
 	return ret;
 }
 
+static void cpa_collapse_large_pages(struct cpa_data *cpa)
+{
+	/*
+	 * Take the mmap write lock on init_mm to:
+	 * - Avoid a use-after-free if raced by ptdump (which takes its own
+	 *   write lock on init_mm).
+	 * - Serialise concurrent CPA walkers.
+	 */
+	guard(mmap_write_lock)(&init_mm);
+	guard(spinlock)(&cpa_lock);
+
+	__cpa_collapse_large_pages(cpa);
+}
+
 static int change_page_attr_set_clr(unsigned long addr, int numpages,
 				    pgprot_t mask_set, pgprot_t mask_clr,
 				    unsigned int request,
 				    struct page **pages)
 {
 	struct cpa_data cpa;
-	int ret, cache;
+	int ret;
 
 	memset(&cpa, 0, sizeof(cpa));
 
@@ -2162,24 +2169,19 @@ static int change_page_attr_set_clr(unsigned long addr, int numpages,
 	 * Check whether we really changed something:
 	 */
 	if (!(cpa.state & (CPA_ST_FLUSHTLB | CPA_ST_FLUSHTLB_ALL)))
-		goto out;
-
-	/*
-	 * No need to flush, when we did not set any of the caching
-	 * attributes:
-	 */
-	cache = !!pgprot2cachemode(mask_set);
+		return ret;
 
 	/*
 	 * On error; flush everything to be sure.
 	 */
-	if (ret) {
+	if (ret)
 		cpa.state |= CPA_ST_FLUSHTLB_ALL;
-		cpa.req &= ~CPA_REQ_COLLAPSE;
-	}
 
-	cpa_flush(&cpa, cache);
-out:
+	cpa_flush(&cpa);
+
+	if (!ret && (cpa.req & CPA_REQ_COLLAPSE))
+		cpa_collapse_large_pages(&cpa);
+
 	return ret;
 }
 
@@ -2447,7 +2449,7 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 
 	/* Flush the caches as needed before changing the encryption attribute. */
 	if (x86_platform.guest.enc_tlb_flush_required(enc))
-		cpa_flush(&cpa, x86_platform.guest.enc_cache_flush_required());
+		__cpa_flush(&cpa, x86_platform.guest.enc_cache_flush_required());
 
 	/* Notify hypervisor that we are about to set/clr encryption attribute. */
 	ret = x86_platform.guest.enc_status_change_prepare(addr, numpages, enc);
@@ -2460,10 +2462,10 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	 * After changing the encryption attribute, we need to flush TLBs again
 	 * in case any speculative TLB caching occurred (but no need to flush
 	 * caches again).  We could just use cpa_flush_all(), but in case TLB
-	 * flushing gets optimized in the cpa_flush() path use the same logic
+	 * flushing gets optimized in the __cpa_flush() path use the same logic
 	 * as above.
 	 */
-	cpa_flush(&cpa, 0);
+	__cpa_flush(&cpa, 0);
 
 	if (ret)
 		return ret;
