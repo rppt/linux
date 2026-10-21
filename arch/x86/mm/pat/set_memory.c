@@ -1970,6 +1970,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		alias_cpa = *cpa;
 		alias_cpa.vaddr = &laddr;
 		alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
+		alias_cpa.flags &= ~CPA_FLUSHTLB;
 		alias_cpa.curpage = 0;
 
 		/* Directmap always has NX set, do not modify. */
@@ -1978,9 +1979,9 @@ static int cpa_process_alias(struct cpa_data *cpa)
 			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
 		}
 
-		cpa->force_flush_all = 1;
-
 		ret = __change_page_attr_set_clr(&alias_cpa, 0);
+		if (alias_cpa.flags & CPA_FLUSHTLB)
+			cpa->force_flush_all = 1;
 		if (ret)
 			return ret;
 	}
@@ -1998,6 +1999,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		alias_cpa = *cpa;
 		alias_cpa.vaddr = &temp_cpa_vaddr;
 		alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
+		alias_cpa.flags &= ~CPA_FLUSHTLB;
 		alias_cpa.curpage = 0;
 
 		/*
@@ -2009,12 +2011,13 @@ static int cpa_process_alias(struct cpa_data *cpa)
 			alias_cpa.mask_set.pgprot &= ~_PAGE_NX;
 		}
 
-		cpa->force_flush_all = 1;
 		/*
 		 * The high mapping range is imprecise, so ignore the
 		 * return value.
 		 */
 		__change_page_attr_set_clr(&alias_cpa, 0);
+		if (alias_cpa.flags & CPA_FLUSHTLB)
+			cpa->force_flush_all = 1;
 	}
 #endif
 
@@ -2167,7 +2170,7 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	/*
 	 * Check whether we really changed something:
 	 */
-	if (!(cpa.flags & CPA_FLUSHTLB))
+	if (!(cpa.flags & CPA_FLUSHTLB) && !cpa.force_flush_all)
 		goto out;
 
 	/*
