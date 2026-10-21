@@ -153,7 +153,7 @@ int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep)
 	alias_cpa.vaddr = &addr;
 	alias_cpa.req &= ~CPA_REQ_PAGES_ARRAY;
 	alias_cpa.state |= CPA_ST_ALIAS;
-	alias_cpa.state &= ~CPA_ST_FLUSHTLB;
+	alias_cpa.state &= ~(CPA_ST_FLUSHTLB | CPA_ST_FLUSHTLB_ALL);
 	alias_cpa.curpage = 0;
 	pgprot_val(alias_cpa.mask_set) &= ~pgprot_val(keep);
 	pgprot_val(alias_cpa.mask_clr) &= ~pgprot_val(keep);
@@ -161,7 +161,7 @@ int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep)
 	ret = __cpa_set_clr(&alias_cpa);
 
 	/* The alias is outside of the range being changed */
-	if (alias_cpa.state & CPA_ST_FLUSHTLB)
+	if (alias_cpa.state & (CPA_ST_FLUSHTLB | CPA_ST_FLUSHTLB_ALL))
 		cpa->state |= CPA_ST_FLUSHTLB_ALL;
 
 	return ret;
