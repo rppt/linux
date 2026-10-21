@@ -2142,8 +2142,8 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	 * On error; flush everything to be sure.
 	 */
 	if (ret) {
-		cpa_flush_all(cache);
-		goto out;
+		cpa.force_flush_all = 1;
+		cpa.flags &= ~CPA_COLLAPSE;
 	}
 
 	cpa_flush(&cpa, cache);
