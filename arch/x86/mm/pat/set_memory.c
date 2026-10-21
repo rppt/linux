@@ -105,7 +105,6 @@ DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
 #define CPA_ST_FLUSHTLB_ALL	BIT(1) /* flush all TLBs */
 #define CPA_ST_MM_LOCKED	BIT(2) /* mmap read lock on init_mm */
 #define CPA_ST_ALIAS		BIT(3) /* updating an alias */
-#define CPA_ST_STATIC_PROT	BIT(4) /* enforce static protections on split */
 
 enum cpa_op {
 	CPA_SET_RO,
@@ -727,6 +726,21 @@ static inline pgprot_t static_protections(pgprot_t prot, unsigned long start,
 }
 
 /*
+ * Check whether an existing large mapping conflicts with the static
+ * protections, so that they have to be enforced when it is split.
+ */
+static bool need_static_protections(pgprot_t prot, unsigned long lpaddr,
+				    unsigned long pfn, unsigned long psize,
+				    int warnlvl)
+{
+	pgprot_t chk_prot = static_protections(prot, lpaddr, pfn,
+					       psize >> PAGE_SHIFT, psize,
+					       warnlvl);
+
+	return pgprot_val(chk_prot) != pgprot_val(prot);
+}
+
+/*
  * Validate strict W^X semantics.
  */
 static inline pgprot_t verify_rwx(pgprot_t old, pgprot_t new, unsigned long start,
@@ -1029,7 +1043,7 @@ static pgprot_t pgprot_clear_protnone_bits(pgprot_t prot)
 static int __should_split_large_page(struct cpa_data *cpa,
 				     struct cpa_leaf *leaf)
 {
-	pgprot_t old_prot, new_prot, req_prot, chk_prot;
+	pgprot_t old_prot, new_prot, req_prot;
 	unsigned long numpages, lpaddr, old_pfn;
 	unsigned long address = leaf->address;
 	unsigned long psize = leaf->psize;
@@ -1085,19 +1099,12 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	/*
 	 * Sanity check that the existing mapping is correct versus the static
 	 * protections. static_protections() guards against !PRESENT, so no
-	 * extra conditional required here.
+	 * extra conditional required here. The split code repeats the check
+	 * and enforces the static protections on a conflict.
 	 */
-	chk_prot = static_protections(old_prot, lpaddr, old_pfn, numpages,
-				      psize, CPA_CONFLICT);
-
-	if (WARN_ON_ONCE(pgprot_val(chk_prot) != pgprot_val(old_prot))) {
-		/*
-		 * Split the large page and tell the split code to
-		 * enforce static protections.
-		 */
-		cpa->state |= CPA_ST_STATIC_PROT;
+	if (WARN_ON_ONCE(need_static_protections(old_prot, lpaddr, old_pfn,
+						 psize, CPA_CONFLICT)))
 		return 1;
-	}
 
 	/*
 	 * Optimization: If the requested pgprot is the same as the current
@@ -1165,18 +1172,18 @@ static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	return __should_split_large_page(cpa, leaf);
 }
 
-static void split_set_pte(struct cpa_data *cpa, pte_t *pte, unsigned long pfn,
-			  pgprot_t ref_prot, unsigned long address,
-			  unsigned long size)
+static void split_set_pte(pte_t *pte, unsigned long pfn, pgprot_t ref_prot,
+			  unsigned long address, unsigned long size,
+			  bool static_prot)
 {
 	unsigned int npg = PFN_DOWN(size);
 	pgprot_t prot;
 
 	/*
-	 * If should_split_large_page() discovered an inconsistent mapping,
-	 * remove the invalid protection in the split mapping.
+	 * If the large page conflicts with the static protections, remove
+	 * the invalid protection in the split mapping.
 	 */
-	if (!(cpa->state & CPA_ST_STATIC_PROT))
+	if (!static_prot)
 		goto set;
 
 	/* Hand in lpsize = 0 to enforce the protection mechanism */
@@ -1209,6 +1216,7 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	struct page *base = virt_to_page(pbase);
 	pte_t *kpte = leaf->kpte;
 	pgprot_t ref_prot;
+	bool static_prot;
 	unsigned int i;
 
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
@@ -1246,13 +1254,16 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	}
 
 	ref_prot = pgprot_clear_protnone_bits(ref_prot);
+	static_prot = need_static_protections(ref_prot, lpaddr, ref_pfn,
+					      leaf->psize, CPA_DETECT);
 
 	/*
 	 * Get the target pfn from the original entry:
 	 */
 	pfn = ref_pfn;
 	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc, lpaddr += lpinc)
-		split_set_pte(cpa, pbase + i, pfn, ref_prot, lpaddr, lpinc);
+		split_set_pte(pbase + i, pfn, ref_prot, lpaddr, lpinc,
+			      static_prot);
 
 	if (virt_addr_valid(address)) {
 		unsigned long pfn = PFN_DOWN(__pa(address));
