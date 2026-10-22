@@ -8,7 +8,7 @@
 #include <linux/mem_encrypt.h>
 #include <linux/sched.h>
 #include <linux/vmalloc.h>
-#include <linux/pagewalk.h>
+#include <linux/pageattr.h>
 
 #include <asm/cacheflush.h>
 #include <asm/pgtable-prot.h>
@@ -16,76 +16,182 @@
 #include <asm/tlbflush.h>
 #include <asm/kfence.h>
 
-struct page_change_data {
-	pgprot_t set_mask;
-	pgprot_t clear_mask;
-};
+bool rodata_full __ro_after_init = true;
 
-static ptval_t set_pageattr_masks(ptval_t val, struct mm_walk *walk)
+static pte_t cpa_new_pte(struct cpa_data *cpa, pte_t pte)
 {
-	struct page_change_data *masks = walk->private;
-
 	/*
 	 * Some users clear and set bits which alias each other (e.g. PTE_NG and
 	 * PTE_PRESENT_INVALID). It is therefore important that we always clear
 	 * first then set.
 	 */
-	val &= ~(pgprot_val(masks->clear_mask));
-	val |= (pgprot_val(masks->set_mask));
-
-	return val;
+	pte = clear_pte_bit(pte, cpa->mask_clr);
+	return set_pte_bit(pte, cpa->mask_set);
 }
 
-static int pageattr_pud_entry(pud_t *pud, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
+static void cpa_set_entry(pte_t *ptep, enum pgtable_level level, pte_t pte)
 {
-	pud_t val = pudp_get(pud);
+	switch (level) {
+	case PGTABLE_LEVEL_PUD:
+		set_pud((pud_t *)ptep, __pud(pte_val(pte)));
+		break;
+	case PGTABLE_LEVEL_PMD:
+		set_pmd((pmd_t *)ptep, pte_pmd(pte));
+		break;
+	default:
+		__set_pte(ptep, pte);
+		break;
+	}
+}
 
-	if (pud_leaf(val)) {
-		if (WARN_ON_ONCE((next - addr) != PUD_SIZE))
-			return -EINVAL;
-		val = __pud(set_pageattr_masks(pud_val(val), walk));
-		set_pud(pud, val);
-		walk->action = ACTION_CONTINUE;
+static unsigned int cpa_leaf_entries(struct cpa_leaf *leaf)
+{
+	if (!pte_cont(leaf->pte))
+		return 1;
+
+	return leaf->level == PGTABLE_LEVEL_PTE ? CONT_PTES : CONT_PMDS;
+}
+
+/*
+ * Permission and valid bit changes do not require break-before-make, and the
+ * entries of a contiguous group may be updated one by one.
+ */
+static void cpa_update_leaf(struct cpa_data *cpa, struct cpa_leaf *leaf)
+{
+	unsigned int i, nr = cpa_leaf_entries(leaf);
+	pte_t *ptep = leaf->kpte;
+
+	for (i = 0; i < nr; i++, ptep++)
+		cpa_set_entry(ptep, leaf->level,
+			      cpa_new_pte(cpa, __ptep_get(ptep)));
+
+	/* Invalid entries are not cached in the TLB */
+	if (pte_valid(leaf->pte))
+		cpa->state |= CPA_ST_FLUSHTLB;
+}
+
+/* A contiguous group is reported as a single leaf */
+static pte_t *cpa_set_leaf(struct cpa_leaf *leaf, unsigned long address,
+			   pte_t *kpte, enum pgtable_level level,
+			   unsigned long psize)
+{
+	pte_t pte = __ptep_get(kpte);
+
+	if (pte_cont(pte)) {
+		unsigned int nr = level == PGTABLE_LEVEL_PTE ? CONT_PTES : CONT_PMDS;
+
+		kpte = PTR_ALIGN_DOWN(kpte, nr * sizeof(*kpte));
+		pte = __ptep_get(kpte);
+		psize *= nr;
 	}
 
+	leaf->address = address;
+	leaf->kpte = kpte;
+	leaf->pte = pte;
+	leaf->pfn = pte_pfn(pte);
+	leaf->level = level;
+	leaf->psize = psize;
+
+	return kpte;
+}
+
+pte_t *arch_cpa_lookup_leaf(struct cpa_data *cpa, unsigned long address,
+			    struct cpa_leaf *leaf)
+{
+	pgd_t *pgdp;
+	p4d_t *p4dp;
+	pud_t *pudp, pud;
+	pmd_t *pmdp, pmd;
+
+	pgdp = pgd_offset_k(address);
+	if (pgd_none(pgdp_get(pgdp)))
+		return NULL;
+
+	p4dp = p4d_offset(pgdp, address);
+	if (p4d_none(p4dp_get(p4dp)))
+		return NULL;
+
+	/* pXd_leaf() is true for present-invalid blocks, pXd_sect() is not */
+	pudp = pud_offset(p4dp, address);
+	pud = pudp_get(pudp);
+	if (pud_none(pud))
+		return NULL;
+	if (pud_leaf(pud))
+		return cpa_set_leaf(leaf, address, (pte_t *)pudp,
+				    PGTABLE_LEVEL_PUD, PUD_SIZE);
+
+	pmdp = pmd_offset(pudp, address);
+	pmd = pmdp_get(pmdp);
+	if (pmd_none(pmd))
+		return NULL;
+	if (pmd_leaf(pmd))
+		return cpa_set_leaf(leaf, address, (pte_t *)pmdp,
+				    PGTABLE_LEVEL_PMD, PMD_SIZE);
+
+	return cpa_set_leaf(leaf, address, pte_offset_kernel(pmdp, address),
+			    PGTABLE_LEVEL_PTE, PAGE_SIZE);
+}
+
+int arch_cpa_should_split_large_page(struct cpa_data *cpa,
+				     struct cpa_leaf *leaf)
+{
+	unsigned long lpaddr = ALIGN_DOWN(leaf->address, leaf->psize);
+	unsigned long numpages = leaf->psize >> PAGE_SHIFT;
+
+	if (cpa->req & CPA_REQ_SPLIT)
+		return arm64_cpa_prepare_split(leaf);
+
+	if (pte_val(cpa_new_pte(cpa, leaf->pte)) == pte_val(leaf->pte))
+		return 0;
+
+	if (leaf->address != lpaddr || cpa->numpages < numpages)
+		return arm64_cpa_prepare_split(leaf);
+
+	cpa_update_leaf(cpa, leaf);
+
 	return 0;
 }
 
-static int pageattr_pmd_entry(pmd_t *pmd, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
+void arch_cpa_change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
-	pmd_t val = pmdp_get(pmd);
+	cpa->pfn = leaf->pfn;
 
-	if (pmd_leaf(val)) {
-		if (WARN_ON_ONCE((next - addr) != PMD_SIZE))
-			return -EINVAL;
-		val = __pmd(set_pageattr_masks(pmd_val(val), walk));
-		set_pmd(pmd, val);
-		walk->action = ACTION_CONTINUE;
+	if (pte_val(cpa_new_pte(cpa, leaf->pte)) != pte_val(leaf->pte))
+		cpa_update_leaf(cpa, leaf);
+
+	cpa->numpages = 1;
+}
+
+int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
+{
+	/* The linear map has holes, skip them */
+	if ((cpa->state & CPA_ST_ALIAS) || __is_lm_address(__tag_reset(vaddr))) {
+		cpa->numpages = 1;
+		return 0;
 	}
 
-	return 0;
+	WARN(1, "CPA: called for zero pte. vaddr = %lx cpa->vaddr = %lx\n",
+	     vaddr, cpa->vaddr);
+	return -EFAULT;
 }
 
-static int pageattr_pte_entry(pte_t *pte, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
+/*
+ * With rodata=full the write permissions of the linear alias follow the
+ * permissions of other mappings of the same memory.
+ */
+int arch_cpa_process_alias(struct cpa_data *cpa)
 {
-	pte_t val = __ptep_get(pte);
+	unsigned long laddr = (unsigned long)pfn_to_kaddr(cpa->pfn);
 
-	val = __pte(set_pageattr_masks(pte_val(val), walk));
-	__set_pte(pte, val);
+	if (!rodata_full ||
+	    __is_lm_address(__tag_reset(cpa_addr(cpa, cpa->curpage))) ||
+	    !pfn_valid(cpa->pfn))
+		return 0;
 
-	return 0;
+	/* Only write permissions are propagated to the linear alias */
+	return cpa_change_alias(cpa, laddr,
+				__pgprot(~(PTE_RDONLY | PTE_WRITE)));
 }
-
-static const struct mm_walk_ops pageattr_ops = {
-	.pud_entry	= pageattr_pud_entry,
-	.pmd_entry	= pageattr_pmd_entry,
-	.pte_entry	= pageattr_pte_entry,
-};
-
-bool rodata_full __ro_after_init = true;
 
 bool can_set_direct_map(void)
 {
@@ -102,51 +208,6 @@ bool can_set_direct_map(void)
 		arm64_kfence_can_set_direct_map() || is_realm_world();
 }
 
-static int update_range_prot(unsigned long start, unsigned long size,
-			     pgprot_t set_mask, pgprot_t clear_mask)
-{
-	struct page_change_data data;
-	int ret;
-
-	data.set_mask = set_mask;
-	data.clear_mask = clear_mask;
-
-	ret = split_kernel_leaf_mapping(start, start + size);
-	if (WARN_ON_ONCE(ret))
-		return ret;
-
-	lazy_mmu_mode_enable();
-
-	/*
-	 * The caller must ensure that the range we are operating on does not
-	 * partially overlap a block mapping, or a cont mapping. Any such case
-	 * must be eliminated by splitting the mapping.
-	 */
-	ret = walk_kernel_page_table_range_lockless(start, start + size,
-						    &pageattr_ops, NULL, &data);
-	lazy_mmu_mode_disable();
-
-	return ret;
-}
-
-static int __change_memory_common(unsigned long start, unsigned long size,
-				  pgprot_t set_mask, pgprot_t clear_mask)
-{
-	int ret;
-
-	ret = update_range_prot(start, size, set_mask, clear_mask);
-
-	/*
-	 * If the memory is being switched from present-invalid to valid without
-	 * changing any other bits then a TLBI isn't required as a non-valid
-	 * entry cannot be cached in the TLB.
-	 */
-	if (pgprot_val(set_mask) != PTE_PRESENT_VALID_KERNEL ||
-	    pgprot_val(clear_mask) != PTE_PRESENT_INVALID)
-		flush_tlb_kernel_range(start, start + size);
-	return ret;
-}
-
 static int change_memory_common(unsigned long addr, int numpages,
 				pgprot_t set_mask, pgprot_t clear_mask)
 {
@@ -154,7 +215,6 @@ static int change_memory_common(unsigned long addr, int numpages,
 	unsigned long size = PAGE_SIZE * numpages;
 	unsigned long end = start + size;
 	struct vm_struct *area;
-	int ret;
 
 	if (!PAGE_ALIGNED(addr)) {
 		start &= PAGE_MASK;
@@ -185,30 +245,7 @@ static int change_memory_common(unsigned long addr, int numpages,
 	if (!numpages)
 		return 0;
 
-	/*
-	 * If we are manipulating read-only permissions, apply the same
-	 * change to the linear mapping of the pages that back this VM area.
-	 */
-	if (rodata_full && (pgprot_val(set_mask) == PTE_RDONLY ||
-			    pgprot_val(clear_mask) == PTE_RDONLY)) {
-		unsigned long idx = ((unsigned long)kasan_reset_tag((void *)start) -
-				     (unsigned long)kasan_reset_tag(area->addr))
-				    >> PAGE_SHIFT;
-		for (; numpages; idx++, numpages--) {
-			ret = __change_memory_common((u64)page_address(area->pages[idx]),
-						     PAGE_SIZE, set_mask, clear_mask);
-			if (ret)
-				return ret;
-		}
-	}
-
-	/*
-	 * Get rid of potentially aliasing lazily unmapped vm areas that may
-	 * have permissions set that deviate from the ones we are setting here.
-	 */
-	vm_unmap_aliases();
-
-	return __change_memory_common(start, size, set_mask, clear_mask);
+	return cpa_set_clr(addr, numpages, set_mask, clear_mask, 0, NULL);
 }
 
 int set_memory_ro(unsigned long addr, int numpages)
@@ -242,13 +279,14 @@ int set_memory_x(unsigned long addr, int numpages)
 int set_memory_valid(unsigned long addr, int numpages, int enable)
 {
 	if (enable)
-		return __change_memory_common(addr, PAGE_SIZE * numpages,
-					__pgprot(PTE_PRESENT_VALID_KERNEL),
-					__pgprot(PTE_PRESENT_INVALID));
-	else
-		return __change_memory_common(addr, PAGE_SIZE * numpages,
-					__pgprot(PTE_PRESENT_INVALID),
-					__pgprot(PTE_PRESENT_VALID_KERNEL));
+		return cpa_set_clr(addr, numpages,
+				   __pgprot(PTE_PRESENT_VALID_KERNEL),
+				   __pgprot(PTE_PRESENT_INVALID),
+				   CPA_REQ_NO_ALIAS, NULL);
+
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_PRESENT_INVALID),
+			   __pgprot(PTE_PRESENT_VALID_KERNEL),
+			   CPA_REQ_NO_ALIAS, NULL);
 }
 
 int set_direct_map_invalid_noflush(struct page *page, unsigned int numpages)
@@ -259,8 +297,7 @@ int set_direct_map_invalid_noflush(struct page *page, unsigned int numpages)
 	if (!can_set_direct_map())
 		return 0;
 
-	return update_range_prot((unsigned long)page_address(page),
-				 PAGE_SIZE * numpages, set_mask, clear_mask);
+	return cpa_change_direct_map(page, numpages, set_mask, clear_mask);
 }
 
 int set_direct_map_default_noflush(struct page *page, unsigned int numpages)
@@ -271,8 +308,7 @@ int set_direct_map_default_noflush(struct page *page, unsigned int numpages)
 	if (!can_set_direct_map())
 		return 0;
 
-	return update_range_prot((unsigned long)page_address(page),
-				 PAGE_SIZE * numpages, set_mask, clear_mask);
+	return cpa_change_direct_map(page, numpages, set_mask, clear_mask);
 }
 
 static int __set_memory_enc_dec(unsigned long addr,
@@ -301,9 +337,10 @@ static int __set_memory_enc_dec(unsigned long addr,
 	 * Break the mapping before we make any changes to avoid stale TLB
 	 * entries or Synchronous External Aborts caused by RIPAS_EMPTY
 	 */
-	ret = __change_memory_common(addr, PAGE_SIZE * numpages,
-				     __pgprot(set_prot | PTE_PRESENT_INVALID),
-				     __pgprot(clear_prot | PTE_PRESENT_VALID_KERNEL));
+	ret = cpa_set_clr(addr, numpages,
+			  __pgprot(set_prot | PTE_PRESENT_INVALID),
+			  __pgprot(clear_prot | PTE_PRESENT_VALID_KERNEL),
+			  CPA_REQ_NO_ALIAS, NULL);
 
 	if (ret)
 		return ret;
@@ -316,9 +353,8 @@ static int __set_memory_enc_dec(unsigned long addr,
 	if (ret)
 		return ret;
 
-	return __change_memory_common(addr, PAGE_SIZE * numpages,
-				      __pgprot(PTE_PRESENT_VALID_KERNEL),
-				      __pgprot(PTE_PRESENT_INVALID));
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_PRESENT_VALID_KERNEL),
+			   __pgprot(PTE_PRESENT_INVALID), CPA_REQ_NO_ALIAS, NULL);
 }
 
 static int realm_set_memory_encrypted(unsigned long addr, int numpages)
