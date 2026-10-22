@@ -92,6 +92,9 @@ int arch_cpa_should_split_large_page(struct cpa_data *cpa,
 	unsigned long numpages = leaf->psize >> PAGE_SHIFT;
 	pgprot_t new_prot = cpa_new_prot(cpa, leaf->prot);
 
+	if (cpa->req & CPA_REQ_SPLIT)
+		return 1;
+
 	if (pgprot_val(new_prot) == pgprot_val(leaf->prot))
 		return 0;
 

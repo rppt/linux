@@ -29,9 +29,6 @@ static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	unsigned long address = leaf->address;
 	pte_t *kpte = leaf->kpte;
 
-	if (cpa->req & CPA_REQ_SPLIT)
-		return 1;
-
 	guard(cpa_pgtable)();
 
 	if (!arch_cpa_lookup_leaf(cpa, address, leaf) || leaf->kpte != kpte)
