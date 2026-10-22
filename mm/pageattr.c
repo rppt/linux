@@ -24,23 +24,28 @@ static DEFINE_SPINLOCK(cpa_lock);
 DEFINE_LOCK_GUARD_0(cpa_pgtable, arch_cpa_pgtable_lock(),
 		    arch_cpa_pgtable_unlock())
 
-static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
+/* Look up the leaf again and check it is still the same large leaf */
+static bool cpa_revalidate_leaf(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
-	unsigned long address = leaf->address;
+	unsigned long psize = leaf->psize;
 	pte_t *kpte = leaf->kpte;
 
+	return arch_cpa_lookup_leaf(cpa, leaf->address, leaf) &&
+	       leaf->kpte == kpte && leaf->psize == psize;
+}
+
+static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
+{
 	guard(cpa_pgtable)();
 
-	if (!arch_cpa_lookup_leaf(cpa, address, leaf) || leaf->kpte != kpte)
-		return 1;
+	if (!cpa_revalidate_leaf(cpa, leaf))
+		return CPA_SPLIT_RETRY;
 
 	return arch_cpa_should_split_large_page(cpa, leaf);
 }
 
 static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
-	unsigned long address = leaf->address;
-	pte_t *kpte = leaf->kpte;
 	int ret = 1;
 	pte_t *pte;
 
@@ -59,7 +64,7 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 		return -ENOMEM;
 
 	scoped_guard(cpa_pgtable) {
-		if (arch_cpa_lookup_leaf(cpa, address, leaf) && leaf->kpte == kpte)
+		if (cpa_revalidate_leaf(cpa, leaf))
 			ret = arch_cpa_split_large_page(cpa, leaf, pte);
 	}
 
@@ -82,6 +87,8 @@ static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	do_split = should_split_large_page(cpa, leaf);
 	if (do_split < 0)
 		return do_split;
+	if (do_split == CPA_SPLIT_RETRY)
+		return 1;
 
 	/*
 	 * When the range fits into the existing large page, no split is

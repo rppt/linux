@@ -55,7 +55,17 @@ struct cpa_leaf {
 
 pte_t *arch_cpa_lookup_leaf(struct cpa_data *cpa, unsigned long address,
 			    struct cpa_leaf *leaf);
+
+/* The mapping has changed, the leaf has to be looked up again */
+#define CPA_SPLIT_RETRY		2
+
+/*
+ * Returns 0 when the leaf is kept, 1 when it has to be split into @pbase by
+ * arch_cpa_split_large_page(), CPA_SPLIT_RETRY or a negative error code.
+ */
 int arch_cpa_should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf);
+
+/* Returns 0 when the leaf is split into @pbase or a negative error code */
 int arch_cpa_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
 			      pte_t *pbase);
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr);
