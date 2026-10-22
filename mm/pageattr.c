@@ -48,11 +48,15 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	pte_t *pte;
 
 	spin_unlock(&cpa_lock);
+	if (cpa->state & CPA_ST_LAZY_MMU)
+		lazy_mmu_mode_pause();
 	if (cpa->state & CPA_ST_MM_LOCKED)
 		mmap_read_unlock(&init_mm);
 	pte = pte_alloc_one_kernel(&init_mm);
 	if (cpa->state & CPA_ST_MM_LOCKED)
 		mmap_read_lock(&init_mm);
+	if (cpa->state & CPA_ST_LAZY_MMU)
+		lazy_mmu_mode_resume();
 	spin_lock(&cpa_lock);
 	if (!pte)
 		return -ENOMEM;
@@ -167,6 +171,11 @@ int __cpa_set_clr(struct cpa_data *cpa)
 	    !(cpa->req & CPA_REQ_SPLIT))
 		return ret;
 
+	if (arch_cpa_lazy_mmu()) {
+		cpa->state |= CPA_ST_LAZY_MMU;
+		lazy_mmu_mode_enable();
+	}
+
 	while (rempages) {
 		/*
 		 * Store the remaining nr of pages for the large page
@@ -203,6 +212,11 @@ int __cpa_set_clr(struct cpa_data *cpa)
 	}
 
 out:
+	if (cpa->state & CPA_ST_LAZY_MMU) {
+		lazy_mmu_mode_disable();
+		cpa->state &= ~CPA_ST_LAZY_MMU;
+	}
+
 	/* Restore the original numpages */
 	cpa->numpages = numpages;
 	return ret;

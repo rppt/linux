@@ -21,6 +21,7 @@
 #define CPA_ST_MM_LOCKED	BIT(2) /* mmap read lock on init_mm */
 #define CPA_ST_ALIAS		BIT(3) /* updating an alias */
 #define CPA_ST_STATIC_PROT	BIT(4) /* enforce static protections on split */
+#define CPA_ST_LAZY_MMU		BIT(5) /* in the lazy MMU mode */
 
 #include <asm/pageattr.h>
 
@@ -110,6 +111,18 @@ static inline void arch_cpa_flush(struct cpa_data *cpa)
 
 	start = cpa_addr(cpa, 0);
 	flush_tlb_kernel_range(start, start + cpa->numpages * PAGE_SIZE);
+}
+#endif
+
+/*
+ * Whether the CPA code should batch the page table updates in the lazy MMU
+ * mode. Reading an entry back right after updating it is only safe when the
+ * lazy MMU mode does not defer the updates themselves.
+ */
+#ifndef arch_cpa_lazy_mmu
+static inline bool arch_cpa_lazy_mmu(void)
+{
+	return false;
 }
 #endif
 
