@@ -65,7 +65,7 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 	if (ret)
 		pte_free_kernel(&init_mm, pte);
 
-	return 0;
+	return ret < 0 ? ret : 0;
 }
 
 static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)

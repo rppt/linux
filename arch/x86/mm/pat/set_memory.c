@@ -1091,7 +1091,7 @@ int arch_cpa_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
 		break;
 
 	default:
-		return 1;
+		return -EINVAL;
 	}
 
 	ref_prot = pgprot_clear_protnone_bits(ref_prot);
