@@ -936,21 +936,6 @@ void __init create_pgd_mapping(struct mm_struct *mm, phys_addr_t phys,
 				 pgd_pgtable_alloc_special_mm, flags);
 }
 
-static void update_mapping_prot(phys_addr_t phys, unsigned long virt,
-				phys_addr_t size, pgprot_t prot)
-{
-	if (virt < PAGE_OFFSET) {
-		pr_warn("BUG: not updating mapping for %pa at 0x%016lx - outside kernel range\n",
-			&phys, virt);
-		return;
-	}
-
-	early_create_pgd_mapping(init_mm.pgd, phys, virt, size, prot, NULL, 0);
-
-	/* flush the TLBs after updating live kernel mappings */
-	flush_tlb_kernel_range(virt, virt + size);
-}
-
 static void __init __map_memblock(phys_addr_t start, phys_addr_t end,
 				  pgprot_t prot, int flags)
 {
@@ -986,9 +971,8 @@ void __init mark_linear_text_alias_ro(void)
 	/*
 	 * Remove the write permissions from the linear alias of .text/.rodata
 	 */
-	update_mapping_prot(__pa_symbol(_text), (unsigned long)lm_alias(_text),
-			    (unsigned long)__init_begin - (unsigned long)_text,
-			    PAGE_KERNEL_RO);
+	set_memory_ro((unsigned long)lm_alias(_text),
+		      (__init_begin - _text) >> PAGE_SHIFT);
 
 	/*
 	 * Register a PM notifier to remap the linear alias of data/bss as
@@ -1139,20 +1123,15 @@ static void __init map_mem(void)
 
 void mark_rodata_ro(void)
 {
-	unsigned long section_size;
-
 	/*
 	 * mark .rodata as read only. Use __init_begin rather than __end_rodata
 	 * to cover NOTES and EXCEPTION_TABLE.
 	 */
-	section_size = (unsigned long)__init_begin - (unsigned long)__start_rodata;
 	WRITE_ONCE(rodata_is_rw, false);
-	update_mapping_prot(__pa_symbol(__start_rodata), (unsigned long)__start_rodata,
-			    section_size, PAGE_KERNEL_RO);
+	set_memory_ro((unsigned long)__start_rodata,
+		      (__init_begin - __start_rodata) >> PAGE_SHIFT);
 	/* mark the range between _text and _stext as read only. */
-	update_mapping_prot(__pa_symbol(_text), (unsigned long)_text,
-			    (unsigned long)_stext - (unsigned long)_text,
-			    PAGE_KERNEL_RO);
+	set_memory_ro((unsigned long)_text, (_stext - _text) >> PAGE_SHIFT);
 
 	/* Map the kernel data/bss as invalid in the linear map */
 	mark_linear_data_alias_valid(false);
