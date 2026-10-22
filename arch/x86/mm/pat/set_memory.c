@@ -2224,8 +2224,12 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	/*
 	 * Check whether we really changed something:
 	 */
-	if (!(cpa.flags & CPA_FLUSHTLB))
+	if (!(cpa.flags & CPA_FLUSHTLB)) {
+		/* Undo the splits done before the failure */
+		if (ret && (cpa.flags & CPA_COLLAPSE))
+			cpa_collapse_large_pages(&cpa);
 		goto out;
+	}
 
 	/*
 	 * No need to flush, when we did not set any of the caching
