@@ -900,6 +900,9 @@ int arch_cpa_should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf
 	pte_t *kpte = leaf->kpte;
 	pte_t new_pte;
 
+	if (cpa->req & CPA_REQ_SPLIT)
+		return 1;
+
 	switch (leaf->level) {
 	case PGTABLE_LEVEL_PMD:
 		old_prot = pmd_pgprot(*(pmd_t *)kpte);

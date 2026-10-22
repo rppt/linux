@@ -126,6 +126,9 @@ int arch_cpa_should_split_large_page(struct cpa_data *cpa,
 	pgprot_t old_prot = cpa_leaf_prot(leaf);
 	pgprot_t new_prot = cpa_new_prot(cpa, old_prot);
 
+	if (cpa->req & CPA_REQ_SPLIT)
+		return 1;
+
 	leaf->pfn = cpa_leaf_pfn(leaf);
 
 	if (pgprot_val(new_prot) == pgprot_val(old_prot))
