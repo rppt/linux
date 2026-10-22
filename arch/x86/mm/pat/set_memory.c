@@ -51,7 +51,8 @@ struct cpa_data {
 	unsigned int	force_split		: 1,
 			force_static_prot	: 1,
 			force_flush_all		: 1,
-			init_mm_read_locked	: 1;
+			init_mm_read_locked	: 1,
+			prepare			: 1;
 	struct page	**pages;
 };
 
@@ -983,12 +984,14 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	case PG_LEVEL_2M:
 		old_prot = pmd_pgprot(*(pmd_t *)kpte);
 		old_pfn = pmd_pfn(*(pmd_t *)kpte);
-		cpa_inc_2m_checked();
+		if (!cpa->prepare)
+			cpa_inc_2m_checked();
 		break;
 	case PG_LEVEL_1G:
 		old_prot = pud_pgprot(*(pud_t *)kpte);
 		old_pfn = pud_pfn(*(pud_t *)kpte);
-		cpa_inc_1g_checked();
+		if (!cpa->prepare)
+			cpa_inc_1g_checked();
 		break;
 	default:
 		return -EINVAL;
@@ -1069,7 +1072,8 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	 * not come to a different conclusion.
 	 */
 	if (pgprot_val(req_prot) == pgprot_val(old_prot)) {
-		cpa_inc_lp_sameprot(level);
+		if (!cpa->prepare)
+			cpa_inc_lp_sameprot(level);
 		return 0;
 	}
 
@@ -1100,6 +1104,9 @@ static int __should_split_large_page(pte_t *kpte, unsigned long address,
 	 */
 	if (pgprot_val(req_prot) != pgprot_val(new_prot))
 		return 1;
+
+	if (cpa->prepare)
+		return 0;
 
 	/* All checks passed. Update the large page mapping. */
 	new_pte = pfn_pte(old_pfn, new_prot);
@@ -1896,6 +1903,11 @@ repeat:
 		pgprot_t new_prot = pte_pgprot(old_pte);
 		unsigned long pfn = pte_pfn(old_pte);
 
+		cpa->pfn = pfn;
+		cpa->numpages = 1;
+		if (cpa->prepare)
+			return 0;
+
 		pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
 		pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
 
@@ -1915,7 +1927,6 @@ repeat:
 		 * not the memory it points to
 		 */
 		new_pte = pfn_pte(pfn, new_prot);
-		cpa->pfn = pfn;
 		/*
 		 * Do we really change anything ?
 		 */
@@ -1923,7 +1934,6 @@ repeat:
 			set_pte_atomic(kpte, new_pte);
 			cpa->flags |= CPA_FLUSHTLB;
 		}
-		cpa->numpages = 1;
 		return 0;
 	}
 
