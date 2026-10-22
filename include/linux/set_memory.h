@@ -16,6 +16,7 @@
  *
  * The updates are not atomic: when a call fails, an arbitrary prefix of the
  * range may have been updated already and there is no automatic rollback.
+ * x86 is the exception, it fails before changing any permissions.
  * A caller must restore the required permissions before reusing or freeing
  * the memory.
  *

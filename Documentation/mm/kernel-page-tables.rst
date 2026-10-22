@@ -193,6 +193,9 @@ are restored and never assume that the requested permissions are in effect.
 Neither option is appealing, but both beat handing out a page whose
 permissions nobody knows.
 
+x86 is the exception: it does all the splits and checks before it changes any
+permissions, see `Architecture specific differences`_.
+
 TLB flushing
 ~~~~~~~~~~~~
 
@@ -406,5 +409,10 @@ x86
   propagated, so that the direct map stays non-executable.
 * Splits large mappings on demand and can collapse them back when the
   permissions become uniform again.
+* Splits the large mappings and checks the range and the direct map alias for
+  holes before it changes any permissions, so a failed call leaves the
+  permissions unchanged and only the large mappings may remain split.
+  set_memory_rox() collapses them back. The high kernel mapping is updated on
+  a best effort basis and its failures are ignored.
 * Does not flush the TLB in `set_direct_map()`, but splitting a large
   mapping flushes it anyway.
