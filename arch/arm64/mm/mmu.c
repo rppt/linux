@@ -601,21 +601,26 @@ static void split_contpte(pte_t *ptep)
 		__set_pte(ptep, pte_mknoncont(__ptep_get(ptep)));
 }
 
-static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
+/*
+ * Changing PXNTable of a live table entry requires break-before-make, so a
+ * table created by a split may only get it when nothing it maps can ever
+ * become executable, which is the case only for the linear map.
+ */
+static bool split_table_pxn(unsigned long addr, pgprot_t prot)
+{
+	return __is_lm_address(__tag_reset(addr)) &&
+	       (pgprot_val(prot) & PMD_SECT_PXN);
+}
+
+static void split_pmd(unsigned long addr, pmd_t *pmdp, pmd_t pmd, pte_t *ptep,
+		      bool to_cont)
 {
 	pmdval_t tableprot = PMD_TYPE_TABLE | PMD_TABLE_UXN | PMD_TABLE_AF;
 	unsigned long pfn = pmd_pfn(pmd);
 	pgprot_t prot = pmd_pgprot(pmd);
-	phys_addr_t pte_phys;
-	pte_t *ptep;
 	int i;
 
-	pte_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PTE, gfp);
-	if (pte_phys == INVALID_PHYS_ADDR)
-		return -ENOMEM;
-	ptep = (pte_t *)phys_to_virt(pte_phys);
-
-	if (pgprot_val(prot) & PMD_SECT_PXN)
+	if (split_table_pxn(addr, prot))
 		tableprot |= PMD_TABLE_PXN;
 
 	prot = __pgprot((pgprot_val(prot) & ~PTE_TYPE_MASK) | PTE_TYPE_PAGE);
@@ -625,17 +630,15 @@ static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
 	if (to_cont)
 		prot = __pgprot(pgprot_val(prot) | PTE_CONT);
 
-	for (i = 0; i < PTRS_PER_PTE; i++, ptep++, pfn++)
-		__set_pte(ptep, pfn_pte(pfn, prot));
+	for (i = 0; i < PTRS_PER_PTE; i++, pfn++)
+		__set_pte(ptep + i, pfn_pte(pfn, prot));
 
 	/*
 	 * Ensure the pte entries are visible to the table walker by the time
 	 * the pmd entry that points to the ptes is visible.
 	 */
 	dsb(ishst);
-	__pmd_populate(pmdp, pte_phys, tableprot);
-
-	return 0;
+	__pmd_populate(pmdp, __pa(ptep), tableprot);
 }
 
 static void split_contpmd(pmd_t *pmdp)
@@ -647,22 +650,16 @@ static void split_contpmd(pmd_t *pmdp)
 		set_pmd(pmdp, pmd_mknoncont(pmdp_get(pmdp)));
 }
 
-static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
+static void split_pud(unsigned long addr, pud_t *pudp, pud_t pud, pmd_t *pmdp,
+		      bool to_cont)
 {
 	pudval_t tableprot = PUD_TYPE_TABLE | PUD_TABLE_UXN | PUD_TABLE_AF;
 	unsigned int step = PMD_SIZE >> PAGE_SHIFT;
 	unsigned long pfn = pud_pfn(pud);
 	pgprot_t prot = pud_pgprot(pud);
-	phys_addr_t pmd_phys;
-	pmd_t *pmdp;
 	int i;
 
-	pmd_phys = pgd_pgtable_alloc_init_mm_gfp(PGTABLE_LEVEL_PMD, gfp);
-	if (pmd_phys == INVALID_PHYS_ADDR)
-		return -ENOMEM;
-	pmdp = (pmd_t *)phys_to_virt(pmd_phys);
-
-	if (pgprot_val(prot) & PMD_SECT_PXN)
+	if (split_table_pxn(addr, prot))
 		tableprot |= PUD_TABLE_PXN;
 
 	prot = __pgprot((pgprot_val(prot) & ~PMD_TYPE_MASK) | PMD_TYPE_SECT);
@@ -672,17 +669,22 @@ static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
 	if (to_cont)
 		prot = __pgprot(pgprot_val(prot) | PTE_CONT);
 
-	for (i = 0; i < PTRS_PER_PMD; i++, pmdp++, pfn += step)
-		set_pmd(pmdp, pfn_pmd(pfn, prot));
+	for (i = 0; i < PTRS_PER_PMD; i++, pfn += step)
+		set_pmd(pmdp + i, pfn_pmd(pfn, prot));
 
 	/*
 	 * Ensure the pmd entries are visible to the table walker by the time
 	 * the pud entry that points to the pmds is visible.
 	 */
 	dsb(ishst);
-	__pud_populate(pudp, pmd_phys, tableprot);
+	__pud_populate(pudp, __pa(pmdp), tableprot);
+}
 
-	return 0;
+static void *split_pgtable_alloc(enum pgtable_level level, gfp_t gfp)
+{
+	phys_addr_t pa = pgd_pgtable_alloc_init_mm_gfp(level, gfp);
+
+	return pa == INVALID_PHYS_ADDR ? NULL : phys_to_virt(pa);
 }
 
 static int split_kernel_leaf_mapping_locked(unsigned long addr)
@@ -728,9 +730,14 @@ static int split_kernel_leaf_mapping_locked(unsigned long addr)
 	if (!pud_present(pud))
 		goto out;
 	if (pud_leaf(pud)) {
-		ret = split_pud(pudp, pud, GFP_PGTABLE_KERNEL, true);
-		if (ret)
+		pmd_t *table = split_pgtable_alloc(PGTABLE_LEVEL_PMD,
+						   GFP_PGTABLE_KERNEL);
+
+		if (!table) {
+			ret = -ENOMEM;
 			goto out;
+		}
+		split_pud(addr, pudp, pud, table, true);
 	}
 
 	/*
@@ -745,6 +752,8 @@ static int split_kernel_leaf_mapping_locked(unsigned long addr)
 	if (!pmd_present(pmd))
 		goto out;
 	if (pmd_leaf(pmd)) {
+		pte_t *table;
+
 		if (pmd_cont(pmd))
 			split_contpmd(pmdp);
 		/*
@@ -753,9 +762,13 @@ static int split_kernel_leaf_mapping_locked(unsigned long addr)
 		 */
 		if (ALIGN_DOWN(addr, PMD_SIZE) == addr)
 			goto out;
-		ret = split_pmd(pmdp, pmd, GFP_PGTABLE_KERNEL, true);
-		if (ret)
+		table = split_pgtable_alloc(PGTABLE_LEVEL_PTE,
+					    GFP_PGTABLE_KERNEL);
+		if (!table) {
+			ret = -ENOMEM;
 			goto out;
+		}
+		split_pmd(addr, pmdp, pmd, table, true);
 	}
 
 	/*
@@ -874,12 +887,18 @@ static int split_to_ptes_pud_entry(pud_t *pudp, unsigned long addr,
 {
 	gfp_t gfp = *(gfp_t *)walk->private;
 	pud_t pud = pudp_get(pudp);
-	int ret = 0;
+	pmd_t *table;
 
-	if (pud_leaf(pud))
-		ret = split_pud(pudp, pud, gfp, false);
+	if (!pud_leaf(pud))
+		return 0;
 
-	return ret;
+	table = split_pgtable_alloc(PGTABLE_LEVEL_PMD, gfp);
+	if (!table)
+		return -ENOMEM;
+
+	split_pud(addr, pudp, pud, table, false);
+
+	return 0;
 }
 
 static int split_to_ptes_pmd_entry(pmd_t *pmdp, unsigned long addr,
@@ -887,21 +906,26 @@ static int split_to_ptes_pmd_entry(pmd_t *pmdp, unsigned long addr,
 {
 	gfp_t gfp = *(gfp_t *)walk->private;
 	pmd_t pmd = pmdp_get(pmdp);
-	int ret = 0;
+	pte_t *table;
 
-	if (pmd_leaf(pmd)) {
-		if (pmd_cont(pmd))
-			split_contpmd(pmdp);
-		ret = split_pmd(pmdp, pmd, gfp, false);
+	if (!pmd_leaf(pmd))
+		return 0;
 
-		/*
-		 * We have split the pmd directly to ptes so there is no need to
-		 * visit each pte to check if they are contpte.
-		 */
-		walk->action = ACTION_CONTINUE;
-	}
+	table = split_pgtable_alloc(PGTABLE_LEVEL_PTE, gfp);
+	if (!table)
+		return -ENOMEM;
 
-	return ret;
+	if (pmd_cont(pmd))
+		split_contpmd(pmdp);
+	split_pmd(addr, pmdp, pmd, table, false);
+
+	/*
+	 * We have split the pmd directly to ptes so there is no need to
+	 * visit each pte to check if they are contpte.
+	 */
+	walk->action = ACTION_CONTINUE;
+
+	return 0;
 }
 
 static int split_to_ptes_pte_entry(pte_t *ptep, unsigned long addr,
