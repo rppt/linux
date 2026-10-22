@@ -2342,8 +2342,11 @@ int set_memory_wc(unsigned long addr, int numpages)
 		return ret;
 
 	ret = _set_memory_wc(addr, numpages);
-	if (ret)
+	if (ret) {
+		/* memtype_reserve() succeeded, so the range was WB */
+		_set_memory_wb(addr, numpages);
 		memtype_free(__pa(addr), __pa(addr) + numpages * PAGE_SIZE);
+	}
 
 	return ret;
 }
@@ -2643,14 +2646,22 @@ static int _set_pages_array(struct page **pages, int numpages,
 
 	ret = cpa_set_pages_array(pages, numpages,
 				  cachemode2pgprot(set_type));
-	if (!ret && new_type == _PAGE_CACHE_MODE_WC)
+	if (ret)
+		goto err_out;
+
+	if (new_type == _PAGE_CACHE_MODE_WC) {
 		ret = change_page_attr_set_clr(NULL, numpages,
 					       cachemode2pgprot(
 						_PAGE_CACHE_MODE_WC),
 					       __pgprot(_PAGE_CACHE_MASK),
 					       0, CPA_PAGES_ARRAY, pages);
-	if (ret)
-		goto err_out;
+		if (ret) {
+			/* memtype_reserve() succeeded, so the pages were WB */
+			cpa_clear_pages_array(pages, numpages,
+					      __pgprot(_PAGE_CACHE_MASK));
+			goto err_out;
+		}
+	}
 	return 0; /* Success */
 err_out:
 	free_idx = i;
