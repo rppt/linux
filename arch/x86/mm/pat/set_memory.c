@@ -2115,6 +2115,30 @@ out:
 	return ret;
 }
 
+/*
+ * Split the large pages and check the range and its aliases for holes
+ * without changing any attributes, so that the actual update cannot fail
+ * halfway.
+ */
+static int cpa_prepare(struct cpa_data *cpa)
+{
+	int ret;
+
+	if (cpa->force_split || (cpa->flags & CPA_DEBUG_PAGEALLOC))
+		return 0;
+
+	/* Nothing can change before a single page split fails */
+	if (cpa->numpages == 1 && (cpa->flags & CPA_NO_CHECK_ALIAS))
+		return 0;
+
+	cpa->prepare = 1;
+	ret = __change_page_attr_set_clr(cpa, 1);
+	cpa->prepare = 0;
+	cpa->curpage = 0;
+
+	return ret;
+}
+
 static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 				    pgprot_t mask_set, pgprot_t mask_clr,
 				    int force_split, int in_flag,
@@ -2173,8 +2197,11 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 
 	/* Avoid race with concurrent CPA collapse. */
 	cpa.init_mm_read_locked = true;
-	scoped_guard(mmap_read_lock, &init_mm)
-		ret = __change_page_attr_set_clr(&cpa, 1);
+	scoped_guard(mmap_read_lock, &init_mm) {
+		ret = cpa_prepare(&cpa);
+		if (!ret)
+			ret = __change_page_attr_set_clr(&cpa, 1);
+	}
 	cpa.init_mm_read_locked = false;
 
 	/*
@@ -2680,6 +2707,7 @@ static int __set_pages_p(struct page *page, int numpages, unsigned int cpa_flags
 				.mask_set = __pgprot(_PAGE_PRESENT | _PAGE_RW),
 				.mask_clr = __pgprot(0),
 				.flags = CPA_NO_CHECK_ALIAS | cpa_flags };
+	int ret;
 
 	/*
 	 * No alias checking needed for setting present flag. otherwise,
@@ -2687,6 +2715,10 @@ static int __set_pages_p(struct page *page, int numpages, unsigned int cpa_flags
 	 * mappings (this adds to complexity if we want to do this from
 	 * atomic context especially). Let's keep it simple!
 	 */
+	ret = cpa_prepare(&cpa);
+	if (ret)
+		return ret;
+
 	return __change_page_attr_set_clr(&cpa, 1);
 }
 
@@ -2699,6 +2731,7 @@ static int __set_pages_np(struct page *page, int numpages, unsigned int cpa_flag
 				.mask_set = __pgprot(0),
 				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
 				.flags = CPA_NO_CHECK_ALIAS | cpa_flags };
+	int ret;
 
 	/*
 	 * No alias checking needed for setting not present flag. otherwise,
@@ -2706,6 +2739,10 @@ static int __set_pages_np(struct page *page, int numpages, unsigned int cpa_flag
 	 * mappings (this adds to complexity if we want to do this from
 	 * atomic context especially). Let's keep it simple!
 	 */
+	ret = cpa_prepare(&cpa);
+	if (ret)
+		return ret;
+
 	return __change_page_attr_set_clr(&cpa, 1);
 }
 
