@@ -356,12 +356,36 @@ int realm_register_memory_enc_ops(void)
 }
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
+static int debug_pagealloc_set_pte(pte_t *ptep, unsigned long addr, void *data)
+{
+	pte_t pte = __ptep_get(ptep);
+
+	if (*(int *)data)
+		__set_pte(ptep, pte_mkvalid_k(pte));
+	else
+		__set_pte(ptep, pte_mkinvalid(pte));
+
+	return 0;
+}
+
+/*
+ * DEBUG_PAGEALLOC forces base page mappings of the linear map, so there is
+ * nothing to split and the PTEs can be updated from any context.
+ */
 void __kernel_map_pages(struct page *page, int numpages, int enable)
 {
+	unsigned long addr = (unsigned long)page_address(page);
+	unsigned long size = PAGE_SIZE * numpages;
+
 	if (!can_set_direct_map())
 		return;
 
-	set_memory_valid((unsigned long)page_address(page), numpages, enable);
+	apply_to_existing_page_range(&init_mm, addr, size,
+				     debug_pagealloc_set_pte, &enable);
+
+	/* Invalid entries are not cached in the TLB */
+	if (!enable)
+		flush_tlb_kernel_range(addr, addr + size);
 }
 #endif /* CONFIG_DEBUG_PAGEALLOC */
 
