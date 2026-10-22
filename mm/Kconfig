@@ -1439,6 +1439,10 @@ config GENERIC_PAGEATTR
 	bool
 	select ARCH_HAS_SET_MEMORY
 
+config ARCH_HAS_CPA_DEBUG
+	bool
+	depends on GENERIC_PAGEATTR
+
 config NUMA_MEMBLKS
 	bool
 
