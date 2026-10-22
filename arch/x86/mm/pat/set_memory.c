@@ -412,6 +412,9 @@ static void __cpa_flush_tlb(void *data)
 
 static int collapse_large_pages(unsigned long addr, struct list_head *pgtables);
 
+/* Incremented under the init_mm mmap write lock */
+static unsigned long cpa_collapse_seq;
+
 static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 {
 	unsigned long start, addr, end;
@@ -438,6 +441,7 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	if (!collapsed)
 		return;
 
+	cpa_collapse_seq++;
 	flush_tlb_all();
 
 	list_for_each_entry_safe(ptdesc, tmp, &pgtables, pt_list) {
@@ -2115,6 +2119,8 @@ out:
 	return ret;
 }
 
+#define CPA_PREPARE_RETRIES	3
+
 /*
  * Split the large pages and check the range and its aliases for holes
  * without changing any attributes, so that the actual update cannot fail
@@ -2122,6 +2128,8 @@ out:
  */
 static int cpa_prepare(struct cpa_data *cpa)
 {
+	int retries = CPA_PREPARE_RETRIES;
+	unsigned long seq;
 	int ret;
 
 	if (cpa->force_split || (cpa->flags & CPA_DEBUG_PAGEALLOC))
@@ -2131,10 +2139,19 @@ static int cpa_prepare(struct cpa_data *cpa)
 	if (cpa->numpages == 1 && (cpa->flags & CPA_NO_CHECK_ALIAS))
 		return 0;
 
-	cpa->prepare = 1;
-	ret = __change_page_attr_set_clr(cpa, 1);
-	cpa->prepare = 0;
-	cpa->curpage = 0;
+	/*
+	 * A split drops the init_mm mmap lock to allocate a page table and a
+	 * concurrent collapse may undo the splits done so far. Repeat the
+	 * preparation in that case.
+	 */
+	do {
+		seq = cpa_collapse_seq;
+		cpa->prepare = 1;
+		ret = __change_page_attr_set_clr(cpa, 1);
+		cpa->prepare = 0;
+		cpa->curpage = 0;
+	} while (!ret && cpa->init_mm_read_locked &&
+		 seq != cpa_collapse_seq && --retries);
 
 	return ret;
 }
