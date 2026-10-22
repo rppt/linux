@@ -52,7 +52,8 @@ struct cpa_data {
 			force_static_prot	: 1,
 			force_flush_all		: 1,
 			init_mm_read_locked	: 1,
-			prepare			: 1;
+			prepare			: 1,
+			prepared		: 1;
 	struct page	**pages;
 };
 
@@ -1957,6 +1958,7 @@ repeat:
 	/*
 	 * We have to split the large page:
 	 */
+	WARN_ON_ONCE(cpa->prepared);
 	err = split_large_page(cpa, kpte, address);
 	if (!err)
 		goto repeat;
@@ -2030,6 +2032,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		}
 
 		cpa->force_flush_all = 1;
+		alias_cpa.prepared = 0;
 		/*
 		 * The high mapping range is imprecise, so ignore the
 		 * return value.
@@ -2152,6 +2155,9 @@ static int cpa_prepare(struct cpa_data *cpa)
 		cpa->curpage = 0;
 	} while (!ret && cpa->init_mm_read_locked &&
 		 seq != cpa_collapse_seq && --retries);
+
+	cpa->prepared = !ret && (!cpa->init_mm_read_locked ||
+				 seq == cpa_collapse_seq);
 
 	return ret;
 }
