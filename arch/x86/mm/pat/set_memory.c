@@ -2509,6 +2509,10 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	kmap_flush_unused();
 	vm_unmap_aliases();
 
+	ret = cpa_prepare(&cpa);
+	if (ret)
+		return ret;
+
 	/* Flush the caches as needed before changing the encryption attribute. */
 	if (x86_platform.guest.enc_tlb_flush_required(enc))
 		cpa_flush(&cpa, x86_platform.guest.enc_cache_flush_required());
