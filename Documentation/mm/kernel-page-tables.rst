@@ -141,8 +141,7 @@ Some architectures cannot split a large mapping, and they reject a range that
 is a part of one, see `Architecture specific differences`_.
 
 Calling `set_memory()` with the number of pages set to zero is a no-op that
-returns success, except on arm64, where doing nothing to the wrong address is
-still an error.
+returns success.
 
 Aliases
 ~~~~~~~
@@ -271,7 +270,7 @@ x86        yes                    yes
 
 Only set_memory_ro(), set_memory_rw(), set_memory_x() and set_memory_nx() are
 available everywhere, and even these are not universal: some architectures
-restrict the ranges that can be modified, for instance arm64 rejects direct map
+restrict the ranges that can be modified, for instance arm rejects direct map
 addresses and accepts only addresses in vmalloc space. The architectures that
 may run on hardware without an execute permission bit, like x86 and s390,
 silently skip the update of the executable bit.
@@ -305,23 +304,16 @@ arm64
 * Provides set_memory_valid().
 * Provides the memory encryption helpers, which are effective only when the
   kernel runs as a confidential guest.
-* set_memory_ro(), set_memory_rw(), set_memory_x() and set_memory_nx() accept
-  only vmalloc and module addresses:
-
-  - the range must fit in the VM area that contains its start
-  - the VM area must have `VM_ALLOC` set and `VM_ALLOW_HUGE_VMAP` clear
-
-* set_memory_valid() accepts any address.
+* The `set_memory()` functions accept any mapped kernel address, including the
+  direct map, and silently succeed for the unmapped holes inside it.
 * The encryption helpers accept only direct map addresses.
 * The `set_memory()` functions propagate the read-only and the read-write
   changes to the direct map alias when `rodata=full` is in effect.
-* Splits leaf mappings before the update on the hardware that supports it.
-  The split itself may be partial when it fails midway, but the permissions are
-  left untouched in that case.
-  Without support for splitting large mappings, a range that covers a leaf
-  entry only partially fails with a WARN()ing and `-EINVAL`.
-  If a range spans one or more full leaf entries and a partial leaf entry, the
-  permissions of the full leaf entries are updated before the failure.
+* Splits block and contiguous mappings on demand on the hardware that can
+  change the size of a live mapping without break-before-make (BBML3).
+  Without it, a range that covers a leaf entry only partially fails with
+  `-EINVAL`, and the permissions of the full leaf entries before it are
+  already updated by then.
 * The `set_direct_map()` functions return 0 without doing anything when the
   direct map cannot be modified, see can_set_direct_map().
 * Skips the TLB flush in `set_memory()` when the update only turns an invalid
