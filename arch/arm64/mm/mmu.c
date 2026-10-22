@@ -722,7 +722,7 @@ static bool cpa_can_split(void)
  */
 int arm64_cpa_prepare_split(struct cpa_leaf *leaf)
 {
-	if (WARN_ON_ONCE(!cpa_can_split()))
+	if (!cpa_can_split())
 		return -EINVAL;
 
 	if (!pte_cont(leaf->pte))

@@ -7,7 +7,6 @@
 #include <linux/module.h>
 #include <linux/mem_encrypt.h>
 #include <linux/sched.h>
-#include <linux/vmalloc.h>
 #include <linux/pageattr.h>
 
 #include <asm/cacheflush.h>
@@ -208,72 +207,28 @@ bool can_set_direct_map(void)
 		arm64_kfence_can_set_direct_map() || is_realm_world();
 }
 
-static int change_memory_common(unsigned long addr, int numpages,
-				pgprot_t set_mask, pgprot_t clear_mask)
-{
-	unsigned long start = addr;
-	unsigned long size = PAGE_SIZE * numpages;
-	unsigned long end = start + size;
-	struct vm_struct *area;
-
-	if (!PAGE_ALIGNED(addr)) {
-		start &= PAGE_MASK;
-		end = start + size;
-		WARN_ON_ONCE(1);
-	}
-
-	/*
-	 * Kernel VA mappings are always live, and splitting live section
-	 * mappings into page mappings may cause TLB conflicts. This means
-	 * we have to ensure that changing the permission bits of the range
-	 * we are operating on does not result in such splitting.
-	 *
-	 * Let's restrict ourselves to mappings created by vmalloc (or vmap).
-	 * Disallow VM_ALLOW_HUGE_VMAP mappings to guarantee that only page
-	 * mappings are updated and splitting is never needed.
-	 *
-	 * So check whether the [addr, addr + size) interval is entirely
-	 * covered by precisely one VM area that has the VM_ALLOC flag set.
-	 */
-	area = find_vm_area((void *)addr);
-	if (!area ||
-	    ((unsigned long)kasan_reset_tag((void *)end) >
-	     (unsigned long)kasan_reset_tag(area->addr) + area->size) ||
-	    ((area->flags & (VM_ALLOC | VM_ALLOW_HUGE_VMAP)) != VM_ALLOC))
-		return -EINVAL;
-
-	if (!numpages)
-		return 0;
-
-	return cpa_set_clr(addr, numpages, set_mask, clear_mask, 0, NULL);
-}
-
 int set_memory_ro(unsigned long addr, int numpages)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_RDONLY),
-					__pgprot(PTE_WRITE));
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_RDONLY),
+			   __pgprot(PTE_WRITE), 0, NULL);
 }
 
 int set_memory_rw(unsigned long addr, int numpages)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_WRITE),
-					__pgprot(PTE_RDONLY));
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_WRITE),
+			   __pgprot(PTE_RDONLY), 0, NULL);
 }
 
 int set_memory_nx(unsigned long addr, int numpages)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_PXN),
-					__pgprot(PTE_MAYBE_GP));
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_PXN),
+			   __pgprot(PTE_MAYBE_GP), 0, NULL);
 }
 
 int set_memory_x(unsigned long addr, int numpages)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_MAYBE_GP),
-					__pgprot(PTE_PXN));
+	return cpa_set_clr(addr, numpages, __pgprot(PTE_MAYBE_GP),
+			   __pgprot(PTE_PXN), 0, NULL);
 }
 
 int set_memory_valid(unsigned long addr, int numpages, int enable)
