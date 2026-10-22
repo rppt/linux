@@ -115,7 +115,7 @@ static int __change_page_attr(struct cpa_data *cpa)
 		if (!arch_cpa_lookup_leaf(cpa, address, &leaf) || pte_none(leaf.pte))
 			return arch_cpa_process_fault(cpa, address);
 
-		if (leaf.level == PGTABLE_LEVEL_PTE)
+		if (leaf.psize == PAGE_SIZE)
 			break;
 
 		/* Update large page or split it */
