@@ -7,6 +7,8 @@
 #include <linux/pgtable.h>
 #include <linux/types.h>
 
+#include <asm/tlbflush.h>
+
 /* Caller-requested behavior, stored in cpa_data.req. */
 #define CPA_REQ_PAGES_ARRAY	BIT(0) /* cpa->pages is an array of pages */
 #define CPA_REQ_NO_ALIAS	BIT(1) /* do not check aliases */
@@ -80,6 +82,53 @@ static inline unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 
 	return cpa->vaddr + idx * PAGE_SIZE;
 }
+
+#ifndef canon_pgprot
+#define canon_pgprot(prot)	(prot)
+#endif
+
+#ifndef arch_cpa_pgtable_lock
+static inline void arch_cpa_pgtable_lock(void)
+{
+}
+#endif
+
+#ifndef arch_cpa_pgtable_unlock
+static inline void arch_cpa_pgtable_unlock(void)
+{
+}
+#endif
+
+#ifndef arch_cpa_process_alias
+static inline int arch_cpa_process_alias(struct cpa_data *cpa)
+{
+	return 0;
+}
+#endif
+
+#ifndef arch_cpa_flush
+static inline void arch_cpa_flush(struct cpa_data *cpa)
+{
+	unsigned long start;
+
+	if (cpa->state & CPA_ST_FLUSHTLB_ALL ||
+	    cpa->req & CPA_REQ_PAGES_ARRAY) {
+		flush_tlb_all();
+		return;
+	}
+
+	start = cpa_addr(cpa, 0);
+	flush_tlb_kernel_range(start, start + cpa->numpages * PAGE_SIZE);
+}
+#endif
+
+#ifndef arch_cpa_collapse
+static inline int arch_cpa_collapse(unsigned long addr,
+				    struct list_head *pgtables)
+{
+	return 0;
+}
+#endif
 
 int __cpa_set_clr(struct cpa_data *cpa);
 int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep);
