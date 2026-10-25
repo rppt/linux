@@ -107,7 +107,7 @@ static int cpa_handle_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 
 static int __change_page_attr(struct cpa_data *cpa)
 {
-	unsigned long address = __cpa_addr(cpa, cpa->curpage);
+	unsigned long address = cpa_addr(cpa, cpa->curpage);
 	struct cpa_leaf leaf;
 	int split_res;
 
@@ -145,7 +145,7 @@ int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep)
 	pgprot_val(alias_cpa.mask_set) &= ~pgprot_val(keep);
 	pgprot_val(alias_cpa.mask_clr) &= ~pgprot_val(keep);
 
-	ret = __change_page_attr_set_clr(&alias_cpa);
+	ret = __cpa_set_clr(&alias_cpa);
 
 	/* The alias is outside of the range being changed */
 	if (alias_cpa.state & CPA_ST_FLUSHTLB)
@@ -154,7 +154,7 @@ int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep)
 	return ret;
 }
 
-int __change_page_attr_set_clr(struct cpa_data *cpa)
+int __cpa_set_clr(struct cpa_data *cpa)
 {
 	unsigned long numpages = cpa->numpages;
 	unsigned long rempages = numpages;
@@ -227,10 +227,10 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
 		for (i = 0; i < cpa->numpages; i++)
-			collapsed += arch_cpa_collapse(__cpa_addr(cpa, i),
+			collapsed += arch_cpa_collapse(cpa_addr(cpa, i),
 						       &pgtables);
 	} else {
-		addr = __cpa_addr(cpa, 0);
+		addr = cpa_addr(cpa, 0);
 		start = addr & PMD_MASK;
 		end = addr + PAGE_SIZE * cpa->numpages;
 
@@ -257,9 +257,8 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 	}
 }
 
-int change_page_attr_set_clr(unsigned long addr, int numpages,
-			     pgprot_t mask_set, pgprot_t mask_clr,
-			     unsigned int request, struct page **pages)
+int cpa_set_clr(unsigned long addr, int numpages, pgprot_t mask_set,
+		pgprot_t mask_clr, unsigned int request, struct page **pages)
 {
 	struct cpa_data cpa;
 	int ret;
@@ -307,7 +306,7 @@ int change_page_attr_set_clr(unsigned long addr, int numpages,
 	/* Avoid race with concurrent CPA collapse. */
 	cpa.state |= CPA_ST_MM_LOCKED;
 	scoped_guard(mmap_read_lock, &init_mm)
-		ret = __change_page_attr_set_clr(&cpa);
+		ret = __cpa_set_clr(&cpa);
 	cpa.state &= ~CPA_ST_MM_LOCKED;
 
 	/*
@@ -351,5 +350,5 @@ int cpa_change_direct_map(struct page *page, int numpages,
 		.req = CPA_REQ_NO_ALIAS,
 	};
 
-	return __change_page_attr_set_clr(&cpa);
+	return __cpa_set_clr(&cpa);
 }

@@ -58,7 +58,7 @@ int arch_cpa_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf,
 int arch_cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr);
 void arch_cpa_change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf);
 
-static inline unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
+static inline unsigned long cpa_addr(struct cpa_data *cpa, unsigned long idx)
 {
 	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
 		struct page *page = cpa->pages[idx];
@@ -72,26 +72,23 @@ static inline unsigned long __cpa_addr(struct cpa_data *cpa, unsigned long idx)
 	return cpa->vaddr + idx * PAGE_SIZE;
 }
 
-int __change_page_attr_set_clr(struct cpa_data *cpa);
+int __cpa_set_clr(struct cpa_data *cpa);
 int cpa_change_alias(struct cpa_data *cpa, unsigned long addr, pgprot_t keep);
-int change_page_attr_set_clr(unsigned long addr, int numpages,
-			     pgprot_t mask_set, pgprot_t mask_clr,
-			     unsigned int request, struct page **pages);
+int cpa_set_clr(unsigned long addr, int numpages, pgprot_t mask_set,
+		pgprot_t mask_clr, unsigned int request, struct page **pages);
 int cpa_change_direct_map(struct page *page, int numpages,
 			  pgprot_t mask_set, pgprot_t mask_clr);
 
 static inline int change_page_attr_set(unsigned long addr, int numpages,
 				       pgprot_t mask)
 {
-	return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0),
-					0, NULL);
+	return cpa_set_clr(addr, numpages, mask, __pgprot(0), 0, NULL);
 }
 
 static inline int change_page_attr_clear(unsigned long addr, int numpages,
 					 pgprot_t mask)
 {
-	return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask,
-					0, NULL);
+	return cpa_set_clr(addr, numpages, __pgprot(0), mask, 0, NULL);
 }
 
 #endif /* _LINUX_PAGEATTR_H */
