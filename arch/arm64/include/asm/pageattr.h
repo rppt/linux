@@ -5,6 +5,8 @@
 struct cpa_data;
 struct cpa_leaf;
 
+#define PAGE_CPA_TEST	__pgprot(_AT(pteval_t, 1) << 57)
+
 int arch_cpa_process_alias(struct cpa_data *cpa);
 #define arch_cpa_process_alias arch_cpa_process_alias
 
