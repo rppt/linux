@@ -62,12 +62,22 @@ static const int cpa_warn_level = CPA_PROTECT;
 
 struct cpa_leaf {
 	unsigned long address;
+	unsigned long pfn;
 	pte_t *kpte;
 	pte_t pte;
+	pgprot_t prot;
 	int level;
 	bool nx;
 	bool rw;
 };
+
+static pgprot_t cpa_new_prot(struct cpa_data *cpa, pgprot_t prot)
+{
+	pgprot_val(prot) &= ~pgprot_val(cpa->mask_clr);
+	pgprot_val(prot) |= pgprot_val(cpa->mask_set);
+
+	return prot;
+}
 
 /*
  * Serialize cpa() using cpa_lock so that we don't allow any other cpu, with
@@ -856,6 +866,22 @@ static pte_t *_lookup_address_cpa(struct cpa_data *cpa, unsigned long address,
 	leaf->level = level;
 	leaf->pte = *leaf->kpte;
 
+	/* Clear PSE (aka _PAGE_PAT) and move PAT bit to correct position */
+	switch (level) {
+	case PG_LEVEL_2M:
+		leaf->pfn = pmd_pfn(*(pmd_t *)leaf->kpte);
+		leaf->prot = pgprot_large_2_4k(pmd_pgprot(*(pmd_t *)leaf->kpte));
+		break;
+	case PG_LEVEL_1G:
+		leaf->pfn = pud_pfn(*(pud_t *)leaf->kpte);
+		leaf->prot = pgprot_large_2_4k(pud_pgprot(*(pud_t *)leaf->kpte));
+		break;
+	default:
+		leaf->pfn = pte_pfn(leaf->pte);
+		leaf->prot = pte_pgprot(leaf->pte);
+		break;
+	}
+
 	return leaf->kpte;
 }
 
@@ -999,16 +1025,15 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	level = cur.level;
 	nx = cur.nx;
 	rw = cur.rw;
+	old_pfn = cur.pfn;
 
 	switch (level) {
 	case PG_LEVEL_2M:
 		old_prot = pmd_pgprot(*(pmd_t *)kpte);
-		old_pfn = pmd_pfn(*(pmd_t *)kpte);
 		cpa_inc_2m_checked();
 		break;
 	case PG_LEVEL_1G:
 		old_prot = pud_pgprot(*(pud_t *)kpte);
-		old_pfn = pud_pfn(*(pud_t *)kpte);
 		cpa_inc_1g_checked();
 		break;
 	default:
@@ -1032,12 +1057,7 @@ static int __should_split_large_page(struct cpa_data *cpa,
 	 * Convert protection attributes to 4k-format, as cpa->mask* are set
 	 * up accordingly.
 	 */
-
-	/* Clear PSE (aka _PAGE_PAT) and move PAT bit to correct position */
-	req_prot = pgprot_large_2_4k(old_prot);
-
-	pgprot_val(req_prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(req_prot) |= pgprot_val(cpa->mask_set);
+	req_prot = cpa_new_prot(cpa, cur.prot);
 
 	/*
 	 * req_prot is in format of 4k pages. It must be converted to large
@@ -1178,7 +1198,7 @@ set:
 static int
 __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 {
-	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
+	unsigned long lpaddr, lpinc, pfn, pfninc = 1;
 	unsigned long address = leaf->address;
 	struct page *base = virt_to_page(pbase);
 	pte_t *kpte = leaf->kpte;
@@ -1202,20 +1222,13 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 
 	switch (level) {
 	case PG_LEVEL_2M:
-		ref_prot = pmd_pgprot(*(pmd_t *)kpte);
-		/*
-		 * Clear PSE (aka _PAGE_PAT) and move
-		 * PAT bit to correct position.
-		 */
-		ref_prot = pgprot_large_2_4k(ref_prot);
-		ref_pfn = pmd_pfn(*(pmd_t *)kpte);
+		ref_prot = cur.prot;
 		lpaddr = address & PMD_MASK;
 		lpinc = PAGE_SIZE;
 		break;
 
 	case PG_LEVEL_1G:
 		ref_prot = pud_pgprot(*(pud_t *)kpte);
-		ref_pfn = pud_pfn(*(pud_t *)kpte);
 		pfninc = PMD_SIZE >> PAGE_SHIFT;
 		lpaddr = address & PUD_MASK;
 		lpinc = PMD_SIZE;
@@ -1237,7 +1250,7 @@ __split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf, pte_t *pbase)
 	/*
 	 * Get the target pfn from the original entry:
 	 */
-	pfn = ref_pfn;
+	pfn = cur.pfn;
 	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc, lpaddr += lpinc)
 		split_set_pte(cpa, pbase + i, pfn, ref_prot, lpaddr, lpinc);
 
@@ -1923,15 +1936,12 @@ static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr)
 
 static void __change_pte(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
-	pte_t old_pte = leaf->pte;
-	pgprot_t old_prot = pte_pgprot(old_pte);
-	pgprot_t new_prot = pte_pgprot(old_pte);
+	pgprot_t new_prot = cpa_new_prot(cpa, leaf->prot);
 	unsigned long address = leaf->address;
-	unsigned long pfn = pte_pfn(old_pte);
+	pgprot_t old_prot = leaf->prot;
+	unsigned long pfn = leaf->pfn;
+	pte_t old_pte = leaf->pte;
 	pte_t new_pte;
-
-	pgprot_val(new_prot) &= ~pgprot_val(cpa->mask_clr);
-	pgprot_val(new_prot) |= pgprot_val(cpa->mask_set);
 
 	cpa_inc_4k_install();
 	/* Hand in lpsize = 0 to enforce the protection mechanism */
