@@ -2837,3 +2837,5 @@ int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
 #ifdef CONFIG_CPA_DEBUG
 #include "cpa-test.c"
 #endif
+
+#include "cpa-bench.c"
