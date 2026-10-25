@@ -8,6 +8,8 @@
 
 struct cpa_data;
 
+#define PAGE_CPA_TEST	__pgprot(_PAGE_CPA_TEST)
+
 /*
  * CPA walks the kernel page tables, so it has to serialize against everything
  * else that does, not just against other CPA calls.
