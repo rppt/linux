@@ -21,7 +21,8 @@
  */
 static DEFINE_SPINLOCK(cpa_lock);
 
-DEFINE_LOCK_GUARD_0(cpa_pgtable, cpa_pgtable_lock(), cpa_pgtable_unlock())
+DEFINE_LOCK_GUARD_0(cpa_pgtable, arch_cpa_pgtable_lock(),
+		    arch_cpa_pgtable_unlock())
 
 static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 {
@@ -33,10 +34,10 @@ static int should_split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 
 	guard(cpa_pgtable)();
 
-	if (!_lookup_address_cpa(cpa, address, leaf) || leaf->kpte != kpte)
+	if (!arch_cpa_lookup_leaf(cpa, address, leaf) || leaf->kpte != kpte)
 		return 1;
 
-	return __should_split_large_page(cpa, leaf);
+	return arch_cpa_should_split_large_page(cpa, leaf);
 }
 
 static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
@@ -57,8 +58,8 @@ static int split_large_page(struct cpa_data *cpa, struct cpa_leaf *leaf)
 		return -ENOMEM;
 
 	scoped_guard(cpa_pgtable) {
-		if (_lookup_address_cpa(cpa, address, leaf) && leaf->kpte == kpte)
-			ret = __split_large_page(cpa, leaf, pte);
+		if (arch_cpa_lookup_leaf(cpa, address, leaf) && leaf->kpte == kpte)
+			ret = arch_cpa_split_large_page(cpa, leaf, pte);
 	}
 
 	if (ret)
@@ -111,8 +112,8 @@ static int __change_page_attr(struct cpa_data *cpa)
 	int split_res;
 
 	for (;;) {
-		if (!_lookup_address_cpa(cpa, address, &leaf) || pte_none(leaf.pte))
-			return __cpa_process_fault(cpa, address);
+		if (!arch_cpa_lookup_leaf(cpa, address, &leaf) || pte_none(leaf.pte))
+			return arch_cpa_process_fault(cpa, address);
 
 		if (leaf.level == PGTABLE_LEVEL_PTE)
 			break;
@@ -123,7 +124,7 @@ static int __change_page_attr(struct cpa_data *cpa)
 			return split_res;
 	}
 
-	__change_pte(cpa, &leaf);
+	arch_cpa_change_pte(cpa, &leaf);
 	return 0;
 }
 
@@ -183,7 +184,7 @@ int __change_page_attr_set_clr(struct cpa_data *cpa)
 
 		if (!(cpa->state & CPA_ST_ALIAS) &&
 		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
-			ret = cpa_process_alias(cpa);
+			ret = arch_cpa_process_alias(cpa);
 			if (ret)
 				goto out;
 		}
@@ -226,15 +227,15 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
 		for (i = 0; i < cpa->numpages; i++)
-			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
-							  &pgtables);
+			collapsed += arch_cpa_collapse(__cpa_addr(cpa, i),
+						       &pgtables);
 	} else {
 		addr = __cpa_addr(cpa, 0);
 		start = addr & PMD_MASK;
 		end = addr + PAGE_SIZE * cpa->numpages;
 
 		for (addr = start; addr < end; addr += PMD_SIZE)
-			collapsed += collapse_large_pages(addr, &pgtables);
+			collapsed += arch_cpa_collapse(addr, &pgtables);
 	}
 
 	if (!collapsed)
@@ -321,7 +322,7 @@ int change_page_attr_set_clr(unsigned long addr, int numpages,
 	if (ret)
 		cpa.state |= CPA_ST_FLUSHTLB_ALL;
 
-	cpa_flush(&cpa);
+	arch_cpa_flush(&cpa);
 
 	if (!ret && (cpa.req & CPA_REQ_COLLAPSE))
 		cpa_collapse_large_pages(&cpa);
