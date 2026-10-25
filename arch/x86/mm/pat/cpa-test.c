@@ -178,7 +178,7 @@ static int pageattr_test(void)
 		if (i % 2)
 			err = cpa_set_pages_array(pages, len[i], PAGE_CPA_TEST);
 		else
-			err = change_page_attr_set(&addr[i], len[i], PAGE_CPA_TEST);
+			err = change_page_attr_set(addr[i], len[i], PAGE_CPA_TEST);
 
 
 		if (err < 0) {
@@ -212,7 +212,7 @@ static int pageattr_test(void)
 			failed++;
 			continue;
 		}
-		err = change_page_attr_clear(&addr[i], len[i], PAGE_CPA_TEST);
+		err = change_page_attr_clear(addr[i], len[i], PAGE_CPA_TEST);
 		if (err < 0) {
 			printk(KERN_ERR "CPA reverting failed: %d\n", err);
 			failed++;
