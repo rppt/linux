@@ -11,100 +11,85 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/mm.h>
+#include <linux/pageattr.h>
 #include <linux/vmalloc.h>
-
-#include <asm/cacheflush.h>
-#include <asm/kdebug.h>
 
 /*
  * Only print the results of the first pass:
  */
 static __read_mostly int print = 1;
+static unsigned long min_test_pfn, max_test_pfn;
 
 enum {
 	NTEST			= 2 * 100,
 	NPAGES			= 100,
-#ifdef CONFIG_X86_64
-	LPS			= (1 << PMD_SHIFT),
-#elif defined(CONFIG_X86_PAE)
-	LPS			= (1 << PMD_SHIFT),
-#else
-	LPS			= (1 << 22),
-#endif
-	GPS			= (1<<30)
+	LPS			= PMD_SIZE,
+	GPS			= PUD_SIZE
 };
-
-#define PAGE_CPA_TEST	__pgprot(_PAGE_CPA_TEST)
 
 static int pte_testbit(pte_t pte)
 {
-	return pte_flags(pte) & _PAGE_SOFTW1;
+	return pte_val(pte) & pgprot_val(PAGE_CPA_TEST);
+}
+
+static pte_t *cpa_test_lookup(unsigned long address, unsigned int *level)
+{
+	struct cpa_data cpa = {};
+	struct cpa_leaf leaf;
+	pte_t *pte;
+
+	pte = arch_cpa_lookup_leaf(&cpa, address, &leaf);
+	if (pte)
+		*level = leaf.level;
+
+	return pte;
 }
 
 struct split_state {
-	long lpg, gpg, spg, exec;
-	long min_exec, max_exec;
+	long lpg, gpg, spg;
 };
 
 static int print_split(struct split_state *s)
 {
 	long i, expected, missed = 0;
-	int err = 0;
 
-	s->lpg = s->gpg = s->spg = s->exec = 0;
-	s->min_exec = ~0UL;
-	s->max_exec = 0;
-	for (i = 0; i < max_pfn_mapped; ) {
+	s->lpg = s->gpg = s->spg = 0;
+	for (i = min_test_pfn; i < max_test_pfn; ) {
 		unsigned long addr = (unsigned long)__va(i << PAGE_SHIFT);
 		unsigned int level;
 		pte_t *pte;
 
-		pte = lookup_address(addr, &level);
+		pte = cpa_test_lookup(addr, &level);
 		if (!pte) {
 			missed++;
 			i++;
 			continue;
 		}
 
-		if (level == PG_LEVEL_1G && sizeof(long) == 8) {
+		if (level == PGTABLE_LEVEL_PUD && sizeof(long) == 8) {
 			s->gpg++;
 			i += GPS/PAGE_SIZE;
-		} else if (level == PG_LEVEL_2M) {
-			if ((pte_val(*pte) & _PAGE_PRESENT) && !(pte_val(*pte) & _PAGE_PSE)) {
-				printk(KERN_ERR
-					"%lx level %d but not PSE %Lx\n",
-					addr, level, (u64)pte_val(*pte));
-				err = 1;
-			}
+		} else if (level == PGTABLE_LEVEL_PMD) {
 			s->lpg++;
 			i += LPS/PAGE_SIZE;
 		} else {
 			s->spg++;
 			i++;
 		}
-		if (!(pte_val(*pte) & _PAGE_NX)) {
-			s->exec++;
-			if (addr < s->min_exec)
-				s->min_exec = addr;
-			if (addr > s->max_exec)
-				s->max_exec = addr;
-		}
 	}
 	if (print) {
 		printk(KERN_INFO
-			" 4k %lu large %lu gb %lu x %lu[%lx-%lx] miss %lu\n",
-			s->spg, s->lpg, s->gpg, s->exec,
-			s->min_exec != ~0UL ? s->min_exec : 0,
-			s->max_exec, missed);
+			" 4k %lu large %lu gb %lu miss %lu\n",
+			s->spg, s->lpg, s->gpg, missed);
 	}
 
 	expected = (s->gpg*GPS + s->lpg*LPS)/PAGE_SIZE + s->spg + missed;
-	if (expected != i) {
-		printk(KERN_ERR "CPA max_pfn_mapped %lu but expected %lu\n",
-			max_pfn_mapped, expected);
+	if (expected != i - min_test_pfn) {
+		printk(KERN_ERR "CPA max_test_pfn %lu but expected %lu\n",
+			max_test_pfn, expected);
 		return 1;
 	}
-	return err;
+	return 0;
 }
 
 static unsigned long addr[NTEST];
@@ -117,7 +102,7 @@ static int pageattr_test(void)
 {
 	struct split_state sa, sb, sc;
 	unsigned long *bm;
-	pte_t *pte, pte0;
+	pte_t *pte, pte0, pteval;
 	int failed = 0;
 	unsigned int level;
 	int i, k;
@@ -126,7 +111,7 @@ static int pageattr_test(void)
 	if (print)
 		printk(KERN_INFO "CPA self-test:\n");
 
-	bm = vzalloc((max_pfn_mapped + 7) / 8);
+	bm = vzalloc((max_test_pfn - min_test_pfn + 7) / 8);
 	if (!bm) {
 		printk(KERN_ERR "CPA Cannot vmalloc bitmap\n");
 		return -ENOMEM;
@@ -135,11 +120,12 @@ static int pageattr_test(void)
 	failed += print_split(&sa);
 
 	for (i = 0; i < NTEST; i++) {
-		unsigned long pfn = get_random_u32_below(max_pfn_mapped);
+		unsigned long pfn = min_test_pfn +
+			get_random_u32_below(max_test_pfn - min_test_pfn);
 
 		addr[i] = (unsigned long)__va(pfn << PAGE_SHIFT);
 		len[i] = get_random_u32_below(NPAGES);
-		len[i] = min_t(unsigned long, len[i], max_pfn_mapped - pfn - 1);
+		len[i] = min_t(unsigned long, len[i], max_test_pfn - pfn - 1);
 
 		if (len[i] == 0)
 			len[i] = 1;
@@ -148,26 +134,31 @@ static int pageattr_test(void)
 		pte0 = pfn_pte(0, __pgprot(0)); /* shut gcc up */
 
 		for (k = 0; k < len[i]; k++) {
-			pte = lookup_address(addr[i] + k*PAGE_SIZE, &level);
-			if (!pte || pgprot_val(pte_pgprot(*pte)) == 0 ||
-			    !(pte_val(*pte) & _PAGE_PRESENT)) {
+			pte = cpa_test_lookup(addr[i] + k*PAGE_SIZE, &level);
+			if (!pte) {
+				addr[i] = 0;
+				break;
+			}
+			pteval = ptep_get(pte);
+			if (pgprot_val(pte_pgprot(pteval)) == 0 ||
+			    !pte_present(pteval)) {
 				addr[i] = 0;
 				break;
 			}
 			if (k == 0) {
-				pte0 = *pte;
+				pte0 = pteval;
 			} else {
-				if (pgprot_val(pte_pgprot(*pte)) !=
+				if (pgprot_val(pte_pgprot(pteval)) !=
 					pgprot_val(pte_pgprot(pte0))) {
 					len[i] = k;
 					break;
 				}
 			}
-			if (test_bit(pfn + k, bm)) {
+			if (test_bit(pfn + k - min_test_pfn, bm)) {
 				len[i] = k;
 				break;
 			}
-			__set_bit(pfn + k, bm);
+			__set_bit(pfn + k - min_test_pfn, bm);
 			pages[k] = pfn_to_page(pfn + k);
 		}
 		if (!addr[i] || !pte || !k) {
@@ -176,7 +167,9 @@ static int pageattr_test(void)
 		}
 
 		if (i % 2)
-			err = cpa_set_pages_array(pages, len[i], PAGE_CPA_TEST);
+			err = cpa_set_clr(0, len[i], PAGE_CPA_TEST,
+					  __pgprot(0), CPA_REQ_PAGES_ARRAY,
+					  pages);
 		else
 			err = change_page_attr_set(addr[i], len[i], PAGE_CPA_TEST);
 
@@ -186,13 +179,13 @@ static int pageattr_test(void)
 			failed++;
 		}
 
-		pte = lookup_address(addr[i], &level);
-		if (!pte || !pte_testbit(*pte) || pte_huge(*pte)) {
+		pte = cpa_test_lookup(addr[i], &level);
+		if (!pte || !pte_testbit(ptep_get(pte))) {
 			printk(KERN_ERR "CPA %lx: bad pte %Lx\n", addr[i],
-				pte ? (u64)pte_val(*pte) : 0ULL);
+				pte ? (u64)pte_val(ptep_get(pte)) : 0ULL);
 			failed++;
 		}
-		if (level != PG_LEVEL_4K) {
+		if (level != PGTABLE_LEVEL_PTE) {
 			printk(KERN_ERR "CPA %lx: unexpected level %d\n",
 				addr[i], level);
 			failed++;
@@ -206,7 +199,7 @@ static int pageattr_test(void)
 	for (i = 0; i < NTEST; i++) {
 		if (!addr[i])
 			continue;
-		pte = lookup_address(addr[i], &level);
+		pte = cpa_test_lookup(addr[i], &level);
 		if (!pte) {
 			printk(KERN_ERR "CPA lookup of %lx failed\n", addr[i]);
 			failed++;
@@ -217,10 +210,10 @@ static int pageattr_test(void)
 			printk(KERN_ERR "CPA reverting failed: %d\n", err);
 			failed++;
 		}
-		pte = lookup_address(addr[i], &level);
-		if (!pte || pte_testbit(*pte)) {
+		pte = cpa_test_lookup(addr[i], &level);
+		if (!pte || pte_testbit(ptep_get(pte))) {
 			printk(KERN_ERR "CPA %lx: bad pte after revert %Lx\n",
-				addr[i], pte ? (u64)pte_val(*pte) : 0ULL);
+				addr[i], pte ? (u64)pte_val(ptep_get(pte)) : 0ULL);
 			failed++;
 		}
 
@@ -254,6 +247,9 @@ static int do_pageattr_test(void *__unused)
 static int start_pageattr_test(void)
 {
 	struct task_struct *p;
+
+	min_test_pfn = min_low_pfn;
+	max_test_pfn = PFN_DOWN(__pa(high_memory - 1)) + 1;
 
 	p = kthread_create(do_pageattr_test, NULL, "pageattr-test");
 	if (!IS_ERR(p))
