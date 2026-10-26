@@ -14,6 +14,7 @@
 #include <linux/filter.h>
 #include <linux/memory.h>
 #include <linux/printk.h>
+#include <linux/set_memory.h>
 #include <linux/slab.h>
 
 #include <asm/asm-extable.h>
@@ -22,7 +23,6 @@
 #include <asm/debug-monitors.h>
 #include <asm/insn.h>
 #include <asm/text-patching.h>
-#include <asm/set_memory.h>
 
 #include "bpf_jit.h"
 

@@ -4,86 +4,18 @@
  */
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/module.h>
 #include <linux/mem_encrypt.h>
-#include <linux/sched.h>
+#include <linux/pageattr.h>
+#include <linux/set_memory.h>
 #include <linux/vmalloc.h>
-#include <linux/pagewalk.h>
 
-#include <asm/cacheflush.h>
-#include <asm/pgtable-prot.h>
-#include <asm/set_memory.h>
-#include <asm/tlbflush.h>
 #include <asm/kfence.h>
+#include <asm/pgalloc.h>
+#include <asm/pgtable-prot.h>
+#include <asm/tlbflush.h>
 
-struct page_change_data {
-	pgprot_t set_mask;
-	pgprot_t clear_mask;
-};
-
-static ptval_t set_pageattr_masks(ptval_t val, struct mm_walk *walk)
-{
-	struct page_change_data *masks = walk->private;
-
-	/*
-	 * Some users clear and set bits which alias each other (e.g. PTE_NG and
-	 * PTE_PRESENT_INVALID). It is therefore important that we always clear
-	 * first then set.
-	 */
-	val &= ~(pgprot_val(masks->clear_mask));
-	val |= (pgprot_val(masks->set_mask));
-
-	return val;
-}
-
-static int pageattr_pud_entry(pud_t *pud, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pud_t val = pudp_get(pud);
-
-	if (pud_leaf(val)) {
-		if (WARN_ON_ONCE((next - addr) != PUD_SIZE))
-			return -EINVAL;
-		val = __pud(set_pageattr_masks(pud_val(val), walk));
-		set_pud(pud, val);
-		walk->action = ACTION_CONTINUE;
-	}
-
-	return 0;
-}
-
-static int pageattr_pmd_entry(pmd_t *pmd, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pmd_t val = pmdp_get(pmd);
-
-	if (pmd_leaf(val)) {
-		if (WARN_ON_ONCE((next - addr) != PMD_SIZE))
-			return -EINVAL;
-		val = __pmd(set_pageattr_masks(pmd_val(val), walk));
-		set_pmd(pmd, val);
-		walk->action = ACTION_CONTINUE;
-	}
-
-	return 0;
-}
-
-static int pageattr_pte_entry(pte_t *pte, unsigned long addr,
-			      unsigned long next, struct mm_walk *walk)
-{
-	pte_t val = __ptep_get(pte);
-
-	val = __pte(set_pageattr_masks(pte_val(val), walk));
-	__set_pte(pte, val);
-
-	return 0;
-}
-
-static const struct mm_walk_ops pageattr_ops = {
-	.pud_entry	= pageattr_pud_entry,
-	.pmd_entry	= pageattr_pmd_entry,
-	.pte_entry	= pageattr_pte_entry,
-};
+/* set in pages and clear in blocks, regardless of PTE_VALID */
+#define CPA_PAGE_BIT	(PTE_TYPE_PAGE & ~PTE_VALID)
 
 bool rodata_full __ro_after_init = true;
 
@@ -102,105 +34,72 @@ bool can_set_direct_map(void)
 		arm64_kfence_can_set_direct_map() || is_realm_world();
 }
 
-static int update_range_prot(unsigned long start, unsigned long size,
-			     pgprot_t set_mask, pgprot_t clear_mask)
+void arch_cpa_prot(enum cpa_prot_op op, pgprot_t *set, pgprot_t *clr)
 {
-	struct page_change_data data;
-	int ret;
-
-	data.set_mask = set_mask;
-	data.clear_mask = clear_mask;
-
-	ret = split_kernel_leaf_mapping(start, start + size);
-	if (WARN_ON_ONCE(ret))
-		return ret;
-
-	lazy_mmu_mode_enable();
+	pteval_t s = 0, c = 0;
 
 	/*
-	 * The caller must ensure that the range we are operating on does not
-	 * partially overlap a block mapping, or a cont mapping. Any such case
-	 * must be eliminated by splitting the mapping.
+	 * PTE_PRESENT_INVALID aliases PTE_NG, the core clears the bits
+	 * before setting them.
 	 */
-	ret = walk_kernel_page_table_range_lockless(start, start + size,
-						    &pageattr_ops, NULL, &data);
-	lazy_mmu_mode_disable();
+	switch (op) {
+	case CPA_PROT_RO:
+		s = PTE_RDONLY;
+		c = PTE_WRITE;
+		break;
+	case CPA_PROT_RW:
+		s = PTE_WRITE;
+		c = PTE_RDONLY;
+		break;
+	case CPA_PROT_X:
+		s = PTE_MAYBE_GP;
+		c = PTE_PXN;
+		break;
+	case CPA_PROT_NX:
+		s = PTE_PXN;
+		c = PTE_MAYBE_GP;
+		break;
+	case CPA_PROT_NP:
+	case CPA_PROT_INVALID:
+		s = PTE_PRESENT_INVALID;
+		c = PTE_PRESENT_VALID_KERNEL;
+		break;
+	case CPA_PROT_P:
+		s = PTE_PRESENT_VALID_KERNEL;
+		c = PTE_PRESENT_INVALID;
+		break;
+	case CPA_PROT_DEFAULT:
+		s = PTE_PRESENT_VALID_KERNEL | PTE_WRITE;
+		c = PTE_PRESENT_INVALID | PTE_RDONLY;
+		break;
+	}
 
-	return ret;
+	*set = __pgprot(s);
+	*clr = __pgprot(c);
 }
 
-static int __change_memory_common(unsigned long start, unsigned long size,
-				  pgprot_t set_mask, pgprot_t clear_mask)
+int arch_cpa_check_range(struct cpa_req *req)
 {
-	int ret;
-
-	ret = update_range_prot(start, size, set_mask, clear_mask);
-
-	/*
-	 * If the memory is being switched from present-invalid to valid without
-	 * changing any other bits then a TLBI isn't required as a non-valid
-	 * entry cannot be cached in the TLB.
-	 */
-	if (pgprot_val(set_mask) != PTE_PRESENT_VALID_KERNEL ||
-	    pgprot_val(clear_mask) != PTE_PRESENT_INVALID)
-		flush_tlb_kernel_range(start, start + size);
-	return ret;
-}
-
-static int change_memory_common(unsigned long addr, int numpages,
-				pgprot_t set_mask, pgprot_t clear_mask)
-{
-	unsigned long start = addr;
-	unsigned long size = PAGE_SIZE * numpages;
-	unsigned long end = start + size;
+	unsigned long start = (unsigned long)kasan_reset_tag((void *)req->addr);
+	unsigned long end = start + req->numpages * PAGE_SIZE;
 	struct vm_struct *area;
-	int ret;
 
-	if (!PAGE_ALIGNED(addr)) {
-		start &= PAGE_MASK;
-		end = start + size;
-		WARN_ON_ONCE(1);
-	}
-
-	/*
-	 * Kernel VA mappings are always live, and splitting live section
-	 * mappings into page mappings may cause TLB conflicts. This means
-	 * we have to ensure that changing the permission bits of the range
-	 * we are operating on does not result in such splitting.
-	 *
-	 * Let's restrict ourselves to mappings created by vmalloc (or vmap).
-	 * Disallow VM_ALLOW_HUGE_VMAP mappings to guarantee that only page
-	 * mappings are updated and splitting is never needed.
-	 *
-	 * So check whether the [addr, addr + size) interval is entirely
-	 * covered by precisely one VM area that has the VM_ALLOC flag set.
-	 */
-	area = find_vm_area((void *)addr);
-	if (!area ||
-	    ((unsigned long)kasan_reset_tag((void *)end) >
-	     (unsigned long)kasan_reset_tag(area->addr) + area->size) ||
-	    ((area->flags & (VM_ALLOC | VM_ALLOW_HUGE_VMAP)) != VM_ALLOC))
-		return -EINVAL;
-
-	if (!numpages)
+	if (__is_lm_address(start) && __is_lm_address(end - 1)) {
+		/* PXNTable makes the linear map non-executable */
+		if (pgprot_val(req->clr) & PTE_PXN)
+			return -EINVAL;
 		return 0;
+	}
 
 	/*
-	 * If we are manipulating read-only permissions, apply the same
-	 * change to the linear mapping of the pages that back this VM area.
+	 * The range must be covered by precisely one VM area that has the
+	 * VM_ALLOC flag set, the kernel image and other mappings that have
+	 * VM areas cannot be changed.
 	 */
-	if (rodata_full && (pgprot_val(set_mask) == PTE_RDONLY ||
-			    pgprot_val(clear_mask) == PTE_RDONLY)) {
-		unsigned long idx = ((unsigned long)kasan_reset_tag((void *)start) -
-				     (unsigned long)kasan_reset_tag(area->addr))
-				    >> PAGE_SHIFT;
-		for (; numpages; idx++, numpages--) {
-			ret = __change_memory_common((u64)page_address(area->pages[idx]),
-						     PAGE_SIZE, set_mask, clear_mask);
-			if (ret)
-				return ret;
-		}
-	}
+	area = find_vm_area((void *)start);
+	if (!area || !(area->flags & VM_ALLOC) ||
+	    end > (unsigned long)kasan_reset_tag(area->addr) + area->size)
+		return -EINVAL;
 
 	/*
 	 * Get rid of potentially aliasing lazily unmapped vm areas that may
@@ -208,71 +107,269 @@ static int change_memory_common(unsigned long addr, int numpages,
 	 */
 	vm_unmap_aliases();
 
-	return __change_memory_common(start, size, set_mask, clear_mask);
+	return 0;
 }
 
-int set_memory_ro(unsigned long addr, int numpages)
+static unsigned long cpa_level_pages(enum pgtable_level level)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_RDONLY),
-					__pgprot(PTE_WRITE));
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return 1;
+	case PGTABLE_LEVEL_PMD:
+		return PMD_SIZE >> PAGE_SHIFT;
+	default:
+		return PUD_SIZE >> PAGE_SHIFT;
+	}
 }
 
-int set_memory_rw(unsigned long addr, int numpages)
+static void cpa_set_entry(enum pgtable_level level, void *entry, pteval_t val)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_WRITE),
-					__pgprot(PTE_RDONLY));
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		__set_pte(entry, __pte(val));
+		break;
+	case PGTABLE_LEVEL_PMD:
+		set_pmd(entry, __pmd(val));
+		break;
+	default:
+		set_pud(entry, __pud(val));
+		break;
+	}
 }
 
-int set_memory_nx(unsigned long addr, int numpages)
+static pteval_t cpa_mkval(enum pgtable_level level, unsigned long pfn,
+			  pgprot_t prot)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_PXN),
-					__pgprot(PTE_MAYBE_GP));
+	pteval_t val = __phys_to_pte_val(PFN_PHYS(pfn)) | pgprot_val(prot);
+
+	if (level == PGTABLE_LEVEL_PTE)
+		val |= CPA_PAGE_BIT;
+
+	return val;
 }
 
-int set_memory_x(unsigned long addr, int numpages)
+/* Descriptors have the same size at all levels */
+static void cpa_set_entries(enum pgtable_level level, void *entry,
+			    unsigned int nr, unsigned long pfn, pgprot_t prot,
+			    pteval_t cont)
 {
-	return change_memory_common(addr, numpages,
-					__pgprot(PTE_MAYBE_GP),
-					__pgprot(PTE_PXN));
+	unsigned long step = cpa_level_pages(level);
+	unsigned int i;
+
+	for (i = 0; i < nr; i++)
+		cpa_set_entry(level, (pteval_t *)entry + i,
+			      cpa_mkval(level, pfn + i * step, prot) | cont);
+}
+
+/*
+ * Leaves have the same format at all levels except for bit 1. The NS shared
+ * bit of Realms is a part of the output address, but it is an attribute of
+ * the mapping rather than a part of the pfn.
+ */
+void arch_cpa_read_leaf(struct cpa_leaf *leaf)
+{
+	pteval_t val = READ_ONCE(*(pteval_t *)leaf->entry);
+	phys_addr_t phys = __pte_to_phys(__pte(val & ~PROT_NS_SHARED));
+
+	leaf->pfn = __phys_to_pfn(phys);
+	leaf->prot = __pgprot(val & ~(__phys_to_pte_val(phys) | CPA_PAGE_BIT |
+				      PTE_CONT));
+
+	if (val & PTE_CONT)
+		leaf->nr = leaf->level == PGTABLE_LEVEL_PTE ? CONT_PTES :
+							      CONT_PMDS;
+}
+
+/*
+ * Only the permissions and the valid bit change, which does not require
+ * break-before-make. All entries of a contiguous group are changed.
+ */
+void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
+			 pgprot_t prot)
+{
+	cpa_set_entries(leaf->level, leaf->entry, leaf->nr, leaf->pfn, prot,
+			leaf->nr > 1 ? PTE_CONT : 0);
+}
+
+/*
+ * Changing the size of a valid mapping without break-before-make may cause
+ * TLB conflict aborts unless the CPU supports BBML3.
+ */
+static bool cpa_can_resize(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	/* invalid entries are not cached in the TLB */
+	if (!(pgprot_val(leaf->prot) & PTE_VALID))
+		return true;
+
+	/* CPA_ATOMIC requests run while other CPUs are off the page tables */
+	if (req->flags & CPA_ATOMIC)
+		return cpu_supports_bbml3();
+
+	if (system_capabilities_finalized())
+		return system_supports_bbml3();
+
+	/* the boot CPU is the only user of the page tables */
+	return num_online_cpus() == 1 && cpu_supports_bbml3();
+}
+
+void *arch_cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
+			   unsigned long addr)
+{
+	gfp_t gfp = req->flags & CPA_ATOMIC ? GFP_ATOMIC : GFP_PGTABLE_KERNEL;
+	phys_addr_t phys;
+
+	if (WARN_ON_ONCE(!page_alloc_available))
+		return NULL;
+
+	phys = pgd_pgtable_alloc_init_mm_gfp(level, gfp);
+	if (phys == INVALID_PHYS_ADDR)
+		return NULL;
+
+	return phys_to_virt(phys);
+}
+
+/*
+ * The new entries map the same pfns with the same attributes as the leaf,
+ * so with BBML3 stale TLB entries for the leaf are harmless.
+ */
+int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf, void *table)
+{
+	enum pgtable_level level = leaf->level - 1;
+	unsigned int nr = leaf->size / (cpa_level_pages(level) << PAGE_SHIFT);
+	pteval_t table_bits = PMD_TYPE_TABLE | PMD_TABLE_UXN | PMD_TABLE_AF;
+	pteval_t cont = PTE_CONT;
+
+	if (!cpa_can_resize(req, leaf))
+		return -EOPNOTSUPP;
+
+	/* CPA_SPLIT would split the contiguous groups right away */
+	if (req->flags & CPA_SPLIT)
+		cont = 0;
+
+	cpa_set_entries(level, table, nr, leaf->pfn, leaf->prot, cont);
+
+	/* the walker must not see a partially filled table */
+	dsb(ishst);
+
+	cpa_set_entry(leaf->level, leaf->entry,
+		      __phys_to_pte_val(__pa(table)) | table_bits);
+
+	return 0;
+}
+
+int arch_cpa_split_group(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	if (!cpa_can_resize(req, leaf))
+		return -EOPNOTSUPP;
+
+	cpa_set_entries(leaf->level, leaf->entry, leaf->nr, leaf->pfn,
+			leaf->prot, 0);
+
+	return 0;
+}
+
+bool arch_cpa_can_collapse(struct cpa_req *req, enum pgtable_level level)
+{
+	if (level == PGTABLE_LEVEL_PUD && !pud_sect_supported())
+		return false;
+
+	return system_supports_bbml3();
+}
+
+/*
+ * Memory that can be hot-removed must not be mapped by a leaf that maps
+ * other memory. Memory present at boot cannot be removed.
+ */
+static bool cpa_maps_removable_memory(struct cpa_leaf *leaf)
+{
+#ifdef CONFIG_MEMORY_HOTREMOVE
+	unsigned long end = leaf->pfn + (leaf->size >> PAGE_SHIFT);
+	unsigned long pfn;
+
+	if (!__is_lm_address(leaf->start))
+		return false;
+
+	for (pfn = leaf->pfn; pfn < end; pfn += PAGES_PER_SECTION)
+		if (!early_section(__pfn_to_section(pfn)))
+			return true;
+#endif
+	return false;
+}
+
+bool arch_cpa_collapse(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	if (cpa_maps_removable_memory(leaf))
+		return false;
+
+	cpa_set_entry(leaf->level, leaf->entry,
+		      cpa_mkval(leaf->level, leaf->pfn, leaf->prot));
+
+	/* the table is freed after return, drop it from the walk caches */
+	__flush_tlb_kernel_pgtable(leaf->start);
+
+	return true;
+}
+
+/*
+ * With rodata_full the linear alias of vmalloc memory follows its write
+ * permissions.
+ */
+bool arch_cpa_get_alias(struct cpa_req *req, struct cpa_range *range,
+			unsigned long addr, unsigned long pfn,
+			unsigned long nr, unsigned int idx,
+			struct cpa_range *alias)
+{
+	pteval_t mask = PTE_RDONLY | PTE_WRITE;
+	pteval_t set = pgprot_val(range->set) & mask;
+	pteval_t clr = pgprot_val(range->clr) & mask;
+
+	if (idx || !rodata_full || !(set | clr))
+		return false;
+
+	if (!cpa_linear_alias(addr, pfn, nr, alias))
+		return false;
+
+	alias->set = __pgprot(set);
+	alias->clr = __pgprot(clr);
+
+	return true;
+}
+
+void arch_cpa_flush(struct cpa_req *req)
+{
+	/* invalid entries are not cached in the TLB */
+	if (pgprot_val(req->set) == PTE_PRESENT_VALID_KERNEL &&
+	    pgprot_val(req->clr) == PTE_PRESENT_INVALID)
+		return;
+
+	if (req->flush_start < req->flush_end)
+		flush_tlb_kernel_range(req->flush_start, req->flush_end);
+	if (req->alias_flush_start < req->alias_flush_end)
+		flush_tlb_kernel_range(req->alias_flush_start,
+				       req->alias_flush_end);
+}
+
+static int cpa_set_clear(unsigned long addr, int numpages, pteval_t set,
+			 pteval_t clr)
+{
+	struct cpa_req req = {
+		.addr = addr,
+		.numpages = numpages,
+		.set = __pgprot(set),
+		.clr = __pgprot(clr),
+	};
+
+	if (numpages <= 0)
+		return 0;
+
+	return cpa_change(&req);
 }
 
 int set_memory_valid(unsigned long addr, int numpages, int enable)
 {
 	if (enable)
-		return __change_memory_common(addr, PAGE_SIZE * numpages,
-					__pgprot(PTE_PRESENT_VALID_KERNEL),
-					__pgprot(PTE_PRESENT_INVALID));
-	else
-		return __change_memory_common(addr, PAGE_SIZE * numpages,
-					__pgprot(PTE_PRESENT_INVALID),
-					__pgprot(PTE_PRESENT_VALID_KERNEL));
-}
-
-int set_direct_map_invalid_noflush(struct page *page, unsigned int numpages)
-{
-	pgprot_t clear_mask = __pgprot(PTE_PRESENT_VALID_KERNEL);
-	pgprot_t set_mask = __pgprot(PTE_PRESENT_INVALID);
-
-	if (!can_set_direct_map())
-		return 0;
-
-	return update_range_prot((unsigned long)page_address(page),
-				 PAGE_SIZE * numpages, set_mask, clear_mask);
-}
-
-int set_direct_map_default_noflush(struct page *page, unsigned int numpages)
-{
-	pgprot_t set_mask = __pgprot(PTE_PRESENT_VALID_KERNEL | PTE_WRITE);
-	pgprot_t clear_mask = __pgprot(PTE_PRESENT_INVALID | PTE_RDONLY);
-
-	if (!can_set_direct_map())
-		return 0;
-
-	return update_range_prot((unsigned long)page_address(page),
-				 PAGE_SIZE * numpages, set_mask, clear_mask);
+		return set_memory_p(addr, numpages);
+	return set_memory_np(addr, numpages);
 }
 
 static int __set_memory_enc_dec(unsigned long addr,
@@ -301,9 +398,8 @@ static int __set_memory_enc_dec(unsigned long addr,
 	 * Break the mapping before we make any changes to avoid stale TLB
 	 * entries or Synchronous External Aborts caused by RIPAS_EMPTY
 	 */
-	ret = __change_memory_common(addr, PAGE_SIZE * numpages,
-				     __pgprot(set_prot | PTE_PRESENT_INVALID),
-				     __pgprot(clear_prot | PTE_PRESENT_VALID_KERNEL));
+	ret = cpa_set_clear(addr, numpages, set_prot | PTE_PRESENT_INVALID,
+			    clear_prot | PTE_PRESENT_VALID_KERNEL);
 
 	if (ret)
 		return ret;
@@ -316,9 +412,7 @@ static int __set_memory_enc_dec(unsigned long addr,
 	if (ret)
 		return ret;
 
-	return __change_memory_common(addr, PAGE_SIZE * numpages,
-				      __pgprot(PTE_PRESENT_VALID_KERNEL),
-				      __pgprot(PTE_PRESENT_INVALID));
+	return set_memory_p(addr, numpages);
 }
 
 static int realm_set_memory_encrypted(unsigned long addr, int numpages)
@@ -388,46 +482,3 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 		flush_tlb_kernel_range(addr, addr + size);
 }
 #endif /* CONFIG_DEBUG_PAGEALLOC */
-
-/*
- * This function is used to determine if a linear map page has been marked as
- * not-valid. Walk the page table and check the PTE_VALID bit.
- *
- * Because this is only called on the kernel linear map,  p?d_sect() implies
- * p?d_present(). When debug_pagealloc is enabled, sections mappings are
- * disabled.
- */
-bool kernel_page_present(struct page *page)
-{
-	pgd_t *pgdp;
-	p4d_t *p4dp;
-	pud_t *pudp, pud;
-	pmd_t *pmdp, pmd;
-	pte_t *ptep;
-	unsigned long addr = (unsigned long)page_address(page);
-
-	pgdp = pgd_offset_k(addr);
-	if (pgd_none(READ_ONCE(*pgdp)))
-		return false;
-
-	p4dp = p4d_offset(pgdp, addr);
-	if (p4d_none(READ_ONCE(*p4dp)))
-		return false;
-
-	pudp = pud_offset(p4dp, addr);
-	pud = READ_ONCE(*pudp);
-	if (pud_none(pud))
-		return false;
-	if (pud_leaf(pud))
-		return pud_valid(pud);
-
-	pmdp = pmd_offset(pudp, addr);
-	pmd = READ_ONCE(*pmdp);
-	if (pmd_none(pmd))
-		return false;
-	if (pmd_leaf(pmd))
-		return pmd_valid(pmd);
-
-	ptep = pte_offset_kernel(pmdp, addr);
-	return pte_valid(__ptep_get(ptep));
-}

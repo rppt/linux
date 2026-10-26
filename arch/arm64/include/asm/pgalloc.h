@@ -92,6 +92,9 @@ static inline void __pgd_populate(pgd_t *pgdp, phys_addr_t p4dp, pgdval_t prot)
 }
 #endif	/* CONFIG_PGTABLE_LEVELS > 4 */
 
+phys_addr_t pgd_pgtable_alloc_init_mm_gfp(enum pgtable_level pgtable_level,
+					  gfp_t gfp);
+
 extern pgd_t *pgd_alloc(struct mm_struct *mm);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgdp);
 
