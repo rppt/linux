@@ -164,6 +164,19 @@ void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
  * Optional architecture hooks.
  */
 
+#ifndef arch_cpa_check_range
+/**
+ * arch_cpa_check_range - check if a request may change its range
+ * @req: the request
+ *
+ * Return: 0 if the range of @req can be changed or a negative error code.
+ */
+static inline int arch_cpa_check_range(struct cpa_req *req)
+{
+	return 0;
+}
+#endif
+
 #ifndef arch_cpa_p4d_leaf
 /**
  * arch_cpa_p4d_leaf - check if a P4D entry is a leaf

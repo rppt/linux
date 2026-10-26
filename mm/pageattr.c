@@ -533,6 +533,10 @@ int cpa_change(struct cpa_req *req)
 	if (!req->numpages)
 		return 0;
 
+	err = arch_cpa_check_range(req);
+	if (err)
+		return err;
+
 	req->flush_start = req->alias_flush_start = ULONG_MAX;
 	req->flush_end = req->alias_flush_end = 0;
 	req->collapsed[0] = req->collapsed[1] = ULONG_MAX;
