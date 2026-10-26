@@ -22,8 +22,8 @@
 #include <linux/hardirq.h>
 #include <linux/ftrace.h>
 #include <linux/execmem.h>
+#include <linux/set_memory.h>
 #include <asm/text-patching.h>
-#include <asm/set_memory.h>
 #include <asm/sections.h>
 #include <asm/dis.h>
 #include "entry.h"

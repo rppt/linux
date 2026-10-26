@@ -22,12 +22,12 @@
 #include <linux/bug.h>
 #include <linux/memory.h>
 #include <linux/execmem.h>
+#include <linux/set_memory.h>
 #include <asm/arch-stackprotector.h>
 #include <asm/alternative.h>
 #include <asm/nospec-branch.h>
 #include <asm/facility.h>
 #include <asm/ftrace.lds.h>
-#include <asm/set_memory.h>
 #include <asm/setup.h>
 #include <asm/asm-offsets.h>
 

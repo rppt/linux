@@ -13,6 +13,7 @@
 #include <linux/hugetlb.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
+#include <linux/set_memory.h>
 #include <asm/page-states.h>
 #include <asm/abs_lowcore.h>
 #include <asm/cacheflush.h>
@@ -23,7 +24,6 @@
 #include <asm/setup.h>
 #include <asm/tlbflush.h>
 #include <asm/sections.h>
-#include <asm/set_memory.h>
 #include <asm/physmem_info.h>
 
 static DEFINE_MUTEX(vmem_mutex);

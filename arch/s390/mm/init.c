@@ -43,7 +43,6 @@
 #include <asm/tlbflush.h>
 #include <asm/sections.h>
 #include <asm/sclp.h>
-#include <asm/set_memory.h>
 #include <asm/kasan.h>
 #include <asm/dma-mapping.h>
 #include <asm/uv.h>
@@ -51,6 +50,7 @@
 #include <linux/virtio_config.h>
 #include <linux/execmem.h>
 #include <linux/cc_platform.h>
+#include <linux/set_memory.h>
 
 pgd_t swapper_pg_dir[PTRS_PER_PGD] __section(".bss..swapper_pg_dir");
 pgd_t invalid_pg_dir[PTRS_PER_PGD] __section(".bss..invalid_pg_dir");

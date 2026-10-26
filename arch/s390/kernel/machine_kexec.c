@@ -14,6 +14,7 @@
 #include <linux/ftrace.h>
 #include <linux/debug_locks.h>
 #include <linux/cpufeature.h>
+#include <linux/set_memory.h>
 #include <asm/guarded_storage.h>
 #include <asm/machine.h>
 #include <asm/pfault.h>
@@ -28,7 +29,6 @@
 #include <asm/cacheflush.h>
 #include <asm/abs_lowcore.h>
 #include <asm/os_info.h>
-#include <asm/set_memory.h>
 #include <asm/stacktrace.h>
 #include <asm/nmi.h>
 #include <asm/sclp.h>
