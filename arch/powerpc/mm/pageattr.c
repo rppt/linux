@@ -116,9 +116,9 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 	if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) && !radix_enabled())
 		err = hash__kernel_map_pages(page, numpages, enable);
 	else if (enable)
-		err = set_memory_p(addr, numpages);
+		err = change_memory_attr(addr, numpages, SET_MEMORY_P);
 	else
-		err = set_memory_np(addr, numpages);
+		err = change_memory_attr(addr, numpages, SET_MEMORY_NP);
 
 	if (err)
 		panic("%s: changing memory protections failed\n", __func__);
