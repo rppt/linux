@@ -6,9 +6,13 @@
  * splits the leaves that are not entirely covered by the request and checks
  * that every leaf can be changed and the apply pass changes them. Splitting
  * does not change permissions.
+ *
+ * After a request completes, either successfully or not, the tables that
+ * map a range with uniform permissions are replaced with large leaves.
  * All errors are reported by the prepare pass, so a failed request does not
  * change any permission.
  */
+#include <linux/kfence.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
@@ -209,6 +213,186 @@ static int cpa_process_range(struct cpa_req *req, enum cpa_pass pass)
 	return 0;
 }
 
+/*
+ * Return the entry at @level that maps @addr if it points to a table.
+ */
+static void *cpa_table_entry(unsigned long addr, enum pgtable_level level)
+{
+	pgd_t *pgdp;
+	p4d_t *p4dp;
+	pud_t *pudp;
+	pmd_t *pmdp;
+	pud_t pud;
+	pmd_t pmd;
+
+	pgdp = pgd_offset_k(addr);
+	if (pgd_none(pgdp_get(pgdp)))
+		return NULL;
+
+	p4dp = p4d_offset(pgdp, addr);
+	if (p4d_none(p4dp_get(p4dp)) || arch_cpa_p4d_leaf(p4dp_get(p4dp)))
+		return NULL;
+
+	pudp = pud_offset(p4dp, addr);
+	pud = pudp_get(pudp);
+	if (pud_none(pud) || arch_cpa_pud_leaf(pud))
+		return NULL;
+	if (level == PGTABLE_LEVEL_PUD)
+		return pudp;
+
+	pmdp = pmd_offset(pudp, addr);
+	pmd = pmdp_get(pmdp);
+	if (pmd_none(pmd) || arch_cpa_pmd_leaf(pmd))
+		return NULL;
+
+	return pmdp;
+}
+
+static bool cpa_child_is_leaf(void *entry, enum pgtable_level level)
+{
+	pmd_t pmd;
+
+	if (level == PGTABLE_LEVEL_PTE)
+		return !pte_none(ptep_get((pte_t *)entry));
+
+	pmd = pmdp_get((pmd_t *)entry);
+	return !pmd_none(pmd) && arch_cpa_pmd_leaf(pmd);
+}
+
+/*
+ * Check if all the entries of @table are leaves that map contiguous pfns
+ * with the same protections, and if so describe the leaf that can replace
+ * the table in @leaf.
+ */
+static bool cpa_table_is_uniform(void *table, struct cpa_leaf *leaf)
+{
+	enum pgtable_level level = leaf->level - 1;
+	unsigned long child_pages = cpa_level_size(level) >> PAGE_SHIFT;
+	unsigned long nr = leaf->size / cpa_level_size(level);
+	struct cpa_leaf child = { .level = level };
+	unsigned long i;
+
+	for (i = 0; i < nr; i++) {
+		child.entry = cpa_entry_offset(table, level, i);
+		if (!cpa_child_is_leaf(child.entry, level))
+			return false;
+
+		child.nr = 1;
+		arch_cpa_read_leaf(&child);
+
+		if (!i) {
+			if (!IS_ALIGNED(child.pfn, leaf->size >> PAGE_SHIFT))
+				return false;
+			leaf->pfn = child.pfn;
+			leaf->prot = child.prot;
+			continue;
+		}
+
+		if (child.pfn != leaf->pfn + i * child_pages ||
+		    pgprot_val(child.prot) != pgprot_val(leaf->prot))
+			return false;
+	}
+
+	return true;
+}
+
+/* KFENCE changes its pool without the generic code */
+static bool cpa_overlaps_kfence(unsigned long start, unsigned long end)
+{
+#ifdef CONFIG_KFENCE
+	unsigned long pool = (unsigned long)__kfence_pool;
+
+	if (pool && start < pool + KFENCE_POOL_SIZE && pool < end)
+		return true;
+#endif
+	return false;
+}
+
+/* modules and vmalloc may be above PAGE_OFFSET and pass virt_addr_valid() */
+static bool cpa_in_direct_map(unsigned long addr)
+{
+	return !is_vmalloc_or_module_addr((void *)addr) &&
+	       virt_addr_valid((void *)addr);
+}
+
+static bool cpa_may_collapse(struct cpa_req *req, unsigned long start,
+			     unsigned long end, unsigned long req_start,
+			     unsigned long req_end)
+{
+	if (cpa_overlaps_kfence(start, end))
+		return false;
+
+	if (req->flags & CPA_COLLAPSE)
+		return true;
+
+	if (start >= req_start && end <= req_end)
+		return true;
+
+	/* only the generic code changes the direct map */
+	return cpa_in_direct_map(start) && cpa_in_direct_map(end - 1);
+}
+
+static void cpa_collapse_level(struct cpa_req *req, enum pgtable_level level,
+			       unsigned long start, unsigned long end)
+{
+	unsigned long size = cpa_level_size(level);
+	unsigned long addr;
+
+	if (!arch_cpa_can_collapse(req, level))
+		return;
+
+	for (addr = ALIGN_DOWN(start, size); addr < end; addr += size) {
+		struct cpa_leaf leaf = {
+			.level = level,
+			.start = addr,
+			.size = size,
+			.nr = 1,
+		};
+		void *table;
+
+		if (!cpa_may_collapse(req, addr, addr + size, start, end))
+			goto next;
+
+		leaf.entry = cpa_table_entry(addr, level);
+		if (!leaf.entry)
+			goto next;
+
+		if (level == PGTABLE_LEVEL_PMD)
+			table = pte_offset_kernel(leaf.entry, addr);
+		else
+			table = pmd_offset(leaf.entry, addr);
+
+		if (!cpa_table_is_uniform(table, &leaf))
+			goto next;
+
+		if (!arch_cpa_collapse(req, &leaf))
+			goto next;
+
+		/* tables allocated at boot are not page tables, leak them */
+		if (PageTable(virt_to_page(table)))
+			arch_cpa_free_table(req, level - 1, table);
+next:
+		/* the last block of the address space */
+		if (addr + size < addr)
+			break;
+	}
+}
+
+static void cpa_collapse(struct cpa_req *req)
+{
+	unsigned long start = req->addr;
+	unsigned long end = start + req->numpages * PAGE_SIZE;
+
+	if (debug_pagealloc_enabled())
+		return;
+
+	cpa_collapse_level(req, PGTABLE_LEVEL_PMD, start, end);
+
+	/* a PUD leaf replaces a table of PMDs */
+	if (!mm_pmd_folded(&init_mm))
+		cpa_collapse_level(req, PGTABLE_LEVEL_PUD, start, end);
+}
+
 /**
  * cpa_change - change permissions of a range of kernel mappings
  * @req: the request
@@ -233,7 +417,7 @@ int cpa_change(struct cpa_req *req)
 
 	err = cpa_process_range(req, CPA_PREPARE);
 	if (err)
-		goto unlock;
+		goto collapse;
 
 	arch_cpa_enter(req);
 	err = cpa_process_range(req, CPA_APPLY);
@@ -242,7 +426,8 @@ int cpa_change(struct cpa_req *req)
 	if (!(req->flags & CPA_NOFLUSH) && req->flush_start < req->flush_end)
 		arch_cpa_flush(req);
 
-unlock:
+collapse:
+	cpa_collapse(req);
 	mutex_unlock(&cpa_mutex);
 	return err;
 }

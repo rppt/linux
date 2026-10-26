@@ -10,6 +10,7 @@
 
 /* Request flags */
 #define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB */
+#define CPA_COLLAPSE	BIT(1)	/* collapse tables around the range */
 
 /**
  * struct cpa_req - a request to change kernel page table permissions
@@ -43,6 +44,10 @@ struct cpa_req {
  * @nr: number of entries in the leaf, larger than one for contiguous groups
  * @pfn: pfn mapped at @start
  * @prot: protections of the leaf, in the format of a PTE
+ *
+ * @prot does not include the bits that depend on the level of the entry
+ * or on being a part of a contiguous group, so that leaves of different
+ * levels with the same permissions have the same @prot.
  */
 struct cpa_leaf {
 	enum pgtable_level level;
@@ -242,6 +247,41 @@ static inline int arch_cpa_split_group(struct cpa_req *req,
 				       struct cpa_leaf *leaf)
 {
 	return -EOPNOTSUPP;
+}
+#endif
+
+#ifndef arch_cpa_can_collapse
+/**
+ * arch_cpa_can_collapse - check if tables can be replaced with leaves
+ * @req: the request
+ * @level: level of the leaf that would replace a table
+ *
+ * Return: true if arch_cpa_collapse() can install leaves at @level.
+ */
+static inline bool arch_cpa_can_collapse(struct cpa_req *req,
+					 enum pgtable_level level)
+{
+	return false;
+}
+#endif
+
+#ifndef arch_cpa_collapse
+/**
+ * arch_cpa_collapse - replace a table with a leaf
+ * @req: the request
+ * @leaf: the leaf to install instead of the table at @leaf->entry
+ *
+ * The table maps the range of @leaf to the same pfns with the same
+ * protections. The core frees the table as soon as this function returns,
+ * so the architecture must invalidate TLB and page walk caches for the
+ * range before returning.
+ *
+ * Return: true if the table was replaced.
+ */
+static inline bool arch_cpa_collapse(struct cpa_req *req,
+				     struct cpa_leaf *leaf)
+{
+	return false;
 }
 #endif
 
