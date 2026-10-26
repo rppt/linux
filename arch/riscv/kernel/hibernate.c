@@ -14,7 +14,6 @@
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
 #include <asm/sections.h>
-#include <asm/set_memory.h>
 #include <asm/smp.h>
 #include <asm/suspend.h>
 
@@ -22,6 +21,7 @@
 #include <linux/memblock.h>
 #include <linux/pm.h>
 #include <linux/sched.h>
+#include <linux/set_memory.h>
 #include <linux/suspend.h>
 #include <linux/utsname.h>
 

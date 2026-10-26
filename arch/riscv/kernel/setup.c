@@ -23,6 +23,7 @@
 #include <linux/panic_notifier.h>
 #include <linux/jump_label.h>
 #include <linux/gcd.h>
+#include <linux/set_memory.h>
 
 #include <asm/acpi.h>
 #include <asm/alternative.h>
