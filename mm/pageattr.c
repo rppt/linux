@@ -51,6 +51,21 @@ void cpa_unlock(void)
 	mutex_unlock(&cpa_mutex);
 }
 
+#ifdef CONFIG_PAGEATTR_KUNIT_TEST
+/* fail the Nth split, 0 disables */
+static int cpa_fail_split;
+
+static bool cpa_split_should_fail(void)
+{
+	return cpa_fail_split && !--cpa_fail_split;
+}
+#else
+static inline bool cpa_split_should_fail(void)
+{
+	return false;
+}
+#endif
+
 static unsigned long cpa_level_size(enum pgtable_level level)
 {
 	switch (level) {
@@ -154,6 +169,9 @@ static int cpa_split_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 	enum pgtable_level level = leaf->level - 1;
 	void *table;
 	int err;
+
+	if (cpa_split_should_fail())
+		return -ENOMEM;
 
 	if (leaf->nr > 1) {
 		err = arch_cpa_split_group(req, leaf);
@@ -687,4 +705,8 @@ bool kernel_page_present(struct page *page)
 
 #ifdef CONFIG_DEBUG_PAGEATTR
 #include "pageattr_test.c"
+#endif
+
+#ifdef CONFIG_PAGEATTR_KUNIT_TEST
+#include "tests/pageattr_kunit.c"
 #endif
