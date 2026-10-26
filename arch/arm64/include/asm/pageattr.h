@@ -49,4 +49,11 @@ static inline void arch_cpa_leave(struct cpa_req *req)
 void arch_cpa_flush(struct cpa_req *req);
 #define arch_cpa_flush arch_cpa_flush
 
+/* Software bit unused by kernel mappings */
+static inline pgprot_t arch_cpa_test_prot(void)
+{
+	return __pgprot(BIT_ULL(57));
+}
+#define arch_cpa_test_prot arch_cpa_test_prot
+
 #endif /* _ASM_ARM64_PAGEATTR_H */
