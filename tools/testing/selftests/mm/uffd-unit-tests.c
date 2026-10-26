@@ -2319,6 +2319,58 @@ static void uffd_register_ioctls_test(uffd_global_test_opts_t *gopts, uffd_test_
 	uffd_test_pass();
 }
 
+#define UFFD_CROSS_CTX_FEATURES \
+	(UFFD_FEATURE_PAGEFAULT_FLAG_WP | UFFD_FEATURE_WP_HUGETLBFS_SHMEM)
+
+/*
+ * A range registered with one userfaultfd must not be populated or
+ * unprotected through another one.
+ */
+static void uffd_cross_ctx_test(uffd_global_test_opts_t *gopts,
+				uffd_test_args_t *args)
+{
+	struct uffdio_api api = { .api = UFFD_API,
+				  .features = UFFD_CROSS_CTX_FEATURES };
+	unsigned long other = (unsigned long)gopts->area_dst + gopts->page_size;
+	struct uffdio_copy copy = {
+		.dst = other,
+		.src = (unsigned long)gopts->area_src,
+		.len = gopts->page_size,
+	};
+	struct uffdio_writeprotect wp = {
+		.range = { .start = other, .len = gopts->page_size },
+	};
+	int uffd;
+
+	uffd = uffd_open(UFFD_FLAGS);
+	if (uffd < 0 || ioctl(uffd, UFFDIO_API, &api))
+		err("second userfaultfd");
+
+	if (uffd_register(gopts->uffd, gopts->area_dst, gopts->page_size,
+			  true, true, false) ||
+	    uffd_register(uffd, (void *)other, gopts->page_size,
+			  true, true, false))
+		err("uffd_register() failed");
+
+	if (!ioctl(gopts->uffd, UFFDIO_COPY, &copy) || errno != ENOENT) {
+		uffd_test_fail("UFFDIO_COPY into other context's range");
+		goto out;
+	}
+
+	copy.mode = UFFDIO_COPY_MODE_WP;
+	if (ioctl(uffd, UFFDIO_COPY, &copy))
+		err("UFFDIO_COPY");
+
+	if (!ioctl(gopts->uffd, UFFDIO_WRITEPROTECT, &wp) || errno != ENOENT) {
+		uffd_test_fail("UFFDIO_WRITEPROTECT on other context's range");
+		goto out;
+	}
+
+	uffd_test_pass();
+out:
+	close(uffd);
+}
+
 uffd_test_case_t uffd_tests[] = {
 	{
 		/* Test returned uffdio_register.ioctls. */
@@ -2566,6 +2618,11 @@ uffd_test_case_t uffd_tests[] = {
 		.uffd_feature_required = UFFD_FEATURE_EVENT_REMOVE |
 		UFFD_FEATURE_MOVE | UFFD_FEATURE_POISON |
 		UFFD_FEATURE_MINOR_SHMEM,
+	},	{
+		.name = "cross-ctx",
+		.uffd_fn = uffd_cross_ctx_test,
+		.mem_targets = MEM_ALL,
+		.uffd_feature_required = UFFD_CROSS_CTX_FEATURES,
 	},
 };
 
