@@ -46,7 +46,7 @@
 #include <asm/pgalloc.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/page_types.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/init.h>
@@ -747,13 +747,5 @@ void mark_rodata_ro(void)
 		size >> 10);
 
 	kernel_set_to_readonly = 1;
-
-#ifdef CONFIG_CPA_DEBUG
-	pr_info("Testing CPA: Reverting %lx-%lx\n", start, start + size);
-	set_pages_rw(virt_to_page(start), size >> PAGE_SHIFT);
-
-	pr_info("Testing CPA: write protecting again\n");
-	set_pages_ro(virt_to_page(start), size >> PAGE_SHIFT);
-#endif
 	mark_nxdata_nx();
 }

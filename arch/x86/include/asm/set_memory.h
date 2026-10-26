@@ -3,11 +3,7 @@
 #define _ASM_X86_SET_MEMORY_H
 
 #include <asm/page.h>
-#include <asm-generic/set_memory.h>
 #include <asm/pgtable.h>
-
-#define set_memory_rox set_memory_rox
-int set_memory_rox(unsigned long addr, int numpages);
 
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
@@ -45,8 +41,6 @@ int _set_memory_wb(unsigned long addr, int numpages);
 int set_memory_uc(unsigned long addr, int numpages);
 int set_memory_wc(unsigned long addr, int numpages);
 int set_memory_wb(unsigned long addr, int numpages);
-int set_memory_np(unsigned long addr, int numpages);
-int set_memory_p(unsigned long addr, int numpages);
 int set_memory_4k(unsigned long addr, int numpages);
 
 bool set_memory_enc_stop_conversion(void);
@@ -85,10 +79,6 @@ int set_pages_uc(struct page *page, int numpages);
 int set_pages_wb(struct page *page, int numpages);
 int set_pages_ro(struct page *page, int numpages);
 int set_pages_rw(struct page *page, int numpages);
-
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr);
-int set_direct_map_default_noflush(struct page *page, unsigned int nr);
-bool kernel_page_present(struct page *page);
 
 extern int kernel_set_to_readonly;
 

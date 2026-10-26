@@ -9,7 +9,7 @@
 #include <linux/sched/task.h>
 #include <linux/execmem.h>
 
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/cpu_device_id.h>
 #include <asm/e820/api.h>
 #include <asm/init.h>

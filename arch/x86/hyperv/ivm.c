@@ -16,7 +16,7 @@
 #include <asm/io.h>
 #include <asm/coco.h>
 #include <asm/mem_encrypt.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/mshyperv.h>
 #include <asm/hypervisor.h>
 #include <asm/mtrr.h>

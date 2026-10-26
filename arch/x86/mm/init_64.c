@@ -49,7 +49,7 @@
 #include <asm/sections.h>
 #include <asm/kdebug.h>
 #include <asm/numa.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/init.h>
 #include <asm/uv/uv.h>
 #include <asm/setup.h>
@@ -1387,14 +1387,6 @@ void mark_rodata_ro(void)
 	set_memory_nx(text_end, (all_end - text_end) >> PAGE_SHIFT);
 
 	set_ftrace_ops_ro();
-
-#ifdef CONFIG_CPA_DEBUG
-	printk(KERN_INFO "Testing CPA: undo %lx-%lx\n", start, end);
-	set_memory_rw(start, (end-start) >> PAGE_SHIFT);
-
-	printk(KERN_INFO "Testing CPA: again\n");
-	set_memory_ro(start, (end-start) >> PAGE_SHIFT);
-#endif
 
 	free_kernel_image_pages("unused kernel image (text/rodata gap)",
 				(void *)text_end, (void *)rodata_start);

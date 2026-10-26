@@ -5,7 +5,7 @@
 #include <linux/cc_platform.h>
 #include <linux/pgtable.h>
 
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/realmode.h>
 #include <asm/tlbflush.h>
 #include <asm/crash.h>

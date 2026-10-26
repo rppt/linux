@@ -37,7 +37,7 @@
 #include <asm/proto.h>
 #include <asm/iommu.h>
 #include <asm/gart.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/dma.h>
 #include <asm/amd/nb.h>
 #include <asm/x86_init.h>

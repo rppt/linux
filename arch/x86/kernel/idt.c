@@ -5,7 +5,7 @@
 #include <linux/interrupt.h>
 
 #include <asm/cpu_entry_area.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/traps.h>
 #include <asm/proto.h>
 #include <asm/desc.h>

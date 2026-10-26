@@ -26,7 +26,7 @@
 #include <asm/debugreg.h>
 #include <asm/kexec-bzimage64.h>
 #include <asm/setup.h>
-#include <asm/set_memory.h>
+#include <linux/set_memory.h>
 #include <asm/cpu.h>
 #include <asm/efi.h>
 #include <asm/processor.h>
