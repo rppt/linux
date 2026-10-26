@@ -12,6 +12,12 @@
 #define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB */
 #define CPA_COLLAPSE	BIT(1)	/* collapse tables around the range */
 #define CPA_NO_ALIAS	BIT(2)	/* don't change aliases of the range */
+/*
+ * Don't sleep and don't take locks; the caller guarantees there are no
+ * concurrent requests. Tables are never collapsed.
+ */
+#define CPA_ATOMIC	BIT(3)
+#define CPA_SPLIT	BIT(4)	/* split leaves larger than PAGE_SIZE */
 
 /**
  * enum cpa_prot_op - operations of the generic set_memory() APIs
@@ -229,12 +235,17 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
  * @level: level of the entries in the new table
  * @addr: virtual address mapped by the new table
  *
+ * The default implementation cannot allocate tables for CPA_ATOMIC requests.
+ *
  * Return: the new table or NULL.
  */
 static inline void *arch_cpa_alloc_table(struct cpa_req *req,
 					 enum pgtable_level level,
 					 unsigned long addr)
 {
+	if (req->flags & CPA_ATOMIC)
+		return NULL;
+
 	switch (level) {
 	case PGTABLE_LEVEL_PTE:
 		return pte_alloc_one_kernel(&init_mm);

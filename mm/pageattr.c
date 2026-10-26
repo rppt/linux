@@ -184,6 +184,12 @@ static int cpa_process_leaf(struct cpa_req *req, struct cpa_range *range,
 	pgprot_t prot;
 	bool uniform;
 
+	if ((req->flags & CPA_SPLIT) && leaf->size > PAGE_SIZE) {
+		if (WARN_ON_ONCE(pass == CPA_APPLY))
+			return -EINVAL;
+		return cpa_split_leaf(req, leaf, start);
+	}
+
 	uniform = arch_cpa_new_prot(req, range, leaf, start, end, &prot);
 	if (uniform && pgprot_val(prot) == pgprot_val(leaf->prot))
 		return 0;
@@ -509,12 +515,13 @@ bool cpa_linear_alias(unsigned long addr, unsigned long pfn, unsigned long nr,
  * cpa_change - change permissions of a range of kernel mappings
  * @req: the request
  *
- * Context: process context, may sleep.
+ * Context: process context, may sleep, unless @req has CPA_ATOMIC.
  * Return: 0 on success or a negative error code. On failure the permissions
  * of the range are not changed.
  */
 int cpa_change(struct cpa_req *req)
 {
+	bool atomic = req->flags & CPA_ATOMIC;
 	struct cpa_range range = {
 		.start = req->addr,
 		.end = req->addr + req->numpages * PAGE_SIZE,
@@ -526,13 +533,14 @@ int cpa_change(struct cpa_req *req)
 	if (!req->numpages)
 		return 0;
 
-	might_sleep();
-
 	req->flush_start = req->alias_flush_start = ULONG_MAX;
 	req->flush_end = req->alias_flush_end = 0;
 	req->collapsed[0] = req->collapsed[1] = ULONG_MAX;
 
-	mutex_lock(&cpa_mutex);
+	if (!atomic) {
+		might_sleep();
+		mutex_lock(&cpa_mutex);
+	}
 
 	err = cpa_process_range(req, &range, CPA_PREPARE);
 	if (err)
@@ -548,8 +556,13 @@ int cpa_change(struct cpa_req *req)
 		arch_cpa_flush(req);
 
 collapse:
-	cpa_collapse(req, &range);
-	mutex_unlock(&cpa_mutex);
+	if (!atomic) {
+		/* a successful split must not be undone */
+		if (err || !(req->flags & CPA_SPLIT))
+			cpa_collapse(req, &range);
+		mutex_unlock(&cpa_mutex);
+	}
+
 	return err;
 }
 
