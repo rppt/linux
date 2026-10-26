@@ -2319,6 +2319,98 @@ static void uffd_register_ioctls_test(uffd_global_test_opts_t *gopts, uffd_test_
 	uffd_test_pass();
 }
 
+struct unmap_sealed_args {
+	const char *op;
+	void *addr;
+	size_t len;
+	int err;
+	bool done;
+};
+
+static void *unmap_sealed_thread(void *data)
+{
+	struct unmap_sealed_args *args = data;
+	void *src, *ret;
+
+	if (!strcmp(args->op, "munmap")) {
+		ret = munmap(args->addr, args->len) ? MAP_FAILED : NULL;
+	} else if (!strcmp(args->op, "mremap")) {
+		src = mmap(NULL, args->len, PROT_READ | PROT_WRITE,
+			   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (src == MAP_FAILED)
+			err("mmap");
+		ret = mremap(src, args->len, args->len,
+			     MREMAP_MAYMOVE | MREMAP_FIXED, args->addr);
+	} else {
+		ret = mmap(args->addr, args->len, PROT_READ | PROT_WRITE,
+			   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	}
+
+	args->err = ret == MAP_FAILED ? errno : 0;
+	__atomic_store_n(&args->done, true, __ATOMIC_RELEASE);
+	return NULL;
+}
+
+/*
+ * Unmapping a range that has a registered VMA followed by a sealed VMA
+ * fails and must not generate UFFD_EVENT_UNMAP.
+ */
+static void uffd_unmap_sealed_test(uffd_global_test_opts_t *gopts,
+				   uffd_test_args_t *targs)
+{
+	static const char * const ops[] = { "munmap", "mremap", "mmap" };
+	struct pollfd pfd = { .fd = gopts->uffd, .events = POLLIN };
+	size_t len = 2 * gopts->page_size;
+	struct unmap_sealed_args args;
+	struct uffd_msg msg;
+	pthread_t tid;
+	bool event;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ops); i++) {
+		args = (struct unmap_sealed_args){ .op = ops[i], .len = len };
+		args.addr = mmap(NULL, len, PROT_READ | PROT_WRITE,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (args.addr == MAP_FAILED)
+			err("mmap");
+
+		if (uffd_register(gopts->uffd, args.addr, gopts->page_size,
+				  true, false, false))
+			err("uffd_register() failed");
+
+		if (syscall(__NR_mseal, args.addr + gopts->page_size,
+			    gopts->page_size, 0)) {
+			uffd_test_skip("mseal() not supported");
+			return;
+		}
+
+		if (pthread_create(&tid, NULL, unmap_sealed_thread, &args))
+			err("pthread_create() failed");
+
+		/* UNMAP events are synchronous, read them to let the op finish */
+		event = false;
+		while (!__atomic_load_n(&args.done, __ATOMIC_ACQUIRE))
+			if (poll(&pfd, 1, 10) > 0 && !uffd_read_msg(gopts, &msg))
+				event = true;
+
+		if (pthread_join(tid, NULL))
+			err("pthread_join() failed");
+
+		if (args.err != EPERM) {
+			uffd_test_fail("%s: expected EPERM, got %d",
+				       args.op, args.err);
+			return;
+		}
+
+		if (event) {
+			uffd_test_fail("%s: event for a failed unmap", args.op);
+			return;
+		}
+	}
+
+	uffd_test_pass();
+}
+
 uffd_test_case_t uffd_tests[] = {
 	{
 		/* Test returned uffdio_register.ioctls. */
@@ -2566,6 +2658,12 @@ uffd_test_case_t uffd_tests[] = {
 		.uffd_feature_required = UFFD_FEATURE_EVENT_REMOVE |
 		UFFD_FEATURE_MOVE | UFFD_FEATURE_POISON |
 		UFFD_FEATURE_MINOR_SHMEM,
+	},	{
+		.name = "unmap-sealed",
+		.uffd_fn = uffd_unmap_sealed_test,
+		/* the unmap paths do not depend on the memory type */
+		.mem_targets = MEM_ANON,
+		.uffd_feature_required = UFFD_FEATURE_EVENT_UNMAP,
 	},
 };
 
