@@ -3,7 +3,9 @@
 #define _LINUX_PAGEATTR_H
 
 #include <linux/errno.h>
+#include <linux/mm_types.h>
 #include <linux/pgtable.h>
+#include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
 
 /* Request flags */
@@ -147,6 +149,80 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
 	*prot = __pgprot((pgprot_val(leaf->prot) & ~pgprot_val(req->clr)) |
 			 pgprot_val(req->set));
 	return true;
+}
+#endif
+
+#ifndef arch_cpa_alloc_table
+/**
+ * arch_cpa_alloc_table - allocate a page table to split a leaf
+ * @req: the request
+ * @level: level of the entries in the new table
+ * @addr: virtual address mapped by the new table
+ *
+ * Return: the new table or NULL.
+ */
+static inline void *arch_cpa_alloc_table(struct cpa_req *req,
+					 enum pgtable_level level,
+					 unsigned long addr)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return pte_alloc_one_kernel(&init_mm);
+	case PGTABLE_LEVEL_PMD:
+		return pmd_alloc_one(&init_mm, addr);
+	case PGTABLE_LEVEL_PUD:
+		return pud_alloc_one(&init_mm, addr);
+	default:
+		return NULL;
+	}
+}
+#endif
+
+#ifndef arch_cpa_free_table
+/**
+ * arch_cpa_free_table - free a page table
+ * @req: the request
+ * @level: level of the entries in the table
+ * @table: the table
+ */
+static inline void arch_cpa_free_table(struct cpa_req *req,
+				       enum pgtable_level level, void *table)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		pte_free_kernel(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PMD:
+		pmd_free(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PUD:
+		pud_free(&init_mm, table);
+		break;
+	default:
+		break;
+	}
+}
+#endif
+
+#ifndef arch_cpa_split
+/**
+ * arch_cpa_split - replace a leaf with a table
+ * @req: the request
+ * @leaf: the leaf
+ * @table: page table for the level below @leaf->level
+ *
+ * Fill @table with entries that map the range of @leaf to the same pfns
+ * with the same attributes and install @table instead of @leaf. Perform
+ * any TLB maintenance the architecture requires to change the size of a
+ * mapping.
+ *
+ * Return: 0 on success or a negative error code. On error @table is
+ * freed by the core.
+ */
+static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf,
+				 void *table)
+{
+	return -EOPNOTSUPP;
 }
 #endif
 

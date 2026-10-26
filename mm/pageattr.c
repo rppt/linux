@@ -3,13 +3,18 @@
  * Changing permissions of the kernel page tables.
  *
  * A request is processed in two passes over its range. The prepare pass
- * checks that every leaf can be changed and the apply pass changes them.
+ * splits the leaves that are not entirely covered by the request and checks
+ * that every leaf can be changed and the apply pass changes them. Splitting
+ * does not change permissions.
  * All errors are reported by the prepare pass, so a failed request does not
  * change any permission.
  */
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+
+/* returned by the prepare pass when the leaf must be looked up again */
+#define CPA_RETRY	1
 
 enum cpa_pass {
 	CPA_PREPARE,
@@ -115,6 +120,29 @@ found:
 	return 0;
 }
 
+static int cpa_split_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
+			  unsigned long addr)
+{
+	enum pgtable_level level = leaf->level - 1;
+	void *table;
+	int err;
+
+	if (leaf->level == PGTABLE_LEVEL_PTE)
+		return -EINVAL;
+
+	table = arch_cpa_alloc_table(req, level, ALIGN_DOWN(addr, leaf->size));
+	if (!table)
+		return -ENOMEM;
+
+	err = arch_cpa_split(req, leaf, table);
+	if (err) {
+		arch_cpa_free_table(req, level, table);
+		return err;
+	}
+
+	return CPA_RETRY;
+}
+
 static int cpa_process_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 			    unsigned long start, unsigned long end,
 			    enum cpa_pass pass)
@@ -129,8 +157,9 @@ static int cpa_process_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 
 	if (!uniform || start != leaf->start || end != leaf_end) {
 		/* the prepare pass made sure that this cannot happen */
-		WARN_ON_ONCE(pass == CPA_APPLY);
-		return -EINVAL;
+		if (WARN_ON_ONCE(pass == CPA_APPLY))
+			return -EINVAL;
+		return cpa_split_leaf(req, leaf, start);
 	}
 
 	if (pass == CPA_PREPARE)
@@ -161,6 +190,8 @@ static int cpa_process_range(struct cpa_req *req, enum cpa_pass pass)
 			next = leaf.start + leaf.size;
 			err = cpa_process_leaf(req, &leaf, addr,
 					       min(next - 1, end - 1) + 1, pass);
+			if (err == CPA_RETRY)
+				continue;
 		}
 		if (err)
 			return err;
