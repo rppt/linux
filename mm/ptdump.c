@@ -4,6 +4,7 @@
 #include <linux/debugfs.h>
 #include <linux/ptdump.h>
 #include <linux/kasan.h>
+#include <linux/pageattr.h>
 #include "internal.h"
 
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
@@ -181,6 +182,7 @@ void ptdump_walk_pgd(struct ptdump_state *st, struct mm_struct *mm, pgd_t *pgd)
 	/* To stabilise kernel page tables we must hold the init_mm lock too. */
 	if (mm != &init_mm)
 		mmap_write_lock_nested(&init_mm, SINGLE_DEPTH_NESTING);
+	cpa_lock();
 
 	while (range->start != range->end) {
 		walk_page_range_debug(mm, range->start, range->end,
@@ -188,6 +190,7 @@ void ptdump_walk_pgd(struct ptdump_state *st, struct mm_struct *mm, pgd_t *pgd)
 		range++;
 	}
 
+	cpa_unlock();
 	if (mm != &init_mm)
 		mmap_write_unlock(&init_mm);
 	mmap_write_unlock(mm);

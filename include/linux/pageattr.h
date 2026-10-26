@@ -62,6 +62,14 @@ struct cpa_leaf {
 int cpa_change(struct cpa_req *req);
 
 #ifdef CONFIG_GENERIC_PAGEATTR
+void cpa_lock(void);
+void cpa_unlock(void);
+#else
+static inline void cpa_lock(void) {}
+static inline void cpa_unlock(void) {}
+#endif
+
+#ifdef CONFIG_GENERIC_PAGEATTR
 #include <asm/pageattr.h>
 #endif
 

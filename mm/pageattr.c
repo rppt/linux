@@ -27,6 +27,25 @@ enum cpa_pass {
 
 static DEFINE_MUTEX(cpa_mutex);
 
+/**
+ * cpa_lock - prevent changes of the kernel page tables
+ *
+ * Collapsing frees page tables, so walkers of the kernel page tables that
+ * may run concurrently with set_memory() must hold the lock.
+ */
+void cpa_lock(void)
+{
+	mutex_lock(&cpa_mutex);
+}
+
+/**
+ * cpa_unlock - allow changes of the kernel page tables
+ */
+void cpa_unlock(void)
+{
+	mutex_unlock(&cpa_mutex);
+}
+
 static unsigned long cpa_level_size(enum pgtable_level level)
 {
 	switch (level) {
