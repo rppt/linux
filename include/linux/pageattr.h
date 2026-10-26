@@ -226,6 +226,25 @@ static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf,
 }
 #endif
 
+#ifndef arch_cpa_split_group
+/**
+ * arch_cpa_split_group - split a contiguous group of entries
+ * @req: the request
+ * @leaf: the leaf with @leaf->nr larger than one
+ *
+ * Replace the entries of @leaf with entries of the same level that map the
+ * same pfns with the same attributes and are not part of a contiguous
+ * group. Perform any TLB maintenance the architecture requires.
+ *
+ * Return: 0 on success or a negative error code.
+ */
+static inline int arch_cpa_split_group(struct cpa_req *req,
+				       struct cpa_leaf *leaf)
+{
+	return -EOPNOTSUPP;
+}
+#endif
+
 #ifndef arch_cpa_hole
 /**
  * arch_cpa_hole - handle an unmapped address

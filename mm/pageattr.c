@@ -127,6 +127,11 @@ static int cpa_split_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 	void *table;
 	int err;
 
+	if (leaf->nr > 1) {
+		err = arch_cpa_split_group(req, leaf);
+		return err ?: CPA_RETRY;
+	}
+
 	if (leaf->level == PGTABLE_LEVEL_PTE)
 		return -EINVAL;
 
