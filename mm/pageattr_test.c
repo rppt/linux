@@ -68,7 +68,7 @@ static int cpa_test_check(struct cpa_test_range *r, bool set)
 		bool inside = addr >= r->addr && addr < end;
 		unsigned long pfn;
 
-		if (cpa_lookup(addr, &leaf)) {
+		if (cpa_lookup(NULL, addr, &leaf)) {
 			if (inside) {
 				pr_err("CPA %lx: not mapped\n", addr);
 				failed++;
@@ -119,7 +119,8 @@ static int cpa_test_pick(unsigned long start, unsigned long end)
 		for (k = 0; k < npages; k++) {
 			unsigned long addr = start + (idx + k) * PAGE_SIZE;
 
-			if (test_bit(idx + k, used) || cpa_lookup(addr, &leaf))
+			if (test_bit(idx + k, used) ||
+			    cpa_lookup(NULL, addr, &leaf))
 				break;
 			if (!k) {
 				r->pfn = leaf.pfn +
@@ -189,7 +190,7 @@ static int cpa_test_area(const char *name, unsigned long start,
 		failed += cpa_test_check(r, false);
 
 		guard(mutex)(&cpa_mutex);
-		if (cpa_lookup(r->addr, &leaf) || leaf.level >= r->level) {
+		if (cpa_lookup(NULL, r->addr, &leaf) || leaf.level >= r->level) {
 			collapsed++;
 			continue;
 		}

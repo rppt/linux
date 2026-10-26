@@ -115,7 +115,7 @@ static void cpa_decode_leaf(unsigned long addr, struct cpa_leaf *leaf)
  * Find the leaf that maps @addr. If @addr is not mapped, return -ENOENT with
  * @leaf->level set to the level of the empty entry.
  */
-static int cpa_lookup(unsigned long addr, struct cpa_leaf *leaf)
+static int cpa_lookup(pgd_t *pgd, unsigned long addr, struct cpa_leaf *leaf)
 {
 	pgd_t *pgdp;
 	p4d_t *p4dp;
@@ -123,7 +123,7 @@ static int cpa_lookup(unsigned long addr, struct cpa_leaf *leaf)
 	pmd_t *pmdp;
 	pte_t *ptep;
 
-	pgdp = pgd_offset_k(addr);
+	pgdp = pgd ? pgd_offset_pgd(pgd, addr) : pgd_offset_k(addr);
 	leaf->level = PGTABLE_LEVEL_PGD;
 	if (pgd_none(pgdp_get(pgdp)))
 		return -ENOENT;
@@ -278,7 +278,7 @@ static int cpa_process_range(struct cpa_req *req, struct cpa_range *range,
 	int err = 0;
 
 	while (addr < end) {
-		if (cpa_lookup(addr, &leaf)) {
+		if (cpa_lookup(req->pgd, addr, &leaf)) {
 			next = ALIGN_DOWN(addr, cpa_level_size(leaf.level)) +
 			       cpa_level_size(leaf.level);
 			if (!range->alias && pass != CPA_COLLAPSE_ALIASES)
@@ -492,7 +492,7 @@ static void cpa_collapse_range(struct cpa_req *req, struct cpa_range *range)
 
 static void cpa_collapse(struct cpa_req *req, struct cpa_range *range)
 {
-	if (debug_pagealloc_enabled())
+	if (req->pgd || debug_pagealloc_enabled())
 		return;
 
 	cpa_process_range(req, range, CPA_COLLAPSE_ALIASES);
@@ -696,7 +696,7 @@ bool kernel_page_present(struct page *page)
 	struct cpa_leaf leaf;
 	pgprot_t set, clr;
 
-	if (cpa_lookup(addr, &leaf))
+	if (cpa_lookup(NULL, addr, &leaf))
 		return false;
 
 	arch_cpa_prot(CPA_PROT_P, &set, &clr);

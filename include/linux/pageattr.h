@@ -48,6 +48,7 @@ enum cpa_prot_op {
  * @set: protection bits to set
  * @clr: protection bits to clear
  * @flags: CPA_* request flags
+ * @pgd: page table to change, NULL for the kernel page table
  * @flush_start: start of the range that needs a TLB flush, set by the core
  * @flush_end: end of the range that needs a TLB flush, set by the core
  * @alias_flush_start: start of the aliases that need a TLB flush
@@ -55,6 +56,8 @@ enum cpa_prot_op {
  * @collapsed: last blocks checked for collapse at PMD and PUD levels
  *
  * A request either succeeds or fails before any permission is changed.
+ * Tables of a page table other than the kernel page table are never
+ * collapsed.
  */
 struct cpa_req {
 	unsigned long addr;
@@ -62,6 +65,7 @@ struct cpa_req {
 	pgprot_t set;
 	pgprot_t clr;
 	unsigned int flags;
+	pgd_t *pgd;
 
 	unsigned long flush_start;
 	unsigned long flush_end;

@@ -16,7 +16,7 @@ struct pageattr_test {
 static int pageattr_test_lookup(unsigned long addr, struct cpa_leaf *leaf)
 {
 	guard(mutex)(&cpa_mutex);
-	return cpa_lookup(addr, leaf);
+	return cpa_lookup(NULL, addr, leaf);
 }
 
 static int pageattr_test_change(unsigned long addr, unsigned long numpages,
