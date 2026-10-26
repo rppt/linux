@@ -14,6 +14,28 @@
 #define CPA_NO_ALIAS	BIT(2)	/* don't change aliases of the range */
 
 /**
+ * enum cpa_prot_op - operations of the generic set_memory() APIs
+ * @CPA_PROT_RO: make read-only
+ * @CPA_PROT_RW: make writable
+ * @CPA_PROT_X: make executable
+ * @CPA_PROT_NX: make non-executable
+ * @CPA_PROT_NP: make not present
+ * @CPA_PROT_P: make present
+ * @CPA_PROT_INVALID: make a direct map range invalid
+ * @CPA_PROT_DEFAULT: restore default protections of a direct map range
+ */
+enum cpa_prot_op {
+	CPA_PROT_RO,
+	CPA_PROT_RW,
+	CPA_PROT_X,
+	CPA_PROT_NX,
+	CPA_PROT_NP,
+	CPA_PROT_P,
+	CPA_PROT_INVALID,
+	CPA_PROT_DEFAULT,
+};
+
+/**
  * struct cpa_req - a request to change kernel page table permissions
  * @addr: page aligned start of the virtual address range
  * @numpages: number of pages in the range
@@ -101,6 +123,14 @@ static inline void cpa_unlock(void) {}
 /*
  * Mandatory architecture hooks.
  */
+
+/**
+ * arch_cpa_prot - get protections to change for a set_memory() operation
+ * @op: the operation
+ * @set: protection bits to set
+ * @clr: protection bits to clear
+ */
+void arch_cpa_prot(enum cpa_prot_op op, pgprot_t *set, pgprot_t *clr);
 
 /**
  * arch_cpa_read_leaf - decode a leaf entry

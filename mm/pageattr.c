@@ -19,6 +19,7 @@
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+#include <linux/set_memory.h>
 
 /* returned by the prepare pass when the leaf must be looked up again */
 #define CPA_RETRY	1
@@ -551,3 +552,118 @@ collapse:
 	mutex_unlock(&cpa_mutex);
 	return err;
 }
+
+static int cpa_set_memory(unsigned long addr, int numpages, pgprot_t set,
+			  pgprot_t clr, unsigned int flags)
+{
+	struct cpa_req req = {
+		.addr = addr,
+		.numpages = numpages,
+		.set = set,
+		.clr = clr,
+		.flags = flags,
+	};
+
+	if (numpages <= 0)
+		return 0;
+
+	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
+		return -EINVAL;
+
+	return cpa_change(&req);
+}
+
+static int cpa_set_memory_op(unsigned long addr, int numpages,
+			     enum cpa_prot_op op)
+{
+	pgprot_t set, clr;
+
+	arch_cpa_prot(op, &set, &clr);
+	return cpa_set_memory(addr, numpages, set, clr, 0);
+}
+
+int set_memory_ro(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_RO);
+}
+
+int set_memory_rw(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_RW);
+}
+
+int set_memory_x(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_X);
+}
+
+int set_memory_nx(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_NX);
+}
+
+int set_memory_np(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_NP);
+}
+
+int set_memory_p(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_P);
+}
+
+int set_memory_rox(unsigned long addr, int numpages)
+{
+	pgprot_t ro_set, ro_clr, x_set, x_clr;
+
+	arch_cpa_prot(CPA_PROT_RO, &ro_set, &ro_clr);
+	arch_cpa_prot(CPA_PROT_X, &x_set, &x_clr);
+
+	return cpa_set_memory(addr, numpages,
+			      __pgprot(pgprot_val(ro_set) | pgprot_val(x_set)),
+			      __pgprot(pgprot_val(ro_clr) | pgprot_val(x_clr)),
+			      0);
+}
+
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
+static int cpa_set_direct_map(struct page *page, unsigned int nr,
+			      enum cpa_prot_op op)
+{
+	pgprot_t set, clr;
+
+	arch_cpa_prot(op, &set, &clr);
+	return cpa_set_memory((unsigned long)page_address(page), nr, set, clr,
+			      CPA_NOFLUSH | CPA_NO_ALIAS);
+}
+
+int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_set_direct_map(page, nr, CPA_PROT_INVALID);
+}
+
+int set_direct_map_default_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_set_direct_map(page, nr, CPA_PROT_DEFAULT);
+}
+
+/**
+ * kernel_page_present - check if a page is present in the direct map
+ * @page: the page
+ *
+ * Return: false if the direct map entry of @page is not present.
+ */
+bool kernel_page_present(struct page *page)
+{
+	unsigned long addr = (unsigned long)page_address(page);
+	struct cpa_leaf leaf;
+	pgprot_t set, clr;
+
+	if (cpa_lookup(addr, &leaf))
+		return false;
+
+	arch_cpa_prot(CPA_PROT_P, &set, &clr);
+
+	return ((pgprot_val(leaf.prot) & ~pgprot_val(clr)) | pgprot_val(set)) ==
+		pgprot_val(leaf.prot);
+}
+#endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
