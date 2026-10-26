@@ -21,6 +21,8 @@
 #include <linux/pageattr.h>
 #include <linux/set_memory.h>
 
+#include "vmalloc.h"
+
 /* returned by the prepare pass when the leaf must be looked up again */
 #define CPA_RETRY	1
 
@@ -411,6 +413,24 @@ static bool cpa_in_direct_map(unsigned long addr)
 	       virt_addr_valid((void *)addr);
 }
 
+/* vmalloc unmaps areas with huge pages as a whole */
+static bool cpa_in_huge_vmalloc(unsigned long start, unsigned long end)
+{
+	struct vm_struct *area;
+	unsigned long area_start;
+
+	if (!is_vmalloc_or_module_addr((void *)start))
+		return false;
+
+	area = find_vm_area((void *)start);
+	if (!area)
+		return false;
+
+	area_start = (unsigned long)area->addr;
+	return end - start <= PAGE_SIZE << get_vm_area_page_order(area) &&
+	       end - 1 <= area_start + get_vm_area_size(area) - 1;
+}
+
 static bool cpa_may_collapse(struct cpa_req *req, unsigned long start,
 			     unsigned long end, unsigned long req_start,
 			     unsigned long req_end)
@@ -422,6 +442,9 @@ static bool cpa_may_collapse(struct cpa_req *req, unsigned long start,
 		return true;
 
 	if (start >= req_start && end <= req_end)
+		return true;
+
+	if (cpa_in_huge_vmalloc(start, end))
 		return true;
 
 	/* only the generic code changes the direct map */
