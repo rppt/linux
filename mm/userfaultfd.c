@@ -1110,7 +1110,8 @@ static int mwriteprotect_range(struct userfaultfd_ctx *ctx, unsigned long start,
 	err = -ENOENT;
 	for_each_vma_range(vmi, dst_vma, end) {
 
-		if (!userfaultfd_wp(dst_vma)) {
+		if (!userfaultfd_wp(dst_vma) ||
+		    dst_vma->vm_userfaultfd_ctx.ctx != ctx) {
 			err = -ENOENT;
 			break;
 		}
@@ -1170,7 +1171,8 @@ int mrwprotect_range(struct userfaultfd_ctx *ctx, unsigned long start,
 	 * process with only a prefix of the range re-protected.
 	 */
 	for_each_vma_range(vmi, dst_vma, end) {
-		if (!userfaultfd_rwp(dst_vma))
+		if (!userfaultfd_rwp(dst_vma) ||
+		    dst_vma->vm_userfaultfd_ctx.ctx != ctx)
 			return -ENOENT;
 
 		if (is_vm_hugetlb_page(dst_vma)) {
