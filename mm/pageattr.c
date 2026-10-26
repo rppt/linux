@@ -666,6 +666,9 @@ static int cpa_set_direct_map(struct page *page, unsigned int nr,
 {
 	pgprot_t set, clr;
 
+	if (!can_set_direct_map())
+		return 0;
+
 	arch_cpa_prot(op, &set, &clr);
 	return cpa_set_memory((unsigned long)page_address(page), nr, set, clr,
 			      CPA_NOFLUSH | CPA_NO_ALIAS);
