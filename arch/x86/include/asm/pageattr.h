@@ -31,4 +31,11 @@ int arch_cpa_hole(struct cpa_req *req, unsigned long addr);
 void arch_cpa_flush(struct cpa_req *req);
 #define arch_cpa_flush arch_cpa_flush
 
+/* the special bit is only used in user mappings */
+static inline pgprot_t arch_cpa_test_prot(void)
+{
+	return __pgprot(_PAGE_SOFTW1);
+}
+#define arch_cpa_test_prot arch_cpa_test_prot
+
 #endif /* _ASM_X86_PAGEATTR_H */
