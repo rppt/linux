@@ -456,4 +456,19 @@ static inline void arch_cpa_flush(struct cpa_req *req)
 }
 #endif
 
+#ifndef arch_cpa_test_prot
+/**
+ * arch_cpa_test_prot - get a software bit for the self test
+ *
+ * The bit must be ignored by the hardware and preserved by splits and
+ * collapses.
+ *
+ * Return: the bit or 0 if there are no free software bits.
+ */
+static inline pgprot_t arch_cpa_test_prot(void)
+{
+	return __pgprot(0);
+}
+#endif
+
 #endif /* _LINUX_PAGEATTR_H */

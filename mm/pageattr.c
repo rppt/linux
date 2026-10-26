@@ -684,3 +684,7 @@ bool kernel_page_present(struct page *page)
 		pgprot_val(leaf.prot);
 }
 #endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
+
+#ifdef CONFIG_DEBUG_PAGEATTR
+#include "pageattr_test.c"
+#endif

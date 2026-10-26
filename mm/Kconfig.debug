@@ -180,6 +180,15 @@ config DEBUG_RODATA_TEST
 	help
 	  This option enables a testcase for the setting rodata read-only.
 
+config DEBUG_PAGEATTR
+	bool "Test changes of kernel page permissions"
+	depends on DEBUG_KERNEL && GENERIC_PAGEATTR
+	help
+	  Periodically change and verify permissions of random ranges in
+	  the direct map and in a vmalloc area.
+
+	  If unsure, say N.
+
 config PTDUMP_DEBUGFS
 	bool "Export kernel pagetable layout to userspace via debugfs"
 	depends on DEBUG_KERNEL
