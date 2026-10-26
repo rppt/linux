@@ -88,18 +88,19 @@ static const struct vm_uffd_ops *vma_uffd_ops(struct vm_area_struct *vma)
 }
 
 static __always_inline
-bool validate_dst_vma(struct vm_area_struct *dst_vma, unsigned long dst_end)
+bool validate_dst_vma(struct userfaultfd_ctx *ctx,
+		      struct vm_area_struct *dst_vma, unsigned long dst_end)
 {
 	/* Make sure that the dst range is fully within dst_vma. */
 	if (dst_end > dst_vma->vm_end)
 		return false;
 
 	/*
-	 * Check the vma is registered in uffd, this is required to
+	 * Check the vma is registered in this uffd, this is required to
 	 * enforce the VM_MAYWRITE check done at uffd registration
 	 * time.
 	 */
-	if (!dst_vma->vm_userfaultfd_ctx.ctx)
+	if (dst_vma->vm_userfaultfd_ctx.ctx != ctx)
 		return false;
 
 	return true;
@@ -164,14 +165,14 @@ static struct vm_area_struct *uffd_lock_vma(struct mm_struct *mm,
 	return vma;
 }
 
-static struct vm_area_struct *uffd_mfill_lock(struct mm_struct *dst_mm,
+static struct vm_area_struct *uffd_mfill_lock(struct userfaultfd_ctx *ctx,
 					      unsigned long dst_start,
 					      unsigned long len)
 {
 	struct vm_area_struct *dst_vma;
 
-	dst_vma = uffd_lock_vma(dst_mm, dst_start);
-	if (IS_ERR(dst_vma) || validate_dst_vma(dst_vma, dst_start + len))
+	dst_vma = uffd_lock_vma(ctx->mm, dst_start);
+	if (IS_ERR(dst_vma) || validate_dst_vma(ctx, dst_vma, dst_start + len))
 		return dst_vma;
 
 	vma_end_read(dst_vma);
@@ -205,7 +206,7 @@ static int mfill_get_vma(struct mfill_state *state)
 	 * Make sure the vma is not shared, that the dst range is
 	 * both valid and fully within a single existing vma.
 	 */
-	dst_vma = uffd_mfill_lock(ctx->mm, state->dst_start, state->len);
+	dst_vma = uffd_mfill_lock(ctx, state->dst_start, state->len);
 	if (IS_ERR(dst_vma))
 		return PTR_ERR(dst_vma);
 
@@ -797,7 +798,7 @@ retry:
 	 * retry, dst_vma will be set to NULL and we must lookup again.
 	 */
 	if (!dst_vma) {
-		dst_vma = uffd_mfill_lock(dst_mm, dst_start, len);
+		dst_vma = uffd_mfill_lock(ctx, dst_start, len);
 		if (IS_ERR(dst_vma)) {
 			err = PTR_ERR(dst_vma);
 			goto out;
