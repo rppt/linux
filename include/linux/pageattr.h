@@ -11,6 +11,7 @@
 /* Request flags */
 #define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB */
 #define CPA_COLLAPSE	BIT(1)	/* collapse tables around the range */
+#define CPA_NO_ALIAS	BIT(2)	/* don't change aliases of the range */
 
 /**
  * struct cpa_req - a request to change kernel page table permissions
@@ -21,6 +22,9 @@
  * @flags: CPA_* request flags
  * @flush_start: start of the range that needs a TLB flush, set by the core
  * @flush_end: end of the range that needs a TLB flush, set by the core
+ * @alias_flush_start: start of the aliases that need a TLB flush
+ * @alias_flush_end: end of the aliases that need a TLB flush
+ * @collapsed: last blocks checked for collapse at PMD and PUD levels
  *
  * A request either succeeds or fails before any permission is changed.
  */
@@ -33,6 +37,25 @@ struct cpa_req {
 
 	unsigned long flush_start;
 	unsigned long flush_end;
+	unsigned long alias_flush_start;
+	unsigned long alias_flush_end;
+	unsigned long collapsed[2];
+};
+
+/**
+ * struct cpa_range - a virtual address range changed by a request
+ * @start: start of the range
+ * @end: end of the range
+ * @set: protection bits to set
+ * @clr: protection bits to clear
+ * @alias: the range is an alias of a part of the request
+ */
+struct cpa_range {
+	unsigned long start;
+	unsigned long end;
+	pgprot_t set;
+	pgprot_t clr;
+	bool alias;
 };
 
 /**
@@ -60,6 +83,8 @@ struct cpa_leaf {
 };
 
 int cpa_change(struct cpa_req *req);
+bool cpa_linear_alias(unsigned long addr, unsigned long pfn, unsigned long nr,
+		      struct cpa_range *alias);
 
 #ifdef CONFIG_GENERIC_PAGEATTR
 void cpa_lock(void);
@@ -146,6 +171,7 @@ static inline bool arch_cpa_pmd_leaf(pmd_t pmd)
 /**
  * arch_cpa_new_prot - calculate the new protections for a part of a leaf
  * @req: the request
+ * @range: the range that contains @leaf
  * @leaf: the leaf
  * @start: start of the part of @leaf covered by the request
  * @end: end of the part of @leaf covered by the request
@@ -155,12 +181,13 @@ static inline bool arch_cpa_pmd_leaf(pmd_t pmd)
  * [@start, @end) range.
  */
 static inline bool arch_cpa_new_prot(struct cpa_req *req,
+				     struct cpa_range *range,
 				     struct cpa_leaf *leaf,
 				     unsigned long start, unsigned long end,
 				     pgprot_t *prot)
 {
-	*prot = __pgprot((pgprot_val(leaf->prot) & ~pgprot_val(req->clr)) |
-			 pgprot_val(req->set));
+	*prot = __pgprot((pgprot_val(leaf->prot) & ~pgprot_val(range->clr)) |
+			 pgprot_val(range->set));
 	return true;
 }
 #endif
@@ -293,6 +320,34 @@ static inline bool arch_cpa_collapse(struct cpa_req *req,
 }
 #endif
 
+#ifndef arch_cpa_get_alias
+/**
+ * arch_cpa_get_alias - get an alias of a part of a request
+ * @req: the request
+ * @range: the range of the request
+ * @addr: start of the part of @range
+ * @pfn: first pfn mapped at @addr
+ * @nr: number of pages in the part of @range
+ * @idx: index of the alias
+ * @alias: the alias
+ *
+ * Aliases are other virtual addresses that map the same pfns as the
+ * request and must be changed together with the request, for example the
+ * direct map alias of vmalloc pages. Set the range of the alias and the
+ * protections to change in it. Holes in the aliases are skipped.
+ *
+ * Return: false if there is no alias with index @idx.
+ */
+static inline bool arch_cpa_get_alias(struct cpa_req *req,
+				      struct cpa_range *range,
+				      unsigned long addr, unsigned long pfn,
+				      unsigned long nr, unsigned int idx,
+				      struct cpa_range *alias)
+{
+	return false;
+}
+#endif
+
 #ifndef arch_cpa_hole
 /**
  * arch_cpa_hole - handle an unmapped address
@@ -333,11 +388,17 @@ static inline void arch_cpa_leave(struct cpa_req *req)
  * arch_cpa_flush - flush the TLB after updating the leaves of a request
  * @req: the request
  *
- * Flush the TLB for [@req->flush_start, @req->flush_end).
+ * Flush the TLB for [@req->flush_start, @req->flush_end) and for
+ * [@req->alias_flush_start, @req->alias_flush_end). Empty ranges have
+ * start larger than end.
  */
 static inline void arch_cpa_flush(struct cpa_req *req)
 {
-	flush_tlb_kernel_range(req->flush_start, req->flush_end);
+	if (req->flush_start < req->flush_end)
+		flush_tlb_kernel_range(req->flush_start, req->flush_end);
+	if (req->alias_flush_start < req->alias_flush_end)
+		flush_tlb_kernel_range(req->alias_flush_start,
+				       req->alias_flush_end);
 }
 #endif
 

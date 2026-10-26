@@ -9,6 +9,9 @@
  *
  * After a request completes, either successfully or not, the tables that
  * map a range with uniform permissions are replaced with large leaves.
+ *
+ * Every part of the request is processed together with its aliases, the
+ * other virtual addresses that map the same pfns.
  * All errors are reported by the prepare pass, so a failed request does not
  * change any permission.
  */
@@ -23,6 +26,7 @@
 enum cpa_pass {
 	CPA_PREPARE,
 	CPA_APPLY,
+	CPA_COLLAPSE_ALIASES,
 };
 
 static DEFINE_MUTEX(cpa_mutex);
@@ -171,15 +175,15 @@ static int cpa_split_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 	return CPA_RETRY;
 }
 
-static int cpa_process_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
-			    unsigned long start, unsigned long end,
-			    enum cpa_pass pass)
+static int cpa_process_leaf(struct cpa_req *req, struct cpa_range *range,
+			    struct cpa_leaf *leaf, unsigned long start,
+			    unsigned long end, enum cpa_pass pass)
 {
 	unsigned long leaf_end = leaf->start + leaf->size;
 	pgprot_t prot;
 	bool uniform;
 
-	uniform = arch_cpa_new_prot(req, leaf, start, end, &prot);
+	uniform = arch_cpa_new_prot(req, range, leaf, start, end, &prot);
 	if (uniform && pgprot_val(prot) == pgprot_val(leaf->prot))
 		return 0;
 
@@ -194,32 +198,80 @@ static int cpa_process_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 		return 0;
 
 	arch_cpa_write_leaf(req, leaf, prot);
-	req->flush_start = min(req->flush_start, leaf->start);
-	req->flush_end = max(req->flush_end, leaf_end);
+	if (range->alias) {
+		req->alias_flush_start = min(req->alias_flush_start, leaf->start);
+		req->alias_flush_end = max(req->alias_flush_end, leaf_end);
+	} else {
+		req->flush_start = min(req->flush_start, leaf->start);
+		req->flush_end = max(req->flush_end, leaf_end);
+	}
 
 	return 0;
 }
 
-static int cpa_process_range(struct cpa_req *req, enum cpa_pass pass)
+static void cpa_collapse_range(struct cpa_req *req, struct cpa_range *range);
+static int cpa_process_range(struct cpa_req *req, struct cpa_range *range,
+			     enum cpa_pass pass);
+
+static int cpa_process_aliases(struct cpa_req *req, struct cpa_range *range,
+			       struct cpa_leaf *leaf, unsigned long start,
+			       unsigned long end, enum cpa_pass pass)
 {
-	unsigned long end = req->addr + req->numpages * PAGE_SIZE;
-	unsigned long addr = req->addr;
-	struct cpa_leaf leaf;
-	unsigned long next;
+	unsigned long pfn = leaf->pfn + ((start - leaf->start) >> PAGE_SHIFT);
+	unsigned long nr = (end - start) >> PAGE_SHIFT;
+	struct cpa_range alias;
+	unsigned int idx;
 	int err;
 
+	if (range->alias || (req->flags & CPA_NO_ALIAS))
+		return 0;
+
+	for (idx = 0; arch_cpa_get_alias(req, range, start, pfn, nr, idx, &alias);
+	     idx++) {
+		alias.alias = true;
+
+		if (pass == CPA_COLLAPSE_ALIASES) {
+			cpa_collapse_range(req, &alias);
+			continue;
+		}
+
+		err = cpa_process_range(req, &alias, pass);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+static int cpa_process_range(struct cpa_req *req, struct cpa_range *range,
+			     enum cpa_pass pass)
+{
+	unsigned long addr = range->start;
+	unsigned long end = range->end;
+	struct cpa_leaf leaf;
+	unsigned long next, chunk_end;
+	int err = 0;
+
 	while (addr < end) {
-		err = cpa_lookup(addr, &leaf);
-		if (err) {
+		if (cpa_lookup(addr, &leaf)) {
 			next = ALIGN_DOWN(addr, cpa_level_size(leaf.level)) +
 			       cpa_level_size(leaf.level);
-			err = arch_cpa_hole(req, addr);
+			if (!range->alias && pass != CPA_COLLAPSE_ALIASES)
+				err = arch_cpa_hole(req, addr);
 		} else {
 			next = leaf.start + leaf.size;
-			err = cpa_process_leaf(req, &leaf, addr,
-					       min(next - 1, end - 1) + 1, pass);
-			if (err == CPA_RETRY)
+			chunk_end = min(next - 1, end - 1) + 1;
+
+			if (pass != CPA_COLLAPSE_ALIASES)
+				err = cpa_process_leaf(req, range, &leaf, addr,
+						       chunk_end, pass);
+			if (err == CPA_RETRY) {
+				err = 0;
 				continue;
+			}
+			if (!err)
+				err = cpa_process_aliases(req, range, &leaf,
+							  addr, chunk_end, pass);
 		}
 		if (err)
 			return err;
@@ -354,6 +406,7 @@ static bool cpa_may_collapse(struct cpa_req *req, unsigned long start,
 static void cpa_collapse_level(struct cpa_req *req, enum pgtable_level level,
 			       unsigned long start, unsigned long end)
 {
+	unsigned long *last = &req->collapsed[level - PGTABLE_LEVEL_PMD];
 	unsigned long size = cpa_level_size(level);
 	unsigned long addr;
 
@@ -368,6 +421,11 @@ static void cpa_collapse_level(struct cpa_req *req, enum pgtable_level level,
 			.nr = 1,
 		};
 		void *table;
+
+		/* aliases of adjacent parts of a request are often adjacent */
+		if (addr == *last)
+			goto next;
+		*last = addr;
 
 		if (!cpa_may_collapse(req, addr, addr + size, start, end))
 			goto next;
@@ -397,19 +455,53 @@ next:
 	}
 }
 
-static void cpa_collapse(struct cpa_req *req)
+static void cpa_collapse_range(struct cpa_req *req, struct cpa_range *range)
 {
-	unsigned long start = req->addr;
-	unsigned long end = start + req->numpages * PAGE_SIZE;
-
-	if (debug_pagealloc_enabled())
-		return;
-
-	cpa_collapse_level(req, PGTABLE_LEVEL_PMD, start, end);
+	cpa_collapse_level(req, PGTABLE_LEVEL_PMD, range->start, range->end);
 
 	/* a PUD leaf replaces a table of PMDs */
 	if (!mm_pmd_folded(&init_mm))
-		cpa_collapse_level(req, PGTABLE_LEVEL_PUD, start, end);
+		cpa_collapse_level(req, PGTABLE_LEVEL_PUD, range->start,
+				   range->end);
+}
+
+static void cpa_collapse(struct cpa_req *req, struct cpa_range *range)
+{
+	if (debug_pagealloc_enabled())
+		return;
+
+	cpa_process_range(req, range, CPA_COLLAPSE_ALIASES);
+	cpa_collapse_range(req, range);
+}
+
+/**
+ * cpa_linear_alias - get the direct map alias of a range
+ * @addr: start of the range
+ * @pfn: first pfn mapped by the range
+ * @nr: number of pages in the range
+ * @alias: the alias
+ *
+ * Helper for arch_cpa_get_alias() that sets the range of @alias to the
+ * direct map alias of [@addr, @addr + @nr * PAGE_SIZE) if the range is not
+ * in the direct map itself.
+ *
+ * Return: true if the range has a direct map alias.
+ */
+bool cpa_linear_alias(unsigned long addr, unsigned long pfn, unsigned long nr,
+		      struct cpa_range *alias)
+{
+	unsigned long last = pfn + nr - 1;
+
+	if (cpa_in_direct_map(addr))
+		return false;
+
+	if (!pfn_valid(pfn) || !pfn_valid(last) ||
+	    PageHighMem(pfn_to_page(pfn)) || PageHighMem(pfn_to_page(last)))
+		return false;
+
+	alias->start = (unsigned long)__va(PFN_PHYS(pfn));
+	alias->end = alias->start + nr * PAGE_SIZE;
+	return true;
 }
 
 /**
@@ -422,6 +514,12 @@ static void cpa_collapse(struct cpa_req *req)
  */
 int cpa_change(struct cpa_req *req)
 {
+	struct cpa_range range = {
+		.start = req->addr,
+		.end = req->addr + req->numpages * PAGE_SIZE,
+		.set = req->set,
+		.clr = req->clr,
+	};
 	int err;
 
 	if (!req->numpages)
@@ -429,24 +527,27 @@ int cpa_change(struct cpa_req *req)
 
 	might_sleep();
 
-	req->flush_start = ULONG_MAX;
-	req->flush_end = 0;
+	req->flush_start = req->alias_flush_start = ULONG_MAX;
+	req->flush_end = req->alias_flush_end = 0;
+	req->collapsed[0] = req->collapsed[1] = ULONG_MAX;
 
 	mutex_lock(&cpa_mutex);
 
-	err = cpa_process_range(req, CPA_PREPARE);
+	err = cpa_process_range(req, &range, CPA_PREPARE);
 	if (err)
 		goto collapse;
 
 	arch_cpa_enter(req);
-	err = cpa_process_range(req, CPA_APPLY);
+	err = cpa_process_range(req, &range, CPA_APPLY);
 	arch_cpa_leave(req);
 
-	if (!(req->flags & CPA_NOFLUSH) && req->flush_start < req->flush_end)
+	if (!(req->flags & CPA_NOFLUSH) &&
+	    (req->flush_start < req->flush_end ||
+	     req->alias_flush_start < req->alias_flush_end))
 		arch_cpa_flush(req);
 
 collapse:
-	cpa_collapse(req);
+	cpa_collapse(req, &range);
 	mutex_unlock(&cpa_mutex);
 	return err;
 }
