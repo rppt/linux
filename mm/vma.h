@@ -44,6 +44,7 @@ struct vma_munmap_struct {
 	struct vm_area_struct *prev;    /* vma before the munmap area */
 	struct vm_area_struct *next;    /* vma after the munmap area */
 	struct list_head *uf;           /* Userfaultfd list_head */
+	struct list_head uf_pending;    /* Userfaultfd unmaps until completion */
 	unsigned long start;            /* Aligned start addr (inclusive) */
 	unsigned long end;              /* Aligned end addr (exclusive) */
 	unsigned long unmap_start;      /* Unmap PTE start */

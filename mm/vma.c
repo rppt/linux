@@ -1413,6 +1413,8 @@ static void vms_complete_munmap_vmas(struct vma_munmap_struct *vms,
 	struct vm_area_struct *vma;
 	struct mm_struct *mm;
 
+	list_splice_tail_init(&vms->uf_pending, vms->uf);
+
 	mm = current->mm;
 	mm->map_count -= vms->vma_count;
 	mm->locked_vm -= vms->locked_vm;
@@ -1450,11 +1452,14 @@ static void vms_complete_munmap_vmas(struct vma_munmap_struct *vms,
 
 /*
  * reattach_vmas() - Undo any munmap work and free resources
+ * @vms: The vma munmap struct
  * @mas_detach: The maple state with the detached maple tree
  *
- * Reattach any detached vmas and free up the maple tree used to track the vmas.
+ * Reattach any detached vmas, drop the pending userfaultfd unmap events and
+ * free up the maple tree used to track the vmas.
  */
-static void reattach_vmas(struct ma_state *mas_detach)
+static void reattach_vmas(struct vma_munmap_struct *vms,
+		struct ma_state *mas_detach)
 {
 	struct vm_area_struct *vma;
 
@@ -1462,6 +1467,7 @@ static void reattach_vmas(struct ma_state *mas_detach)
 	mas_for_each(mas_detach, vma, ULONG_MAX)
 		vma_mark_attached(vma);
 
+	userfaultfd_unmap_abort(&vms->uf_pending);
 	__mt_destroy(mas_detach->tree);
 }
 
@@ -1563,7 +1569,7 @@ static int vms_gather_munmap_vmas(struct vma_munmap_struct *vms,
 			 * failure that it's not worth optimizing it for.
 			 */
 			error = userfaultfd_unmap_prep(next, vms->start,
-						       vms->end, vms->uf);
+						       vms->end, &vms->uf_pending);
 			if (error)
 				goto userfaultfd_error;
 		}
@@ -1607,7 +1613,7 @@ userfaultfd_error:
 munmap_gather_failed:
 end_split_failed:
 modify_vma_failed:
-	reattach_vmas(mas_detach);
+	reattach_vmas(vms, mas_detach);
 start_split_failed:
 map_count_exceeded:
 	return error;
@@ -1638,6 +1644,7 @@ static void init_vma_munmap(struct vma_munmap_struct *vms,
 	}
 	vms->unlock = unlock;
 	vms->uf = uf;
+	INIT_LIST_HEAD(&vms->uf_pending);
 	vms->vma_count = 0;
 	vms->nr_pages = vms->locked_vm = vms->nr_accounted = 0;
 	vms->exec_vm = vms->stack_vm = vms->data_vm = 0;
@@ -1685,7 +1692,7 @@ int do_vmi_align_munmap(struct vma_iterator *vmi, struct vm_area_struct *vma,
 	return 0;
 
 clear_tree_failed:
-	reattach_vmas(&mas_detach);
+	reattach_vmas(&vms, &mas_detach);
 gather_failed:
 	validate_mm(mm);
 	return error;
@@ -2496,7 +2503,7 @@ static void vms_abort_munmap_vmas(struct vma_munmap_struct *vms,
 		return;
 
 	if (vms->clear_ptes)
-		return reattach_vmas(mas_detach);
+		return reattach_vmas(vms, mas_detach);
 
 	/*
 	 * Aborting cannot just call the vm_ops open() because they are often
