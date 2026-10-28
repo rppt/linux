@@ -6,9 +6,7 @@
  * address, so large leaves are never split. Hash only has vmalloc and IO
  * in the Linux page tables, mapped with base pages.
  */
-#include <linux/mm.h>
 #include <linux/pageattr.h>
-#include <linux/vmalloc.h>
 #include <asm/tlbflush.h>
 
 struct cpa_prot_op arch_cpa_prot_ops[CPA_PROT_NR] __ro_after_init = {
@@ -48,12 +46,7 @@ void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
 
 int arch_cpa_check(struct cpa_req *req)
 {
-	void *addr = (void *)req->addr;
 	int region;
-
-	if (WARN_ON_ONCE(is_vmalloc_or_module_addr(addr) &&
-			 is_vm_area_hugepages(addr)))
-		return -EINVAL;
 
 	if (radix_enabled())
 		return 0;
