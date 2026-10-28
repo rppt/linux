@@ -7,12 +7,16 @@
  * every leaf can be changed, cpa_update() changes them. Splitting does not
  * change permissions, so a failed request does not change any permission.
  *
+ * Every part of the request is processed together with its alias, the
+ * direct map address of the same pages.
+ *
  * The TLB maintenance after a request is up to the architecture.
  */
 #include <linux/kasan.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+#include <linux/vmalloc.h>
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
 
@@ -136,21 +140,73 @@ static unsigned long cpa_clamp(struct cpa_range *range, unsigned long addr)
 
 /*
  * Find the leaf that maps @addr and set @next to the end of the part of
- * @range it maps. Holes fail the request.
+ * @range it maps. Holes in the range fail the request, holes in its aliases
+ * are skipped.
  */
 static int cpa_find_leaf(struct cpa_range *range, unsigned long addr,
 			 struct cpa_leaf *leaf, unsigned long *next)
 {
+	unsigned long size;
 	int err;
 
 	err = cpa_lookup(addr, leaf);
-	if (err == -ENOENT)
-		return -EFAULT;
-	if (err)
+	if (!err) {
+		*next = cpa_clamp(range, leaf->start + leaf->size);
+		return 0;
+	}
+	if (err != -ENOENT)
 		return err;
 
-	*next = cpa_clamp(range, leaf->start + leaf->size);
-	return 0;
+	size = cpa_level_size(leaf->level);
+	*next = cpa_clamp(range, ALIGN_DOWN(addr, size) + size);
+
+	return range->alias ? -ENOENT : -EFAULT;
+}
+
+/*
+ * Modules and vmalloc may be above PAGE_OFFSET and pass virt_addr_valid(),
+ * and so may the kernel image mapping.
+ */
+static bool cpa_in_direct_map(unsigned long addr)
+{
+	if (is_vmalloc_or_module_addr((void *)addr))
+		return false;
+	if (!virt_addr_valid((void *)addr))
+		return false;
+
+	return (unsigned long)__va(__pa(addr)) == addr;
+}
+
+/*
+ * Get the direct map alias of the part [@start, @end) of @leaf, if the leaf
+ * is not in the direct map itself.
+ */
+static bool cpa_get_alias(struct cpa_req *req, struct cpa_range *range,
+			  struct cpa_leaf *leaf, unsigned long start,
+			  unsigned long end, struct cpa_range *alias)
+{
+	unsigned long pfn = leaf->pfn + ((start - leaf->start) >> PAGE_SHIFT);
+	unsigned long last = pfn + ((end - start) >> PAGE_SHIFT) - 1;
+
+	if (range->alias || (req->flags & CPA_NO_ALIAS))
+		return false;
+	if (!pgprot_val(req->alias_set) && !pgprot_val(req->alias_clr))
+		return false;
+	if (cpa_in_direct_map(start))
+		return false;
+	if (!pfn_valid(pfn) || !pfn_valid(last) ||
+	    PageHighMem(pfn_to_page(pfn)) || PageHighMem(pfn_to_page(last)))
+		return false;
+
+	*alias = (struct cpa_range) {
+		.start = (unsigned long)__va(PFN_PHYS(pfn)),
+		.end = (unsigned long)__va(PFN_PHYS(last)) + PAGE_SIZE,
+		.set = req->alias_set,
+		.clr = req->alias_clr,
+		.alias = true,
+	};
+
+	return true;
 }
 
 /*
@@ -190,23 +246,33 @@ static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 {
 	unsigned long addr, next;
+	struct cpa_range alias;
 	struct cpa_leaf leaf;
 	pgprot_t prot;
 	int err;
 
 	for (addr = range->start; addr != range->end; addr = next) {
 		err = cpa_find_leaf(range, addr, &leaf, &next);
+		if (err == -ENOENT)
+			continue;
 		if (err)
 			return err;
 
-		if (!cpa_must_split(req, range, &leaf, addr, next, &prot))
+		if (cpa_must_split(req, range, &leaf, addr, next, &prot)) {
+			err = cpa_split(req, &leaf);
+			if (err)
+				return err;
+			/* look up the new leaf */
+			next = addr;
+			continue;
+		}
+
+		if (!cpa_get_alias(req, range, &leaf, addr, next, &alias))
 			continue;
 
-		err = cpa_split(req, &leaf);
+		err = cpa_prepare_range(req, &alias);
 		if (err)
 			return err;
-		/* look up the new leaf */
-		next = addr;
 	}
 
 	return 0;
@@ -226,21 +292,27 @@ static void cpa_update_leaf(struct cpa_req *req, struct cpa_range *range,
 		return;
 
 	arch_cpa_write_leaf(req, leaf, prot);
-	req->changed |= CPA_CHANGED_PROT;
+	req->changed |= range->alias ? CPA_CHANGED_ALIAS : CPA_CHANGED_PROT;
 }
 
 static void cpa_update_range(struct cpa_req *req, struct cpa_range *range)
 {
 	unsigned long addr, next;
+	struct cpa_range alias;
 	struct cpa_leaf leaf;
 	int err;
 
 	for (addr = range->start; addr != range->end; addr = next) {
 		err = cpa_find_leaf(range, addr, &leaf, &next);
+		if (err == -ENOENT)
+			continue;
 		if (WARN_ON_ONCE(err))
 			return;
 
 		cpa_update_leaf(req, range, &leaf, addr, next);
+
+		if (cpa_get_alias(req, range, &leaf, addr, next, &alias))
+			cpa_update_range(req, &alias);
 	}
 }
 
@@ -281,6 +353,14 @@ static bool cpa_req_valid(struct cpa_req *req)
 	return end > req->addr;
 }
 
+static bool cpa_req_has_alias(struct cpa_req *req)
+{
+	if (req->flags & CPA_NO_ALIAS)
+		return false;
+
+	return pgprot_val(req->alias_set) || pgprot_val(req->alias_clr);
+}
+
 /**
  * cpa_change - change permissions of a range of kernel mappings
  * @req: the request
@@ -305,6 +385,13 @@ int cpa_change(struct cpa_req *req)
 	err = arch_cpa_check(req);
 	if (err)
 		return err;
+
+	/*
+	 * Lazily unmapped vmap aliases must not keep the old permissions,
+	 * CPA_NOFLUSH callers take care of them.
+	 */
+	if (cpa_req_has_alias(req) && !(req->flags & CPA_NOFLUSH))
+		vm_unmap_aliases();
 
 	cpa_lock(req);
 
@@ -369,12 +456,39 @@ void cpa_free_table(enum pgtable_level level, void *table)
  * cpa_flush_ranges - flush the TLB for the leaves changed by a request
  * @req: the request
  *
- * Helper for arch_cpa_flush() that flushes the range of @req with
- * flush_tlb_kernel_range().
+ * Helper for arch_cpa_flush() that flushes the range of @req and its
+ * aliases with flush_tlb_kernel_range().
  */
 void cpa_flush_ranges(struct cpa_req *req)
 {
+	struct cpa_range range = cpa_req_range(req);
+	unsigned long addr, next, start = 0, end = 0;
+	struct cpa_range alias;
+	struct cpa_leaf leaf;
+
 	if (req->changed & CPA_CHANGED_PROT)
-		flush_tlb_kernel_range(req->addr,
-				       req->addr + req->numpages * PAGE_SIZE);
+		flush_tlb_kernel_range(range.start, range.end);
+
+	if (!(req->changed & CPA_CHANGED_ALIAS))
+		return;
+
+	for (addr = range.start; addr != range.end; addr = next) {
+		if (cpa_find_leaf(&range, addr, &leaf, &next))
+			continue;
+		if (!cpa_get_alias(req, &range, &leaf, addr, next, &alias))
+			continue;
+
+		if (alias.start == end) {
+			end = alias.end;
+			continue;
+		}
+
+		if (start != end)
+			flush_tlb_kernel_range(start, end);
+		start = alias.start;
+		end = alias.end;
+	}
+
+	if (start != end)
+		flush_tlb_kernel_range(start, end);
 }

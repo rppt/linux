@@ -8,10 +8,12 @@
 
 /* Request flags */
 #define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB, a hint */
+#define CPA_NO_ALIAS	BIT(1)	/* don't change aliases of the range */
 
 /* What a request changed, set by the core */
 #define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */
 #define CPA_CHANGED_SPLIT	BIT(1)	/* leaves were split */
+#define CPA_CHANGED_ALIAS	BIT(2)	/* leaves in the aliases */
 
 /**
  * struct cpa_req - a request to change kernel page table permissions
@@ -19,14 +21,21 @@
  * @numpages: number of pages in the range
  * @set: protection bits to set
  * @clr: protection bits to clear
+ * @alias_set: protection bits to set in the aliases of the range
+ * @alias_clr: protection bits to clear in the aliases of the range
  * @flags: CPA_* request flags
  * @changed: CPA_CHANGED_* flags, set by the core
+ *
+ * Aliases are the direct map addresses of the pages mapped by the range.
+ * They are changed only if @alias_set or @alias_clr are not empty.
  */
 struct cpa_req {
 	unsigned long addr;
 	unsigned long numpages;
 	pgprot_t set;
 	pgprot_t clr;
+	pgprot_t alias_set;
+	pgprot_t alias_clr;
 	unsigned int flags;
 	unsigned int changed;
 };
@@ -37,12 +46,14 @@ struct cpa_req {
  * @end: end of the range
  * @set: protection bits to set
  * @clr: protection bits to clear
+ * @alias: the range is an alias of a part of the request
  */
 struct cpa_range {
 	unsigned long start;
 	unsigned long end;
 	pgprot_t set;
 	pgprot_t clr;
+	bool alias;
 };
 
 /**
