@@ -9,6 +9,12 @@
 /* Request flags */
 #define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB, a hint */
 #define CPA_NO_ALIAS	BIT(1)	/* don't change aliases of the range */
+/*
+ * Don't sleep and don't take locks; the caller guarantees there are no
+ * concurrent requests.
+ */
+#define CPA_ATOMIC	BIT(2)
+#define CPA_SPLIT	BIT(3)	/* only split leaves larger than PAGE_SIZE */
 
 /* What a request changed, set by the core */
 #define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */

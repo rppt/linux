@@ -25,12 +25,18 @@ static DEFINE_MUTEX(cpa_mutex);
 
 static void cpa_lock(struct cpa_req *req)
 {
+	if (req->flags & CPA_ATOMIC)
+		return;
+
 	might_sleep();
 	mutex_lock(&cpa_mutex);
 }
 
 static void cpa_unlock(struct cpa_req *req)
 {
+	if (req->flags & CPA_ATOMIC)
+		return;
+
 	mutex_unlock(&cpa_mutex);
 }
 
@@ -220,6 +226,9 @@ static bool cpa_must_split(struct cpa_req *req, struct cpa_range *range,
 {
 	*prot = leaf->prot;
 
+	if (req->flags & CPA_SPLIT)
+		return leaf->size > PAGE_SIZE;
+
 	if (!arch_cpa_new_prot(req, range, leaf, start, end, prot))
 		return true;
 
@@ -366,7 +375,7 @@ static bool cpa_req_has_alias(struct cpa_req *req)
  * cpa_change - change permissions of a range of kernel mappings
  * @req: the request
  *
- * Context: process context, may sleep.
+ * Context: process context, may sleep, unless @req has CPA_ATOMIC.
  * Return: 0 on success or a negative error code. On failure the permissions
  * are not changed, but leaves may have been split.
  */
@@ -391,13 +400,14 @@ int cpa_change(struct cpa_req *req)
 	 * Lazily unmapped vmap aliases must not keep the old permissions,
 	 * CPA_NOFLUSH callers take care of them.
 	 */
-	if (cpa_req_has_alias(req) && !(req->flags & CPA_NOFLUSH))
+	if (cpa_req_has_alias(req) &&
+	    !(req->flags & (CPA_NOFLUSH | CPA_ATOMIC)))
 		vm_unmap_aliases();
 
 	cpa_lock(req);
 
 	err = cpa_prepare(req);
-	if (!err)
+	if (!err && !(req->flags & CPA_SPLIT))
 		cpa_update(req);
 
 	if (req->changed)
@@ -434,11 +444,14 @@ void cpa_req_add_op(struct cpa_req *req, enum cpa_prot op)
  * @level: level of the entries in the new table
  * @addr: virtual address mapped by the new table
  *
- * Return: the new table or NULL.
+ * Return: the new table or NULL. Always NULL for CPA_ATOMIC requests.
  */
 void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
 		      unsigned long addr)
 {
+	if (req->flags & CPA_ATOMIC)
+		return NULL;
+
 	switch (level) {
 	case PGTABLE_LEVEL_PTE:
 		return pte_alloc_one_kernel(&init_mm);
