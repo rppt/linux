@@ -1,0 +1,165 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef _LINUX_PAGEATTR_H
+#define _LINUX_PAGEATTR_H
+
+#include <linux/errno.h>
+#include <linux/mm_types.h>
+#include <linux/pgtable.h>
+
+/* Request flags */
+#define CPA_NOFLUSH	BIT(0)	/* the caller flushes the TLB, a hint */
+
+/* What a request changed, set by the core */
+#define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */
+
+/**
+ * struct cpa_req - a request to change kernel page table permissions
+ * @addr: page aligned start of the virtual address range
+ * @numpages: number of pages in the range
+ * @set: protection bits to set
+ * @clr: protection bits to clear
+ * @flags: CPA_* request flags
+ * @changed: CPA_CHANGED_* flags, set by the core
+ */
+struct cpa_req {
+	unsigned long addr;
+	unsigned long numpages;
+	pgprot_t set;
+	pgprot_t clr;
+	unsigned int flags;
+	unsigned int changed;
+};
+
+/**
+ * struct cpa_range - a virtual address range changed by a request
+ * @start: start of the range
+ * @end: end of the range
+ * @set: protection bits to set
+ * @clr: protection bits to clear
+ */
+struct cpa_range {
+	unsigned long start;
+	unsigned long end;
+	pgprot_t set;
+	pgprot_t clr;
+};
+
+/**
+ * struct cpa_leaf - a leaf entry of the kernel page tables
+ * @level: page table level of the entry
+ * @entry: pointer to the first entry of the leaf
+ * @start: first virtual address mapped by the leaf
+ * @size: size of the range mapped by the leaf
+ * @nr: number of entries in the leaf, larger than one for contiguous groups
+ * @pfn: pfn mapped at @start
+ * @prot: protections of the leaf, in the format of a PTE
+ *
+ * @prot does not include the bits that depend on the level of the entry
+ * or on being a part of a contiguous group, so that leaves of different
+ * levels with the same permissions have the same @prot.
+ */
+struct cpa_leaf {
+	enum pgtable_level level;
+	void *entry;
+	unsigned long start;
+	unsigned long size;
+	unsigned int nr;
+	unsigned long pfn;
+	pgprot_t prot;
+};
+
+int cpa_change(struct cpa_req *req);
+void cpa_flush_ranges(struct cpa_req *req);
+
+#ifdef CONFIG_GENERIC_PAGEATTR
+#include <asm/pageattr.h>
+#endif
+
+/*
+ * Mandatory architecture hooks.
+ */
+
+/**
+ * arch_cpa_read_leaf - decode a page table entry
+ * @leaf: leaf with @level and @entry set and @nr set to one
+ *
+ * The core calls this for entries that are not none at every level below
+ * PGD. Leaf entries must be recognized regardless of whether they are
+ * present.
+ *
+ * Set @pfn and @prot from the entry pointed to by @leaf->entry and @nr to
+ * the number of entries in the contiguous group that contains it.
+ * @pfn is the pfn of that entry rather than of the first entry of the group.
+ *
+ * Return: true if the entry is a leaf, false if it points to a table.
+ */
+bool arch_cpa_read_leaf(struct cpa_leaf *leaf);
+
+/**
+ * arch_cpa_write_leaf - change the protections of a leaf
+ * @req: the request
+ * @leaf: the leaf to change
+ * @prot: new protections, in the format of a PTE
+ *
+ * Write all @leaf->nr entries of @leaf without TLB maintenance, it is done
+ * by arch_cpa_flush().
+ */
+void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
+			 pgprot_t prot);
+
+/**
+ * arch_cpa_flush - perform TLB maintenance after a request
+ * @req: the request
+ *
+ * Called once for every request with non-empty @req->changed, including
+ * failed requests. CPA_NOFLUSH means that the caller will flush the TLB
+ * for the range of @req, the architecture decides if that is enough.
+ * cpa_flush_ranges() is a helper that flushes the changed ranges.
+ */
+void arch_cpa_flush(struct cpa_req *req);
+
+/*
+ * Optional architecture hooks.
+ */
+
+#ifndef arch_cpa_check
+/**
+ * arch_cpa_check - check if a request may change its range
+ * @req: the request
+ *
+ * Return: 0 if the range of @req can be changed or a negative error code.
+ */
+static inline int arch_cpa_check(struct cpa_req *req)
+{
+	return 0;
+}
+#endif
+
+#ifndef arch_cpa_new_prot
+/**
+ * arch_cpa_new_prot - calculate the new protections for a part of a leaf
+ * @req: the request
+ * @range: the range that contains @leaf
+ * @leaf: the leaf
+ * @start: start of the part of @leaf covered by the request
+ * @end: end of the part of @leaf covered by the request
+ * @prot: the new protections
+ *
+ * Must return the same result when called again for the same leaf.
+ *
+ * Return: false if the new protections are not the same for the whole
+ * [@start, @end) range.
+ */
+static inline bool arch_cpa_new_prot(struct cpa_req *req,
+				     struct cpa_range *range,
+				     struct cpa_leaf *leaf,
+				     unsigned long start, unsigned long end,
+				     pgprot_t *prot)
+{
+	*prot = __pgprot((pgprot_val(leaf->prot) & ~pgprot_val(range->clr)) |
+			 pgprot_val(range->set));
+	return true;
+}
+#endif
+
+#endif /* _LINUX_PAGEATTR_H */
