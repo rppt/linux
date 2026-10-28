@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 
-obj-y				+= mmu_context.o pgtable.o trace.o
+obj-y				+= mmu_context.o pageattr.o pgtable.o trace.o
 ifdef CONFIG_PPC_64S_HASH_MMU
 CFLAGS_REMOVE_slb.o = $(CC_FLAGS_FTRACE)
 obj-y				+= hash_pgtable.o hash_utils.o hash_tlb.o slb.o slice.o

@@ -12,6 +12,7 @@
 
 int change_memory_attr(unsigned long addr, int numpages, long action);
 
+#ifndef CONFIG_GENERIC_PAGEATTR
 static inline int __must_check set_memory_ro(unsigned long addr, int numpages)
 {
 	return change_memory_attr(addr, numpages, SET_MEMORY_RO);
@@ -47,5 +48,6 @@ static inline int __must_check set_memory_rox(unsigned long addr, int numpages)
 	return change_memory_attr(addr, numpages, SET_MEMORY_ROX);
 }
 #define set_memory_rox set_memory_rox
+#endif /* CONFIG_GENERIC_PAGEATTR */
 
 #endif
