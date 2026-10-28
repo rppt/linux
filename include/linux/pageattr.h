@@ -11,6 +11,7 @@
 
 /* What a request changed, set by the core */
 #define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */
+#define CPA_CHANGED_SPLIT	BIT(1)	/* leaves were split */
 
 /**
  * struct cpa_req - a request to change kernel page table permissions
@@ -69,6 +70,9 @@ struct cpa_leaf {
 };
 
 int cpa_change(struct cpa_req *req);
+void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
+		      unsigned long addr);
+void cpa_free_table(enum pgtable_level level, void *table);
 void cpa_flush_ranges(struct cpa_req *req);
 
 #ifdef CONFIG_GENERIC_PAGEATTR
@@ -159,6 +163,26 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
 	*prot = __pgprot((pgprot_val(leaf->prot) & ~pgprot_val(range->clr)) |
 			 pgprot_val(range->set));
 	return true;
+}
+#endif
+
+#ifndef arch_cpa_split
+/**
+ * arch_cpa_split - split a leaf
+ * @req: the request
+ * @leaf: the leaf
+ *
+ * Replace a contiguous group (@leaf->nr > 1) with single entries of the
+ * same level, or a single entry with a table of the next level, that map
+ * the same pfns with the same attributes. Perform any TLB maintenance the
+ * architecture requires to change the size of a mapping.
+ * cpa_alloc_table() and cpa_free_table() allocate and free the tables.
+ *
+ * Return: 0 on success or a negative error code.
+ */
+static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	return -EOPNOTSUPP;
 }
 #endif
 

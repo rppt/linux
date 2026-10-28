@@ -2,9 +2,10 @@
 /*
  * Changing permissions of the kernel page tables.
  *
- * A request is processed in two passes over its range. cpa_prepare() checks
- * that every leaf can be changed and cpa_update() changes them, so a failed
- * request does not change any permission.
+ * A request is processed in two passes over its range. cpa_prepare() splits
+ * the leaves that are not entirely covered by the request and checks that
+ * every leaf can be changed, cpa_update() changes them. Splitting does not
+ * change permissions, so a failed request does not change any permission.
  *
  * The TLB maintenance after a request is up to the architecture.
  */
@@ -12,6 +13,7 @@
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+#include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
 
 static DEFINE_MUTEX(cpa_mutex);
@@ -170,6 +172,21 @@ static bool cpa_must_split(struct cpa_req *req, struct cpa_range *range,
 	return start != leaf->start || end != leaf->start + leaf->size;
 }
 
+static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	int err;
+
+	if (WARN_ON_ONCE(leaf->size == PAGE_SIZE))
+		return -EINVAL;
+
+	err = arch_cpa_split(req, leaf);
+	if (err)
+		return err;
+
+	req->changed |= CPA_CHANGED_SPLIT;
+	return 0;
+}
+
 static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 {
 	unsigned long addr, next;
@@ -182,8 +199,14 @@ static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 		if (err)
 			return err;
 
-		if (cpa_must_split(req, range, &leaf, addr, next, &prot))
-			return -EOPNOTSUPP;
+		if (!cpa_must_split(req, range, &leaf, addr, next, &prot))
+			continue;
+
+		err = cpa_split(req, &leaf);
+		if (err)
+			return err;
+		/* look up the new leaf */
+		next = addr;
 	}
 
 	return 0;
@@ -195,7 +218,7 @@ static void cpa_update_leaf(struct cpa_req *req, struct cpa_range *range,
 {
 	pgprot_t prot;
 
-	/* cpa_prepare() made sure there is nothing to split */
+	/* cpa_prepare() split everything that had to be split */
 	if (WARN_ON_ONCE(cpa_must_split(req, range, leaf, start, end, &prot)))
 		return;
 
@@ -264,7 +287,7 @@ static bool cpa_req_valid(struct cpa_req *req)
  *
  * Context: process context, may sleep.
  * Return: 0 on success or a negative error code. On failure the permissions
- * are not changed.
+ * are not changed, but leaves may have been split.
  */
 int cpa_change(struct cpa_req *req)
 {
@@ -295,6 +318,51 @@ int cpa_change(struct cpa_req *req)
 	cpa_unlock(req);
 
 	return err;
+}
+
+/**
+ * cpa_alloc_table - allocate a page table to split a leaf
+ * @req: the request
+ * @level: level of the entries in the new table
+ * @addr: virtual address mapped by the new table
+ *
+ * Return: the new table or NULL.
+ */
+void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
+		      unsigned long addr)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return pte_alloc_one_kernel(&init_mm);
+	case PGTABLE_LEVEL_PMD:
+		return pmd_alloc_one(&init_mm, addr);
+	case PGTABLE_LEVEL_PUD:
+		return pud_alloc_one(&init_mm, addr);
+	default:
+		return NULL;
+	}
+}
+
+/**
+ * cpa_free_table - free a page table allocated with cpa_alloc_table()
+ * @level: level of the entries in the table
+ * @table: the table
+ */
+void cpa_free_table(enum pgtable_level level, void *table)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		pte_free_kernel(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PMD:
+		pmd_free(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PUD:
+		pud_free(&init_mm, table);
+		break;
+	default:
+		break;
+	}
 }
 
 /**
