@@ -33,6 +33,21 @@
 
 #ifdef CONFIG_ARCH_HAS_SET_MEMORY
 #include <asm/set_memory.h>
+#ifdef CONFIG_GENERIC_PAGEATTR
+int set_memory_ro(unsigned long addr, int numpages);
+int set_memory_rw(unsigned long addr, int numpages);
+int set_memory_x(unsigned long addr, int numpages);
+int set_memory_nx(unsigned long addr, int numpages);
+int set_memory_np(unsigned long addr, int numpages);
+int set_memory_p(unsigned long addr, int numpages);
+int set_memory_rox(unsigned long addr, int numpages);
+#define set_memory_rox set_memory_rox
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
+int set_direct_map_invalid_noflush(struct page *page, unsigned int nr);
+int set_direct_map_default_noflush(struct page *page, unsigned int nr);
+bool kernel_page_present(struct page *page);
+#endif
+#endif /* CONFIG_GENERIC_PAGEATTR */
 #else
 /**
  * set_memory_ro - make a kernel mapping read-only

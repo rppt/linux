@@ -16,6 +16,46 @@
 #define CPA_CHANGED_ALIAS	BIT(2)	/* leaves in the aliases */
 
 /**
+ * enum cpa_prot - operations of the generic set_memory() APIs
+ * @CPA_PROT_RO: make read-only
+ * @CPA_PROT_RW: make writable
+ * @CPA_PROT_X: make executable
+ * @CPA_PROT_NX: make non-executable
+ * @CPA_PROT_NP: make not present
+ * @CPA_PROT_P: make present
+ * @CPA_PROT_INVALID: make a direct map range invalid
+ * @CPA_PROT_DEFAULT: restore the default protections of a direct map range
+ * @CPA_PROT_NR: number of operations
+ */
+enum cpa_prot {
+	CPA_PROT_RO,
+	CPA_PROT_RW,
+	CPA_PROT_X,
+	CPA_PROT_NX,
+	CPA_PROT_NP,
+	CPA_PROT_P,
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
+	CPA_PROT_INVALID,
+	CPA_PROT_DEFAULT,
+#endif
+	CPA_PROT_NR,
+};
+
+/**
+ * struct cpa_prot_op - protections changed by a set_memory() operation
+ * @set: protection bits to set
+ * @clr: protection bits to clear
+ * @alias: change the aliases of the range as well
+ *
+ * CPA_PROT_DEFAULT must restore the permissions of PAGE_KERNEL.
+ */
+struct cpa_prot_op {
+	pgprot_t set;
+	pgprot_t clr;
+	bool alias;
+};
+
+/**
  * struct cpa_req - a request to change kernel page table permissions
  * @addr: page aligned start of the virtual address range
  * @numpages: number of pages in the range
@@ -80,7 +120,10 @@ struct cpa_leaf {
 	pgprot_t prot;
 };
 
+extern struct cpa_prot_op arch_cpa_prot_ops[CPA_PROT_NR];
+
 int cpa_change(struct cpa_req *req);
+void cpa_req_add_op(struct cpa_req *req, enum cpa_prot op);
 void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
 		      unsigned long addr);
 void cpa_free_table(enum pgtable_level level, void *table);

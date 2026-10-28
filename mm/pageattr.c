@@ -16,6 +16,7 @@
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+#include <linux/set_memory.h>
 #include <linux/vmalloc.h>
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
@@ -408,6 +409,26 @@ int cpa_change(struct cpa_req *req)
 }
 
 /**
+ * cpa_req_add_op - add a set_memory() operation to a request
+ * @req: the request
+ * @op: the operation
+ */
+void cpa_req_add_op(struct cpa_req *req, enum cpa_prot op)
+{
+	const struct cpa_prot_op *p = &arch_cpa_prot_ops[op];
+
+	req->set = __pgprot(pgprot_val(req->set) | pgprot_val(p->set));
+	req->clr = __pgprot(pgprot_val(req->clr) | pgprot_val(p->clr));
+	if (!p->alias)
+		return;
+
+	req->alias_set = __pgprot(pgprot_val(req->alias_set) |
+				  pgprot_val(p->set));
+	req->alias_clr = __pgprot(pgprot_val(req->alias_clr) |
+				  pgprot_val(p->clr));
+}
+
+/**
  * cpa_alloc_table - allocate a page table to split a leaf
  * @req: the request
  * @level: level of the entries in the new table
@@ -492,3 +513,113 @@ void cpa_flush_ranges(struct cpa_req *req)
 	if (start != end)
 		flush_tlb_kernel_range(start, end);
 }
+
+static int cpa_set_memory(struct cpa_req *req, int numpages)
+{
+	if (numpages <= 0)
+		return 0;
+
+	if (WARN_ON_ONCE(!PAGE_ALIGNED(req->addr)))
+		return -EINVAL;
+
+	req->numpages = numpages;
+	return cpa_change(req);
+}
+
+static int cpa_set_memory_op(unsigned long addr, int numpages,
+			     enum cpa_prot op)
+{
+	struct cpa_req req = { .addr = addr };
+
+	cpa_req_add_op(&req, op);
+	return cpa_set_memory(&req, numpages);
+}
+
+int set_memory_ro(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_RO);
+}
+
+int set_memory_rw(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_RW);
+}
+
+int set_memory_x(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_X);
+}
+
+int set_memory_nx(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_NX);
+}
+
+int set_memory_np(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_NP);
+}
+
+int set_memory_p(unsigned long addr, int numpages)
+{
+	return cpa_set_memory_op(addr, numpages, CPA_PROT_P);
+}
+
+int set_memory_rox(unsigned long addr, int numpages)
+{
+	struct cpa_req req = { .addr = addr };
+
+	cpa_req_add_op(&req, CPA_PROT_RO);
+	cpa_req_add_op(&req, CPA_PROT_X);
+	return cpa_set_memory(&req, numpages);
+}
+
+#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
+static int cpa_set_direct_map(struct page *page, unsigned int nr,
+			      enum cpa_prot op)
+{
+	struct cpa_req req = {
+		.addr = (unsigned long)page_address(page),
+		.numpages = nr,
+		.flags = CPA_NOFLUSH | CPA_NO_ALIAS,
+	};
+
+	if (!can_set_direct_map())
+		return 0;
+
+	cpa_req_add_op(&req, op);
+	return cpa_change(&req);
+}
+
+int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_set_direct_map(page, nr, CPA_PROT_INVALID);
+}
+
+int set_direct_map_default_noflush(struct page *page, unsigned int nr)
+{
+	return cpa_set_direct_map(page, nr, CPA_PROT_DEFAULT);
+}
+
+/**
+ * kernel_page_present - check if a page is present in the direct map
+ * @page: the page
+ *
+ * The direct map tables are never freed, so the lookup does not need
+ * cpa_mutex.
+ *
+ * Return: false if the direct map entry of @page is not present.
+ */
+bool kernel_page_present(struct page *page)
+{
+	const struct cpa_prot_op *p = &arch_cpa_prot_ops[CPA_PROT_P];
+	unsigned long addr = (unsigned long)page_address(page);
+	struct cpa_leaf leaf;
+
+	if (cpa_lookup(addr, &leaf))
+		return false;
+
+	return ((pgprot_val(leaf.prot) & ~pgprot_val(p->clr)) |
+		pgprot_val(p->set)) == pgprot_val(leaf.prot);
+}
+#endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
