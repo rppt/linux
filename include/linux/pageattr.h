@@ -250,6 +250,11 @@ static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 }
 #endif
 
+#ifndef arch_cpa_stats_dir
+/* debugfs directory of the cpa_stats file */
+#define arch_cpa_stats_dir	NULL
+#endif
+
 #ifdef CONFIG_ARCH_HAS_DIRECT_MAP_COUNT
 void direct_map_count(enum pgtable_level level, long nr);
 #else

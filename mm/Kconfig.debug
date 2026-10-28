@@ -180,6 +180,16 @@ config DEBUG_RODATA_TEST
 	help
 	  This option enables a testcase for the setting rodata read-only.
 
+config CPA_STATISTICS
+	bool "Statistics of changes of kernel page permissions"
+	depends on DEBUG_FS && GENERIC_PAGEATTR
+	help
+	  Expose statistics of changes of kernel page permissions in
+	  debugfs. They show how often large leaves are preserved and how
+	  often they are split.
+
+	  If unsure, say N.
+
 config DEBUG_PAGEATTR
 	bool "Test changes of kernel page permissions"
 	depends on DEBUG_KERNEL && GENERIC_PAGEATTR

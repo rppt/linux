@@ -12,6 +12,7 @@
  *
  * The TLB maintenance after a request is up to the architecture.
  */
+#include <linux/debugfs.h>
 #include <linux/kasan.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
@@ -139,6 +140,75 @@ static int cpa_lookup(unsigned long addr, struct cpa_leaf *leaf)
 		return 0;
 
 	return -EINVAL;
+}
+
+enum cpa_stat {
+	CPA_STAT_CHECKED,	/* leaves checked by cpa_prepare() */
+	CPA_STAT_SAMEPROT,	/* large leaves that keep their permissions */
+	CPA_STAT_PRESERVED,	/* large leaves changed without a split */
+	CPA_STAT_SPLIT,		/* leaves split */
+	CPA_STAT_NR,
+};
+
+#ifdef CONFIG_CPA_STATISTICS
+static const char * const cpa_stat_names[CPA_STAT_NR] = {
+	[CPA_STAT_CHECKED]	= "checked",
+	[CPA_STAT_SAMEPROT]	= "sameprot",
+	[CPA_STAT_PRESERVED]	= "preserved",
+	[CPA_STAT_SPLIT]	= "split",
+};
+
+static unsigned long cpa_stats[PGTABLE_LEVEL_PGD + 1][CPA_STAT_NR];
+
+static void cpa_stat_inc(enum pgtable_level level, enum cpa_stat stat)
+{
+	/* CPA_ATOMIC requests do not take cpa_mutex */
+	data_race(cpa_stats[level][stat]++);
+}
+
+static int cpa_stats_show(struct seq_file *m, void *v)
+{
+	unsigned int level, i;
+
+	seq_printf(m, "%-5s", "level");
+	for (i = 0; i < CPA_STAT_NR; i++)
+		seq_printf(m, " %12s", cpa_stat_names[i]);
+	seq_putc(m, '\n');
+
+	for (level = 0; level <= PGTABLE_LEVEL_PGD; level++) {
+		seq_printf(m, "%-5s", pgtable_level_to_str(level));
+		for (i = 0; i < CPA_STAT_NR; i++)
+			seq_printf(m, " %12lu", data_race(cpa_stats[level][i]));
+		seq_putc(m, '\n');
+	}
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(cpa_stats);
+
+static int __init cpa_stats_init(void)
+{
+	debugfs_create_file("cpa_stats", 0400, arch_cpa_stats_dir, NULL,
+			    &cpa_stats_fops);
+	return 0;
+}
+late_initcall(cpa_stats_init);
+#else
+static inline void cpa_stat_inc(enum pgtable_level level,
+				enum cpa_stat stat) { }
+#endif /* CONFIG_CPA_STATISTICS */
+
+static void cpa_stat_check(struct cpa_leaf *leaf, bool split, pgprot_t prot)
+{
+	cpa_stat_inc(leaf->level, CPA_STAT_CHECKED);
+
+	if (split || leaf->size == PAGE_SIZE)
+		return;
+
+	if (pgprot_val(prot) == pgprot_val(leaf->prot))
+		cpa_stat_inc(leaf->level, CPA_STAT_SAMEPROT);
+	else
+		cpa_stat_inc(leaf->level, CPA_STAT_PRESERVED);
 }
 
 /* the end of a leaf or a hole may be past @range or wrap around to 0 */
@@ -346,6 +416,7 @@ static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 	if (err)
 		return err;
 
+	cpa_stat_inc(leaf->level, CPA_STAT_SPLIT);
 	direct_map_count_split(leaf);
 	req->changed |= CPA_CHANGED_SPLIT;
 	return 0;
@@ -357,6 +428,7 @@ static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 	struct cpa_range alias;
 	struct cpa_leaf leaf;
 	pgprot_t prot;
+	bool split;
 	int err;
 
 	for (addr = range->start; addr != range->end; addr = next) {
@@ -366,7 +438,9 @@ static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 		if (err)
 			return err;
 
-		if (cpa_must_split(req, range, &leaf, addr, next, &prot)) {
+		split = cpa_must_split(req, range, &leaf, addr, next, &prot);
+		cpa_stat_check(&leaf, split, prot);
+		if (split) {
 			err = cpa_split(req, &leaf);
 			if (err)
 				return err;
