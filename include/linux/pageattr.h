@@ -250,4 +250,39 @@ static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 }
 #endif
 
+#ifdef CONFIG_ARCH_HAS_DIRECT_MAP_COUNT
+void direct_map_count(enum pgtable_level level, long nr);
+#else
+static inline void direct_map_count(enum pgtable_level level, long nr) { }
+#endif
+
+#ifndef arch_direct_map_levels
+/*
+ * arch_direct_map_levels - mask of the levels the direct map may use,
+ * one DirectMap line per level in /proc/meminfo
+ */
+#ifdef __PAGETABLE_PUD_FOLDED
+#define arch_direct_map_levels()					\
+	(BIT(PGTABLE_LEVEL_PTE) | BIT(PGTABLE_LEVEL_PMD))
+#else
+#define arch_direct_map_levels()					\
+	(BIT(PGTABLE_LEVEL_PTE) | BIT(PGTABLE_LEVEL_PMD) |		\
+	 BIT(PGTABLE_LEVEL_PUD))
+#endif
+#endif
+
+#ifndef arch_direct_map_cont
+/*
+ * arch_direct_map_cont - number of the direct map entries at @level that are
+ * parts of contiguous groups, @size is set to the size of a group or to 0 if
+ * the level has no contiguous groups
+ */
+static inline unsigned long arch_direct_map_cont(enum pgtable_level level,
+						 unsigned long *size)
+{
+	*size = 0;
+	return 0;
+}
+#endif
+
 #endif /* _LINUX_PAGEATTR_H */

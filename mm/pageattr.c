@@ -16,6 +16,8 @@
 #include <linux/mm.h>
 #include <linux/mutex.h>
 #include <linux/pageattr.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/set_memory.h>
 #include <linux/vmalloc.h>
 #include <asm/pgalloc.h>
@@ -240,6 +242,87 @@ static bool cpa_must_split(struct cpa_req *req, struct cpa_range *range,
 	return start != leaf->start || end != leaf->start + leaf->size;
 }
 
+#ifdef CONFIG_ARCH_HAS_DIRECT_MAP_COUNT
+static atomic_long_t direct_map_entries[PGTABLE_LEVEL_PGD + 1];
+
+/**
+ * direct_map_count - account entries of the direct map
+ * @level: level of the entries
+ * @nr: number of mapped entries, negative for unmapped entries
+ *
+ * The architecture accounts the entries it maps and unmaps, the core
+ * accounts splits.
+ */
+void direct_map_count(enum pgtable_level level, long nr)
+{
+	atomic_long_add(nr, &direct_map_entries[level]);
+}
+
+/* a split of a contiguous group does not change the number of entries */
+static void direct_map_count_split(struct cpa_leaf *leaf)
+{
+	enum pgtable_level level = leaf->level;
+
+	if (leaf->nr > 1 || !cpa_in_direct_map(leaf->start))
+		return;
+
+	direct_map_count(level, -1);
+	direct_map_count(level - 1, leaf->size / cpa_level_size(level - 1));
+}
+
+#ifdef CONFIG_PROC_FS
+static const struct {
+	unsigned int shift;
+	char unit;
+} direct_map_units[] = {
+	{ 30, 'G' },
+	{ 20, 'M' },
+	{ 10, 'k' },
+};
+
+static void direct_map_show_line(struct seq_file *m, unsigned long size,
+				 unsigned long kb)
+{
+	char name[32];
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(direct_map_units) - 1; i++)
+		if (IS_ALIGNED(size, 1UL << direct_map_units[i].shift))
+			break;
+
+	snprintf(name, sizeof(name), "DirectMap%lu%c:",
+		 size >> direct_map_units[i].shift, direct_map_units[i].unit);
+	seq_printf(m, "%-16s%8lu kB\n", name, kb);
+}
+
+static void direct_map_show(struct seq_file *m, enum pgtable_level level)
+{
+	unsigned long size = cpa_level_size(level);
+	unsigned long nr = atomic_long_read(&direct_map_entries[level]);
+	unsigned long cont_size;
+	unsigned long cont;
+
+	/* the counters are updated without synchronization with readers */
+	cont = min(arch_direct_map_cont(level, &cont_size), nr);
+
+	direct_map_show_line(m, size, (nr - cont) * (size >> 10));
+	if (cont_size)
+		direct_map_show_line(m, cont_size, cont * (size >> 10));
+}
+
+void arch_report_meminfo(struct seq_file *m)
+{
+	unsigned long levels = arch_direct_map_levels();
+	unsigned int level;
+
+	for_each_set_bit(level, &levels, PGTABLE_LEVEL_PGD + 1)
+		direct_map_show(m, level);
+}
+#endif /* CONFIG_PROC_FS */
+#else
+static inline void direct_map_count_split(struct cpa_leaf *leaf) { }
+#endif /* CONFIG_ARCH_HAS_DIRECT_MAP_COUNT */
+
 static bool cpa_split_should_fail(struct cpa_req *req)
 {
 #ifdef CONFIG_PAGEATTR_KUNIT_TEST
@@ -263,6 +346,7 @@ static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 	if (err)
 		return err;
 
+	direct_map_count_split(leaf);
 	req->changed |= CPA_CHANGED_SPLIT;
 	return 0;
 }

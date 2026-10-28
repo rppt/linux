@@ -1339,6 +1339,14 @@ config GENERIC_PAGEATTR
 	  Select if the architecture uses the generic code to change
 	  permissions of the kernel page tables.
 
+config ARCH_HAS_DIRECT_MAP_COUNT
+	bool
+	depends on GENERIC_PAGEATTR
+	help
+	  Select if the architecture accounts the entries of the direct map
+	  with direct_map_count(). The generic code then accounts splits of
+	  the direct map and shows the counters in /proc/meminfo.
+
 config MEMFD_CREATE
 	bool "Enable memfd_create() system call" if EXPERT
 
