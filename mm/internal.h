@@ -1637,4 +1637,9 @@ static inline bool can_spin_trylock(void)
 /* char-mem.c */
 bool file_is_dev_zero(const struct file *file);
 
+/* pageattr.c and pageattr_test.c */
+struct cpa_leaf;
+int cpa_lookup_locked(unsigned long addr, struct cpa_leaf *leaf);
+int cpa_random_test(bool verbose);
+
 #endif	/* __MM_INTERNAL_H */

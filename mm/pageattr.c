@@ -21,6 +21,8 @@
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
 
+#include "internal.h"
+
 static DEFINE_MUTEX(cpa_mutex);
 
 static void cpa_lock(struct cpa_req *req)
@@ -238,12 +240,24 @@ static bool cpa_must_split(struct cpa_req *req, struct cpa_range *range,
 	return start != leaf->start || end != leaf->start + leaf->size;
 }
 
+static bool cpa_split_should_fail(struct cpa_req *req)
+{
+#ifdef CONFIG_PAGEATTR_KUNIT_TEST
+	return req->fail_split && !--req->fail_split;
+#else
+	return false;
+#endif
+}
+
 static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 {
 	int err;
 
 	if (WARN_ON_ONCE(leaf->size == PAGE_SIZE))
 		return -EINVAL;
+
+	if (cpa_split_should_fail(req))
+		return -ENOMEM;
 
 	err = arch_cpa_split(req, leaf);
 	if (err)
@@ -636,3 +650,11 @@ bool kernel_page_present(struct page *page)
 		pgprot_val(p->set)) == pgprot_val(leaf.prot);
 }
 #endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
+
+#if defined(CONFIG_PAGEATTR_KUNIT_TEST) || defined(CONFIG_DEBUG_PAGEATTR)
+int cpa_lookup_locked(unsigned long addr, struct cpa_leaf *leaf)
+{
+	guard(mutex)(&cpa_mutex);
+	return cpa_lookup(addr, leaf);
+}
+#endif

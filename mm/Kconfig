@@ -1500,6 +1500,18 @@ config LAZY_MMU_MODE_KUNIT_TEST
 
 	  If unsure, say N.
 
+config PAGEATTR_KUNIT_TEST
+	bool "KUnit tests for changing kernel page permissions" if !KUNIT_ALL_TESTS
+	depends on GENERIC_PAGEATTR
+	depends on KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Enable this option to test changes of permissions, splitting of
+	  large leaves and rollback on errors in the generic code that
+	  changes permissions of kernel pages.
+
+	  If unsure, say N.
+
 config ARCH_HAS_CHECK_WX
 	bool
 

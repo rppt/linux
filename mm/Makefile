@@ -129,6 +129,10 @@ obj-$(CONFIG_PAGE_EXTENSION) += page_ext.o
 obj-$(CONFIG_PAGE_TABLE_CHECK) += page_table_check.o
 obj-$(CONFIG_CMA_DEBUGFS) += cma_debug.o
 obj-$(CONFIG_GENERIC_PAGEATTR) += pageattr.o
+ifneq ($(CONFIG_DEBUG_PAGEATTR)$(CONFIG_PAGEATTR_KUNIT_TEST),)
+obj-y += pageattr_test.o
+endif
+obj-$(CONFIG_PAGEATTR_KUNIT_TEST) += tests/pageattr_kunit.o
 obj-$(CONFIG_SECRETMEM) += secretmem.o
 obj-$(CONFIG_CMA_SYSFS) += cma_sysfs.o
 obj-$(CONFIG_USERFAULTFD) += userfaultfd.o

@@ -71,6 +71,7 @@ struct cpa_prot_op {
  * @alias_clr: protection bits to clear in the aliases of the range
  * @flags: CPA_* request flags
  * @changed: CPA_CHANGED_* flags, set by the core
+ * @fail_split: fail the Nth split of the request, for the tests
  *
  * Aliases are the direct map addresses of the pages mapped by the range.
  * They are changed only if @alias_set or @alias_clr are not empty.
@@ -84,6 +85,9 @@ struct cpa_req {
 	pgprot_t alias_clr;
 	unsigned int flags;
 	unsigned int changed;
+#ifdef CONFIG_PAGEATTR_KUNIT_TEST
+	unsigned int fail_split;
+#endif
 };
 
 /**
