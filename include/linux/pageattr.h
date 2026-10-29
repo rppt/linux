@@ -75,7 +75,8 @@ struct cpa_prot_op {
  * @pgd: page table to change, NULL for init_mm
  * @fail_split: fail the Nth split of the request, for the tests
  *
- * Aliases are the direct map addresses of the pages mapped by the range.
+ * Aliases are the direct map addresses of the pages mapped by the range
+ * and the kernel image mapping of the direct map, see arch_cpa_image().
  * They are changed only if @alias_set or @alias_clr are not empty and
  * never for requests with @pgd.
  */
@@ -251,6 +252,24 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
 static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 {
 	return -EOPNOTSUPP;
+}
+#endif
+
+#ifndef arch_cpa_image
+/**
+ * arch_cpa_image - get the kernel image mapping
+ * @start: set to the start of the kernel image mapping
+ * @end: set to the end of the kernel image mapping
+ *
+ * Architectures that map the kernel image outside the direct map with a
+ * constant offset from its physical address report that mapping here.
+ * It becomes the alias of the direct map of the kernel image.
+ *
+ * Return: false if the kernel image is mapped only by the direct map.
+ */
+static inline bool arch_cpa_image(unsigned long *start, unsigned long *end)
+{
+	return false;
 }
 #endif
 

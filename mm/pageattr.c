@@ -8,7 +8,8 @@
  * change permissions, so a failed request does not change any permission.
  *
  * Every part of the request is processed together with its alias, the
- * direct map address of the same pages.
+ * direct map address of the same pages, or for the direct map, the kernel
+ * image mapping of the same pages if the architecture has one.
  *
  * The TLB maintenance after a request is up to the architecture.
  */
@@ -262,9 +263,51 @@ static bool cpa_in_direct_map(unsigned long addr)
 	return (unsigned long)__va(__pa(addr)) == addr;
 }
 
+static void cpa_set_alias(struct cpa_req *req, struct cpa_range *alias,
+			  unsigned long start, unsigned long end)
+{
+	*alias = (struct cpa_range) {
+		.start = start,
+		.end = end,
+		.set = req->alias_set,
+		.clr = req->alias_clr,
+		.alias = true,
+	};
+}
+
+/* The kernel image mapping alias of the pfns [@pfn, @last] */
+static bool cpa_get_image_alias(struct cpa_req *req, unsigned long pfn,
+				unsigned long last, struct cpa_range *alias)
+{
+	unsigned long start, end, spfn, epfn;
+
+	if (!arch_cpa_image(&start, &end))
+		return false;
+
+	spfn = PHYS_PFN(__pa_symbol(start));
+	epfn = spfn + ((end - start) >> PAGE_SHIFT) - 1;
+	pfn = max(pfn, spfn);
+	last = min(last, epfn);
+	if (pfn > last)
+		return false;
+
+	start += PFN_PHYS(pfn - spfn);
+	cpa_set_alias(req, alias, start, start + PFN_PHYS(last - pfn + 1));
+	return true;
+}
+
+static bool cpa_in_image(unsigned long addr)
+{
+	unsigned long start, end;
+
+	return arch_cpa_image(&start, &end) && addr >= start && addr < end;
+}
+
 /*
- * Get the direct map alias of the part [@start, @end) of @leaf, if the leaf
- * is not in the direct map itself.
+ * Get the alias of the part [@start, @end) of @leaf: the direct map if the
+ * leaf is not in the direct map, or the kernel image mapping if it is.
+ * The direct map alias has the kernel image alias as well, unless the
+ * request is in the kernel image.
  */
 static bool cpa_get_alias(struct cpa_req *req, struct cpa_range *range,
 			  struct cpa_leaf *leaf, unsigned long start,
@@ -273,24 +316,23 @@ static bool cpa_get_alias(struct cpa_req *req, struct cpa_range *range,
 	unsigned long pfn = leaf->pfn + ((start - leaf->start) >> PAGE_SHIFT);
 	unsigned long last = pfn + ((end - start) >> PAGE_SHIFT) - 1;
 
-	if (range->alias || (req->flags & CPA_NO_ALIAS))
+	if (req->flags & CPA_NO_ALIAS)
 		return false;
 	if (!pgprot_val(req->alias_set) && !pgprot_val(req->alias_clr))
 		return false;
-	if (cpa_in_direct_map(start))
+	if (cpa_in_direct_map(start)) {
+		if (range->alias && cpa_in_image(req->addr))
+			return false;
+		return cpa_get_image_alias(req, pfn, last, alias);
+	}
+	if (range->alias)
 		return false;
 	if (!pfn_valid(pfn) || !pfn_valid(last) ||
 	    PageHighMem(pfn_to_page(pfn)) || PageHighMem(pfn_to_page(last)))
 		return false;
 
-	*alias = (struct cpa_range) {
-		.start = (unsigned long)__va(PFN_PHYS(pfn)),
-		.end = (unsigned long)__va(PFN_PHYS(last)) + PAGE_SIZE,
-		.set = req->alias_set,
-		.clr = req->alias_clr,
-		.alias = true,
-	};
-
+	cpa_set_alias(req, alias, (unsigned long)__va(PFN_PHYS(pfn)),
+		      (unsigned long)__va(PFN_PHYS(last)) + PAGE_SIZE);
 	return true;
 }
 
