@@ -29,7 +29,6 @@
 #include <linux/kfence.h>
 #include <linux/pkeys.h>
 #include <linux/mm_inline.h>
-#include <linux/pagewalk.h>
 #include <linux/stop_machine.h>
 
 #include <asm/barrier.h>
@@ -699,6 +698,8 @@ static inline bool force_pte_mapping(void)
 }
 
 static bool linear_map_requires_bbml3;
+/* the secondary CPUs wait in the idmap while the boot CPU splits */
+static bool linear_map_splitting;
 
 /*
  * Splitting live mappings requires BBML3 on all CPUs. Before the capabilities
@@ -707,7 +708,7 @@ static bool linear_map_requires_bbml3;
  */
 static int cpa_split_allowed(void)
 {
-	if (system_supports_bbml3())
+	if (system_supports_bbml3() || linear_map_splitting)
 		return 0;
 
 	if (!linear_map_requires_bbml3 || system_capabilities_finalized())
@@ -764,70 +765,6 @@ int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 	return ret;
 }
 
-static int split_to_ptes_pud_entry(pud_t *pudp, unsigned long addr,
-				   unsigned long next, struct mm_walk *walk)
-{
-	gfp_t gfp = *(gfp_t *)walk->private;
-	pud_t pud = pudp_get(pudp);
-	int ret = 0;
-
-	if (pud_leaf(pud))
-		ret = split_pud(pudp, pud, gfp, false);
-
-	return ret;
-}
-
-static int split_to_ptes_pmd_entry(pmd_t *pmdp, unsigned long addr,
-				   unsigned long next, struct mm_walk *walk)
-{
-	gfp_t gfp = *(gfp_t *)walk->private;
-	pmd_t pmd = pmdp_get(pmdp);
-	int ret = 0;
-
-	if (pmd_leaf(pmd)) {
-		if (pmd_cont(pmd))
-			split_contpmd(pmdp);
-		ret = split_pmd(pmdp, pmd, gfp, false);
-
-		/*
-		 * We have split the pmd directly to ptes so there is no need to
-		 * visit each pte to check if they are contpte.
-		 */
-		walk->action = ACTION_CONTINUE;
-	}
-
-	return ret;
-}
-
-static int split_to_ptes_pte_entry(pte_t *ptep, unsigned long addr,
-				   unsigned long next, struct mm_walk *walk)
-{
-	pte_t pte = __ptep_get(ptep);
-
-	if (pte_cont(pte))
-		split_contpte(ptep);
-
-	return 0;
-}
-
-static const struct mm_walk_ops split_to_ptes_ops = {
-	.pud_entry	= split_to_ptes_pud_entry,
-	.pmd_entry	= split_to_ptes_pmd_entry,
-	.pte_entry	= split_to_ptes_pte_entry,
-};
-
-static int range_split_to_ptes(unsigned long start, unsigned long end, gfp_t gfp)
-{
-	int ret;
-
-	lazy_mmu_mode_enable();
-	ret = walk_kernel_page_table_range_lockless(start, end,
-					&split_to_ptes_ops, NULL, &gfp);
-	lazy_mmu_mode_disable();
-
-	return ret;
-}
-
 u32 idmap_kpti_bbml3_flag;
 
 static void __init init_idmap_kpti_bbml3_flag(void)
@@ -835,6 +772,21 @@ static void __init init_idmap_kpti_bbml3_flag(void)
 	WRITE_ONCE(idmap_kpti_bbml3_flag, 1);
 	/* Must be visible to other CPUs before stop_machine() is called. */
 	smp_mb();
+}
+
+static void __init linear_map_split_range(phys_addr_t start, phys_addr_t end)
+{
+	struct cpa_req req = {
+		.addr = (unsigned long)__va(start),
+		.numpages = (end - start) >> PAGE_SHIFT,
+		.flags = CPA_SPLIT | CPA_ATOMIC | CPA_NO_ALIAS,
+	};
+
+	if (start >= end)
+		return;
+
+	if (cpa_change(&req))
+		panic("Failed to split linear map\n");
 }
 
 static int __init linear_map_split_to_ptes(void *__unused)
@@ -847,9 +799,10 @@ static int __init linear_map_split_to_ptes(void *__unused)
 	if (!smp_processor_id()) {
 		unsigned long lstart = _PAGE_OFFSET(vabits_actual);
 		unsigned long lend = PAGE_END;
-		unsigned long kstart = (unsigned long)lm_alias(_stext);
-		unsigned long kend = (unsigned long)lm_alias(__init_begin);
-		int ret;
+		phys_addr_t kstart = __pa_symbol(_stext);
+		phys_addr_t kend = __pa_symbol(__init_begin);
+		phys_addr_t start, end;
+		u64 i;
 
 		/*
 		 * Wait for all secondary CPUs to be put into the waiting area.
@@ -857,16 +810,19 @@ static int __init linear_map_split_to_ptes(void *__unused)
 		smp_cond_load_acquire(&idmap_kpti_bbml3_flag, VAL == num_online_cpus());
 
 		/*
-		 * Walk all of the linear map [lstart, lend), except the kernel
-		 * linear map alias [kstart, kend), and split all mappings to
-		 * PTE. The kernel alias remains static throughout runtime so
-		 * can continue to be safely mapped with large mappings.
+		 * Split all of the linear map, except the kernel linear map
+		 * alias [kstart, kend), to PTEs. The kernel alias remains
+		 * static throughout runtime so can continue to be safely
+		 * mapped with large mappings.
 		 */
-		ret = range_split_to_ptes(lstart, kstart, GFP_ATOMIC);
-		if (!ret)
-			ret = range_split_to_ptes(kend, lend, GFP_ATOMIC);
-		if (ret)
-			panic("Failed to split linear map\n");
+		linear_map_splitting = true;
+		for_each_mem_range(i, &start, &end) {
+			start = PAGE_ALIGN(start);
+			end &= PAGE_MASK;
+			linear_map_split_range(start, min(end, kstart));
+			linear_map_split_range(max(start, kend), end);
+		}
+		linear_map_splitting = false;
 		flush_tlb_kernel_range(lstart, lend);
 
 		/*
