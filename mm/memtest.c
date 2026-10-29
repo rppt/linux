@@ -3,6 +3,7 @@
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/memblock.h>
+#include <linux/mm.h>
 #include <linux/seq_file.h>
 
 static bool early_memtest_done;
@@ -51,6 +52,8 @@ static void __init memtest(u64 pattern, phys_addr_t start_phys, phys_addr_t size
 	last_bad = 0;
 
 	VM_WARN_ON_ONCE(size < start_phys_aligned - start_phys);
+
+	accept_memory(start_phys, size);
 
 	for (p = start; p < end; p++)
 		WRITE_ONCE(*p, pattern);
