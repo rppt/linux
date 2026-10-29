@@ -7,6 +7,7 @@
 #include <linux/kthread.h>
 #include <linux/workqueue.h>
 #include <linux/memblock.h>
+#include <linux/mm.h>
 
 #include <asm/proto.h>
 #include <asm/setup.h>
@@ -122,6 +123,7 @@ void __init setup_bios_corruption_check(void)
 			continue;
 
 		memblock_reserve(start, end - start);
+		accept_memory(start, end - start);
 		scan_areas[num_scan_areas].addr = start;
 		scan_areas[num_scan_areas].size = end - start;
 
