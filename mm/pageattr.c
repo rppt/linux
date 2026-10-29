@@ -91,10 +91,11 @@ static bool cpa_read_leaf(unsigned long addr, struct cpa_leaf *leaf)
 }
 
 /*
- * Find the leaf that maps @addr. If @addr is not mapped, return -ENOENT with
- * @leaf->level set to the level of the empty entry.
+ * Find the leaf that maps @addr in @pgd, or in init_mm if @pgd is NULL.
+ * If @addr is not mapped, return -ENOENT with @leaf->level set to the level
+ * of the empty entry.
  */
-static int cpa_lookup(unsigned long addr, struct cpa_leaf *leaf)
+static int cpa_lookup(pgd_t *pgd, unsigned long addr, struct cpa_leaf *leaf)
 {
 	pgd_t *pgdp;
 	p4d_t *p4dp;
@@ -102,7 +103,7 @@ static int cpa_lookup(unsigned long addr, struct cpa_leaf *leaf)
 	pmd_t *pmdp;
 	pte_t *ptep;
 
-	pgdp = pgd_offset_k(addr);
+	pgdp = pgd ? pgd_offset_pgd(pgd, addr) : pgd_offset_k(addr);
 	leaf->level = PGTABLE_LEVEL_PGD;
 	if (pgd_none(pgdp_get(pgdp)))
 		return -ENOENT;
@@ -221,16 +222,17 @@ static unsigned long cpa_clamp(struct cpa_range *range, unsigned long addr)
 
 /*
  * Find the leaf that maps @addr and set @next to the end of the part of
- * @range it maps. Holes in the range fail the request, holes in its aliases
- * are skipped.
+ * @range it maps. Holes in the range fail the request unless it has
+ * CPA_SKIP_HOLES, holes in its aliases are skipped.
  */
-static int cpa_find_leaf(struct cpa_range *range, unsigned long addr,
-			 struct cpa_leaf *leaf, unsigned long *next)
+static int cpa_find_leaf(struct cpa_req *req, struct cpa_range *range,
+			 unsigned long addr, struct cpa_leaf *leaf,
+			 unsigned long *next)
 {
 	unsigned long size;
 	int err;
 
-	err = cpa_lookup(addr, leaf);
+	err = cpa_lookup(req->pgd, addr, leaf);
 	if (!err) {
 		*next = cpa_clamp(range, leaf->start + leaf->size);
 		return 0;
@@ -241,7 +243,9 @@ static int cpa_find_leaf(struct cpa_range *range, unsigned long addr,
 	size = cpa_level_size(leaf->level);
 	*next = cpa_clamp(range, ALIGN_DOWN(addr, size) + size);
 
-	return range->alias ? -ENOENT : -EFAULT;
+	if (range->alias || (req->flags & CPA_SKIP_HOLES))
+		return -ENOENT;
+	return -EFAULT;
 }
 
 /*
@@ -417,7 +421,8 @@ static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 		return err;
 
 	cpa_stat_inc(leaf->level, CPA_STAT_SPLIT);
-	direct_map_count_split(leaf);
+	if (!req->pgd)
+		direct_map_count_split(leaf);
 	req->changed |= CPA_CHANGED_SPLIT;
 	return 0;
 }
@@ -432,7 +437,7 @@ static int cpa_prepare_range(struct cpa_req *req, struct cpa_range *range)
 	int err;
 
 	for (addr = range->start; addr != range->end; addr = next) {
-		err = cpa_find_leaf(range, addr, &leaf, &next);
+		err = cpa_find_leaf(req, range, addr, &leaf, &next);
 		if (err == -ENOENT)
 			continue;
 		if (err)
@@ -485,7 +490,7 @@ static void cpa_update_range(struct cpa_req *req, struct cpa_range *range)
 	int err;
 
 	for (addr = range->start; addr != range->end; addr = next) {
-		err = cpa_find_leaf(range, addr, &leaf, &next);
+		err = cpa_find_leaf(req, range, addr, &leaf, &next);
 		if (err == -ENOENT)
 			continue;
 		if (WARN_ON_ONCE(err))
@@ -557,6 +562,10 @@ int cpa_change(struct cpa_req *req)
 
 	req->addr = (unsigned long)kasan_reset_tag((void *)req->addr);
 	req->changed = 0;
+
+	/* the aliases are in init_mm */
+	if (req->pgd)
+		req->flags |= CPA_NO_ALIAS;
 
 	if (!req->numpages)
 		return 0;
@@ -679,7 +688,7 @@ void cpa_flush_ranges(struct cpa_req *req)
 		return;
 
 	for (addr = range.start; addr != range.end; addr = next) {
-		if (cpa_find_leaf(&range, addr, &leaf, &next))
+		if (cpa_find_leaf(req, &range, addr, &leaf, &next))
 			continue;
 		if (!cpa_get_alias(req, &range, &leaf, addr, next, &alias))
 			continue;
@@ -801,7 +810,7 @@ bool kernel_page_present(struct page *page)
 	unsigned long addr = (unsigned long)page_address(page);
 	struct cpa_leaf leaf;
 
-	if (cpa_lookup(addr, &leaf))
+	if (cpa_lookup(NULL, addr, &leaf))
 		return false;
 
 	return ((pgprot_val(leaf.prot) & ~pgprot_val(p->clr)) |
@@ -813,6 +822,6 @@ bool kernel_page_present(struct page *page)
 int cpa_lookup_locked(unsigned long addr, struct cpa_leaf *leaf)
 {
 	guard(mutex)(&cpa_mutex);
-	return cpa_lookup(addr, leaf);
+	return cpa_lookup(NULL, addr, leaf);
 }
 #endif

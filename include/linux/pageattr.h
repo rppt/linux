@@ -15,6 +15,7 @@
  */
 #define CPA_ATOMIC	BIT(2)
 #define CPA_SPLIT	BIT(3)	/* only split leaves larger than PAGE_SIZE */
+#define CPA_SKIP_HOLES	BIT(4)	/* skip unmapped parts of the range */
 
 /* What a request changed, set by the core */
 #define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */
@@ -71,10 +72,12 @@ struct cpa_prot_op {
  * @alias_clr: protection bits to clear in the aliases of the range
  * @flags: CPA_* request flags
  * @changed: CPA_CHANGED_* flags, set by the core
+ * @pgd: page table to change, NULL for init_mm
  * @fail_split: fail the Nth split of the request, for the tests
  *
  * Aliases are the direct map addresses of the pages mapped by the range.
- * They are changed only if @alias_set or @alias_clr are not empty.
+ * They are changed only if @alias_set or @alias_clr are not empty and
+ * never for requests with @pgd.
  */
 struct cpa_req {
 	unsigned long addr;
@@ -85,6 +88,7 @@ struct cpa_req {
 	pgprot_t alias_clr;
 	unsigned int flags;
 	unsigned int changed;
+	pgd_t *pgd;
 #ifdef CONFIG_PAGEATTR_KUNIT_TEST
 	unsigned int fail_split;
 #endif
