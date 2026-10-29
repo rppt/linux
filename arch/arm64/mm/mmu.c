@@ -601,7 +601,8 @@ static void split_contpte(pte_t *ptep)
 		__set_pte(ptep, pte_mknoncont(__ptep_get(ptep)));
 }
 
-static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
+static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont,
+		     bool pxn_table)
 {
 	pmdval_t tableprot = PMD_TYPE_TABLE | PMD_TABLE_UXN | PMD_TABLE_AF;
 	unsigned long pfn = pmd_pfn(pmd);
@@ -615,7 +616,7 @@ static int split_pmd(pmd_t *pmdp, pmd_t pmd, gfp_t gfp, bool to_cont)
 		return -ENOMEM;
 	ptep = (pte_t *)phys_to_virt(pte_phys);
 
-	if (pgprot_val(prot) & PMD_SECT_PXN)
+	if (pxn_table && (pgprot_val(prot) & PMD_SECT_PXN))
 		tableprot |= PMD_TABLE_PXN;
 
 	prot = __pgprot((pgprot_val(prot) & ~PTE_TYPE_MASK) | PTE_TYPE_PAGE);
@@ -647,7 +648,8 @@ static void split_contpmd(pmd_t *pmdp)
 		set_pmd(pmdp, pmd_mknoncont(pmdp_get(pmdp)));
 }
 
-static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
+static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont,
+		     bool pxn_table)
 {
 	pudval_t tableprot = PUD_TYPE_TABLE | PUD_TABLE_UXN | PUD_TABLE_AF;
 	unsigned int step = PMD_SIZE >> PAGE_SHIFT;
@@ -662,7 +664,7 @@ static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
 		return -ENOMEM;
 	pmdp = (pmd_t *)phys_to_virt(pmd_phys);
 
-	if (pgprot_val(prot) & PMD_SECT_PXN)
+	if (pxn_table && (pgprot_val(prot) & PMD_SECT_PXN))
 		tableprot |= PUD_TABLE_PXN;
 
 	prot = __pgprot((pgprot_val(prot) & ~PMD_TYPE_MASK) | PMD_TYPE_SECT);
@@ -727,6 +729,9 @@ static int cpa_split_allowed(void)
 
 static int cpa_split_leaf(struct cpa_leaf *leaf, gfp_t gfp, bool to_cont)
 {
+	/* parts of vmalloc blocks may be made executable */
+	bool pxn = __is_lm_address(leaf->start);
+
 	switch (leaf->level) {
 	case PGTABLE_LEVEL_PTE:
 		split_contpte(leaf->entry);
@@ -734,14 +739,14 @@ static int cpa_split_leaf(struct cpa_leaf *leaf, gfp_t gfp, bool to_cont)
 	case PGTABLE_LEVEL_PMD:
 		if (leaf->nr == 1)
 			return split_pmd(leaf->entry, pmdp_get(leaf->entry),
-					 gfp, to_cont);
+					 gfp, to_cont, pxn);
 		split_contpmd(leaf->entry);
 		return 0;
 	case PGTABLE_LEVEL_PUD:
 		if (CONFIG_PGTABLE_LEVELS == 2)
 			return -EINVAL;
 		return split_pud(leaf->entry, pudp_get(leaf->entry), gfp,
-				 to_cont);
+				 to_cont, pxn);
 	default:
 		return -EINVAL;
 	}

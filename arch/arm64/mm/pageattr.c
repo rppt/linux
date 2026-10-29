@@ -92,16 +92,10 @@ int arch_cpa_check(struct cpa_req *req)
 	if (__is_lm_address(start) && __is_lm_address(end - 1))
 		return pgprot_val(req->clr) & PTE_PXN ? -EINVAL : 0;
 
-	/*
-	 * Splitting vmalloc leaves needs BBML3, allow only areas that are
-	 * mapped with base pages.
-	 */
 	area = find_vm_area((void *)start);
-	if (!area)
+	if (!area || !(area->flags & VM_ALLOC))
 		return -EINVAL;
 	if (end > (unsigned long)kasan_reset_tag(area->addr) + area->size)
-		return -EINVAL;
-	if ((area->flags & (VM_ALLOC | VM_ALLOW_HUGE_VMAP)) != VM_ALLOC)
 		return -EINVAL;
 
 	return 0;
