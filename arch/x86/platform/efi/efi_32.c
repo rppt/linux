@@ -25,11 +25,11 @@
 #include <linux/ioport.h>
 #include <linux/efi.h>
 #include <linux/pgtable.h>
+#include <linux/set_memory.h>
 
 #include <asm/io.h>
 #include <asm/desc.h>
 #include <asm/page.h>
-#include <asm/set_memory.h>
 #include <asm/tlbflush.h>
 #include <asm/efi.h>
 

@@ -11,12 +11,12 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 #include <linux/export.h>
+#include <linux/set_memory.h>
 #include <asm/svm.h>
 #include <asm/sev.h>
 #include <asm/io.h>
 #include <asm/coco.h>
 #include <asm/mem_encrypt.h>
-#include <asm/set_memory.h>
 #include <asm/mshyperv.h>
 #include <asm/hypervisor.h>
 #include <asm/mtrr.h>

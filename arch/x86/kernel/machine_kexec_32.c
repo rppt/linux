@@ -12,6 +12,7 @@
 #include <linux/suspend.h>
 #include <linux/gfp.h>
 #include <linux/io.h>
+#include <linux/set_memory.h>
 
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
@@ -20,7 +21,6 @@
 #include <asm/io_apic.h>
 #include <asm/cpufeature.h>
 #include <asm/desc.h>
-#include <asm/set_memory.h>
 #include <asm/debugreg.h>
 
 static void load_segments(void)

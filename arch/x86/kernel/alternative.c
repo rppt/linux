@@ -9,12 +9,12 @@
 #include <linux/cleanup.h>
 #include <linux/kgdb.h>
 #include <linux/mmap_lock.h>
+#include <linux/set_memory.h>
 
 #include <asm/text-patching.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/ibt.h>
-#include <asm/set_memory.h>
 #include <asm/nmi.h>
 
 int __read_mostly alternatives_patched;

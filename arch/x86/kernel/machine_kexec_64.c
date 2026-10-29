@@ -18,6 +18,7 @@
 #include <linux/vmalloc.h>
 #include <linux/efi.h>
 #include <linux/cc_platform.h>
+#include <linux/set_memory.h>
 
 #include <asm/init.h>
 #include <asm/tlbflush.h>
@@ -26,7 +27,6 @@
 #include <asm/debugreg.h>
 #include <asm/kexec-bzimage64.h>
 #include <asm/setup.h>
-#include <asm/set_memory.h>
 #include <asm/cpu.h>
 #include <asm/efi.h>
 #include <asm/processor.h>
