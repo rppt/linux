@@ -22,6 +22,7 @@
 #include <linux/fs.h>
 #include <linux/io.h>
 #include <linux/mm.h>
+#include <linux/pageattr.h>
 #include <linux/vmalloc.h>
 #include <linux/set_memory.h>
 #include <linux/suspend.h>
@@ -685,97 +686,6 @@ static int split_pud(pud_t *pudp, pud_t pud, gfp_t gfp, bool to_cont)
 	return 0;
 }
 
-static int split_kernel_leaf_mapping_locked(unsigned long addr)
-{
-	pgd_t *pgdp, pgd;
-	p4d_t *p4dp, p4d;
-	pud_t *pudp, pud;
-	pmd_t *pmdp, pmd;
-	pte_t *ptep, pte;
-	int ret = 0;
-
-	/*
-	 * PGD: If addr is PGD aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split.
-	 */
-	if (ALIGN_DOWN(addr, PGDIR_SIZE) == addr)
-		goto out;
-	pgdp = pgd_offset_k(addr);
-	pgd = pgdp_get(pgdp);
-	if (!pgd_present(pgd))
-		goto out;
-
-	/*
-	 * P4D: If addr is P4D aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split.
-	 */
-	if (ALIGN_DOWN(addr, P4D_SIZE) == addr)
-		goto out;
-	p4dp = p4d_offset(pgdp, addr);
-	p4d = p4dp_get(p4dp);
-	if (!p4d_present(p4d))
-		goto out;
-
-	/*
-	 * PUD: If addr is PUD aligned then addr already describes a leaf
-	 * boundary. If not present then there is nothing to split. Otherwise,
-	 * if we have a pud leaf, split to contpmd.
-	 */
-	if (ALIGN_DOWN(addr, PUD_SIZE) == addr)
-		goto out;
-	pudp = pud_offset(p4dp, addr);
-	pud = pudp_get(pudp);
-	if (!pud_present(pud))
-		goto out;
-	if (pud_leaf(pud)) {
-		ret = split_pud(pudp, pud, GFP_PGTABLE_KERNEL, true);
-		if (ret)
-			goto out;
-	}
-
-	/*
-	 * CONTPMD: If addr is CONTPMD aligned then addr already describes a
-	 * leaf boundary. If not present then there is nothing to split.
-	 * Otherwise, if we have a contpmd leaf, split to pmd.
-	 */
-	if (ALIGN_DOWN(addr, CONT_PMD_SIZE) == addr)
-		goto out;
-	pmdp = pmd_offset(pudp, addr);
-	pmd = pmdp_get(pmdp);
-	if (!pmd_present(pmd))
-		goto out;
-	if (pmd_leaf(pmd)) {
-		if (pmd_cont(pmd))
-			split_contpmd(pmdp);
-		/*
-		 * PMD: If addr is PMD aligned then addr already describes a
-		 * leaf boundary. Otherwise, split to contpte.
-		 */
-		if (ALIGN_DOWN(addr, PMD_SIZE) == addr)
-			goto out;
-		ret = split_pmd(pmdp, pmd, GFP_PGTABLE_KERNEL, true);
-		if (ret)
-			goto out;
-	}
-
-	/*
-	 * CONTPTE: If addr is CONTPTE aligned then addr already describes a
-	 * leaf boundary. If not present then there is nothing to split.
-	 * Otherwise, if we have a contpte leaf, split to pte.
-	 */
-	if (ALIGN_DOWN(addr, CONT_PTE_SIZE) == addr)
-		goto out;
-	ptep = pte_offset_kernel(pmdp, addr);
-	pte = __ptep_get(ptep);
-	if (!pte_present(pte))
-		goto out;
-	if (pte_cont(pte))
-		split_contpte(ptep);
-
-out:
-	return ret;
-}
-
 static inline bool force_pte_mapping(void)
 {
 	const bool bbml3 = system_capabilities_finalized() ?
@@ -788,84 +698,69 @@ static inline bool force_pte_mapping(void)
 	return rodata_full || arm64_kfence_can_set_direct_map() || is_realm_world();
 }
 
-static DEFINE_MUTEX(pgtable_split_lock);
 static bool linear_map_requires_bbml3;
 
-int split_kernel_leaf_mapping(unsigned long start, unsigned long end)
+/*
+ * Splitting live mappings requires BBML3 on all CPUs. Before the capabilities
+ * are finalized, the boot CPU may split the linear map it mapped with large
+ * leaves if it supports BBML3 and it is the only online CPU.
+ */
+static int cpa_split_allowed(void)
 {
-	int ret;
-
-	/*
-	 * If the region is within a pte-mapped area, there is no need to try to
-	 * split. Additionally, CONFIG_DEBUG_PAGEALLOC and CONFIG_KFENCE may
-	 * change permissions from atomic context so for those cases (which are
-	 * always pte-mapped), we must not go any further because taking the
-	 * mutex below may sleep. Do not call force_pte_mapping() here because
-	 * it could return a confusing result if called from a secondary cpu
-	 * prior to finalizing caps. Instead, linear_map_requires_bbml3 gives us
-	 * what we need.
-	 */
-	if (!linear_map_requires_bbml3 || is_kfence_address((void *)start))
+	if (system_supports_bbml3())
 		return 0;
 
-	if (!system_supports_bbml3()) {
-		/*
-		 * BBML3 systems should not be trying to change
-		 * permissions on anything that is not pte-mapped in the first
-		 * place. Just return early and let the permission change code
-		 * raise a warning if not already pte-mapped.
-		 */
-		if (system_capabilities_finalized())
-			return 0;
+	if (!linear_map_requires_bbml3 || system_capabilities_finalized())
+		return -EOPNOTSUPP;
 
-		/*
-		 * Boot-time: split_kernel_leaf_mapping_locked() allocates from
-		 * page allocator. Can't split until it's available.
-		 */
-		if (WARN_ON(!page_alloc_available))
-			return -EBUSY;
+	/* split_pmd() and split_pud() allocate from the page allocator */
+	if (WARN_ON(!page_alloc_available))
+		return -EBUSY;
 
-		/*
-		 * Boot-time: Started secondary cpus but don't know if they
-		 * support BBML3 yet. Can't allow splitting in this window
-		 * in case they don't.
-		 */
-		if (WARN_ON(num_online_cpus() > 1))
-			return -EBUSY;
-	}
+	/* the secondary CPUs may not support BBML3 */
+	if (WARN_ON(num_online_cpus() > 1))
+		return -EBUSY;
 
-	/*
-	 * Ensure start and end are at least page-aligned since this is the
-	 * finest granularity we can split to.
-	 */
-	if (start != PAGE_ALIGN(start) || end != PAGE_ALIGN(end))
+	return 0;
+}
+
+static int cpa_split_leaf(struct cpa_leaf *leaf, gfp_t gfp, bool to_cont)
+{
+	switch (leaf->level) {
+	case PGTABLE_LEVEL_PTE:
+		split_contpte(leaf->entry);
+		return 0;
+	case PGTABLE_LEVEL_PMD:
+		if (leaf->nr == 1)
+			return split_pmd(leaf->entry, pmdp_get(leaf->entry),
+					 gfp, to_cont);
+		split_contpmd(leaf->entry);
+		return 0;
+	case PGTABLE_LEVEL_PUD:
+		if (CONFIG_PGTABLE_LEVELS == 2)
+			return -EINVAL;
+		return split_pud(leaf->entry, pudp_get(leaf->entry), gfp,
+				 to_cont);
+	default:
 		return -EINVAL;
-
-	mutex_lock(&pgtable_split_lock);
-	lazy_mmu_mode_enable();
-
-	/*
-	 * The split_kernel_leaf_mapping_locked() may sleep, it is not a
-	 * problem for ARM64 since ARM64's lazy MMU implementation allows
-	 * sleeping.
-	 *
-	 * Optimize for the common case of splitting out a single page from a
-	 * larger mapping. Here we can just split on the "least aligned" of
-	 * start and end and this will guarantee that there must also be a split
-	 * on the more aligned address since the both addresses must be in the
-	 * same contpte block and it must have been split to ptes.
-	 */
-	if (end - start == PAGE_SIZE) {
-		start = __ffs(start) < __ffs(end) ? start : end;
-		ret = split_kernel_leaf_mapping_locked(start);
-	} else {
-		ret = split_kernel_leaf_mapping_locked(start);
-		if (!ret)
-			ret = split_kernel_leaf_mapping_locked(end);
 	}
+}
 
+int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
+{
+	gfp_t gfp = req->flags & CPA_ATOMIC ? GFP_ATOMIC : GFP_PGTABLE_KERNEL;
+	/* contiguous entries use fewer TLB entries */
+	bool to_cont = !(req->flags & CPA_SPLIT);
+	int ret;
+
+	ret = cpa_split_allowed();
+	if (ret)
+		return ret;
+
+	lazy_mmu_mode_enable();
+	ret = cpa_split_leaf(leaf, gfp, to_cont);
 	lazy_mmu_mode_disable();
-	mutex_unlock(&pgtable_split_lock);
+
 	return ret;
 }
 
@@ -1063,9 +958,13 @@ static void __init __map_memblock(phys_addr_t start, phys_addr_t end,
 
 static void mark_linear_data_alias_valid(bool valid)
 {
-	set_memory_valid((unsigned long)lm_alias(__init_end),
-			 (unsigned long)(__bss_stop - __init_end) / PAGE_SIZE,
-			 valid);
+	unsigned long addr = (unsigned long)lm_alias(__init_end);
+	int numpages = (__bss_stop - __init_end) / PAGE_SIZE;
+
+	if (valid)
+		set_memory_p(addr, numpages);
+	else
+		set_memory_np(addr, numpages);
 }
 
 static int arm64_hibernate_pm_notify(struct notifier_block *nb,
@@ -1147,9 +1046,11 @@ static void __init arm64_kfence_map_pool(void)
 
 bool arch_kfence_init_pool(void)
 {
-	unsigned long start = (unsigned long)__kfence_pool;
-	unsigned long end = start + KFENCE_POOL_SIZE;
-	int ret;
+	struct cpa_req req = {
+		.addr = (unsigned long)__kfence_pool,
+		.numpages = KFENCE_POOL_SIZE / PAGE_SIZE,
+		.flags = CPA_SPLIT | CPA_NO_ALIAS,
+	};
 
 	/* Exit early if we know the linear map is already pte-mapped. */
 	if (force_pte_mapping())
@@ -1159,17 +1060,7 @@ bool arch_kfence_init_pool(void)
 	if (kfence_early_init)
 		return true;
 
-	mutex_lock(&pgtable_split_lock);
-	ret = range_split_to_ptes(start, end, GFP_PGTABLE_KERNEL);
-	mutex_unlock(&pgtable_split_lock);
-
-	/*
-	 * Since the system supports bbml3, tlb invalidation is not
-	 * required here; the pgtable mappings have been split to pte but larger
-	 * entries may safely linger in the TLB.
-	 */
-
-	return !ret;
+	return !cpa_change(&req);
 }
 #else /* CONFIG_KFENCE */
 
