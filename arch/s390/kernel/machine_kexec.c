@@ -151,15 +151,16 @@ void crash_free_reserved_phys_range(unsigned long begin, unsigned long end)
 
 static void crash_protect_pages(int protect)
 {
-	unsigned long size;
+	unsigned long addr, size;
 
 	if (!crashk_res.end)
 		return;
+	addr = (unsigned long)__va(crashk_res.start);
 	size = resource_size(&crashk_res);
 	if (protect)
-		set_memory_ro(crashk_res.start, size >> PAGE_SHIFT);
+		set_memory_ro(addr, size >> PAGE_SHIFT);
 	else
-		set_memory_rw(crashk_res.start, size >> PAGE_SHIFT);
+		set_memory_rw(addr, size >> PAGE_SHIFT);
 }
 
 void arch_kexec_protect_crashkres(void)
