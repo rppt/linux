@@ -81,6 +81,7 @@ config X86
 	select ARCH_HAS_DEBUG_VM_PGTABLE	if !X86_PAE
 	select ARCH_HAS_DELAY_TIMER
 	select ARCH_HAS_DEVMEM_IS_ALLOWED
+	select ARCH_HAS_DIRECT_MAP_COUNT
 	select ARCH_HAS_DMA_OPS			if GART_IOMMU || XEN
 	select ARCH_HAS_EARLY_DEBUG		if KGDB
 	select ARCH_HAS_ELF_RANDOMIZE
@@ -178,6 +179,7 @@ config X86
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_RESERVATION_MODE
 	select GENERIC_IRQ_SHOW
+	select GENERIC_PAGEATTR
 	select GENERIC_PENDING_IRQ		if SMP
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_GETTIMEOFDAY
@@ -1472,14 +1474,6 @@ config X86_DIRECT_GBPAGES
 	  linear 1 GB mappings (even if the CPU otherwise
 	  supports them), so don't confuse the user by printing
 	  that we have them enabled.
-
-config X86_CPA_STATISTICS
-	bool "Enable statistic for Change Page Attribute"
-	depends on DEBUG_FS
-	help
-	  Expose statistics about the Change Page Attribute mechanism, which
-	  helps to determine the effectiveness of preserving large and huge
-	  page mappings when mapping protections are changed.
 
 config X86_MEM_ENCRYPT
 	select ARCH_HAS_FORCE_DMA_UNENCRYPTED

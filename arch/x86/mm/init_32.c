@@ -22,6 +22,7 @@
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 #include <linux/pci.h>
+#include <linux/pageattr.h>
 #include <linux/pfn.h>
 #include <linux/poison.h>
 #include <linux/memblock.h>
@@ -367,8 +368,8 @@ repeat:
 		 * update direct mapping page count only in the first
 		 * iteration.
 		 */
-		update_page_count(PG_LEVEL_2M, pages_2m);
-		update_page_count(PG_LEVEL_4K, pages_4k);
+		direct_map_count(PGTABLE_LEVEL_PMD, pages_2m);
+		direct_map_count(PGTABLE_LEVEL_PTE, pages_4k);
 
 		/*
 		 * local global flush tlb, which will flush the previous

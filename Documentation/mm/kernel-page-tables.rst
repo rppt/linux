@@ -398,13 +398,12 @@ x86
   - memory encryption: set_memory_encrypted() and set_memory_decrypted()
 
 * The `set_memory()` functions accept any mapped kernel address, including the
-  direct map, and silently succeed for the unmapped holes inside it.
-* Does nothing in set_memory_x() and set_memory_nx() when the CPU has no
-  execute permission bit.
+  direct map, and silently succeed for the unmapped holes inside the direct
+  map. Unmapped addresses elsewhere and unaligned addresses are rejected.
 * The `set_memory()` functions apply the change to the direct map alias and,
   for the kernel image, to the high kernel mapping. The NX bit is never
   propagated, so that the direct map stays non-executable.
-* Splits large mappings on demand and can collapse them back when the
-  permissions become uniform again.
+* Splits large mappings on demand and collapses them back in vmalloc space
+  after set_memory_rox().
 * Does not flush the TLB in `set_direct_map()`, but splitting a large
   mapping flushes it anyway.
