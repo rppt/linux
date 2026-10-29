@@ -1801,15 +1801,6 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			       int primary)
 {
-	if (cpa->pgd) {
-		/*
-		 * Right now, we only execute this code path when mapping
-		 * the EFI virtual memory map regions, no other users
-		 * provide a ->pgd value. This may change in the future.
-		 */
-		return populate_pgd(cpa, vaddr);
-	}
-
 	/*
 	 * Ignore all non primary paths.
 	 */
@@ -2475,7 +2466,6 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	cpa.numpages = numpages;
 	cpa.mask_set = enc ? pgprot_encrypted(empty) : pgprot_decrypted(empty);
 	cpa.mask_clr = enc ? pgprot_decrypted(empty) : pgprot_encrypted(empty);
-	cpa.pgd = init_mm.pgd;
 
 	/* Must avoid aliasing mappings in the highmem code */
 	kmap_flush_unused();
@@ -2809,70 +2799,132 @@ bool kernel_page_present(struct page *page)
 	return (pte_val(*pte) & _PAGE_PRESENT);
 }
 
-int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn, unsigned long address,
-				   unsigned numpages, unsigned long page_flags)
+static bool __init cpa_pgd_mapped(pgd_t *pgd, unsigned long addr)
 {
-	int retval = -EINVAL;
+	unsigned int level;
+	pte_t *pte;
 
-	struct cpa_data cpa = {
-		.vaddr = address,
-		.pfn = pfn,
-		.pgd = pgd,
-		.numpages = numpages,
-		.mask_set = __pgprot(0),
-		.mask_clr = __pgprot(~page_flags & (_PAGE_NX|_PAGE_RW|_PAGE_DIRTY)),
-		.flags = CPA_NO_CHECK_ALIAS,
-	};
+	pte = lookup_address_in_pgd(pgd + pgd_index(addr), addr, &level);
+	return pte && !pte_none(*pte);
+}
 
-	WARN_ONCE(num_online_cpus() > 1, "Don't call after initializing SMP");
+/* End of the run of pages that are mapped in @pgd the same way as @addr */
+static unsigned long __init cpa_pgd_run(pgd_t *pgd, unsigned long addr,
+					unsigned long end, bool *mapped)
+{
+	unsigned long next = addr + PAGE_SIZE;
 
-	if (!(__supported_pte_mask & _PAGE_NX))
-		goto out;
+	*mapped = cpa_pgd_mapped(pgd, addr);
+	while (next < end && cpa_pgd_mapped(pgd, next) == *mapped)
+		next += PAGE_SIZE;
 
-	if (!(page_flags & _PAGE_ENC))
-		cpa.mask_clr = pgprot_encrypted(cpa.mask_clr);
+	return next;
+}
 
-	cpa.mask_set = __pgprot(_PAGE_PRESENT | page_flags);
+static int __init cpa_pgd_populate(struct cpa_data *cpa, unsigned long addr,
+				   unsigned long end)
+{
+	while (addr < end) {
+		cpa->numpages = (end - addr) >> PAGE_SHIFT;
+		if (populate_pgd(cpa, addr) || !cpa->numpages)
+			return -ENOMEM;
+		addr += cpa->numpages << PAGE_SHIFT;
+	}
 
-	retval = __change_page_attr_set_clr(&cpa, 1);
-	__flush_tlb_all();
-
-out:
-	return retval;
+	return 0;
 }
 
 /*
+ * Change the protections of the mapped pages and map the holes in a page
+ * table other than init_mm.
+ *
  * __flush_tlb_all() flushes mappings only on current CPU and hence this
  * function shouldn't be used in an SMP environment. Presently, it's used only
  * during boot (way before smp_init()) by EFI subsystem and hence is ok.
  */
-int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
-				     unsigned long numpages)
+int __init kernel_map_pages_in_pgd(pgd_t *pgd, u64 pfn, unsigned long address,
+				   unsigned numpages, unsigned long page_flags)
 {
-	int retval;
-
-	/*
-	 * The typical sequence for unmapping is to find a pte through
-	 * lookup_address_in_pgd() (ideally, it should never return NULL because
-	 * the address is already mapped) and change its protections. As pfn is
-	 * the *target* of a mapping, it's not useful while unmapping.
-	 */
+	unsigned long end = address + ((unsigned long)numpages << PAGE_SHIFT);
 	struct cpa_data cpa = {
-		.vaddr		= address,
-		.pfn		= 0,
-		.pgd		= pgd,
-		.numpages	= numpages,
-		.mask_set	= __pgprot(0),
-		.mask_clr	= __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
-		.flags		= CPA_NO_CHECK_ALIAS,
+		.pgd = pgd,
+		.mask_clr = __pgprot(~page_flags &
+				     (_PAGE_NX | _PAGE_RW | _PAGE_DIRTY)),
+		.mask_set = __pgprot(_PAGE_PRESENT | page_flags),
+		.flags = CPA_NO_CHECK_ALIAS,
 	};
+	int ret = 0;
 
 	WARN_ONCE(num_online_cpus() > 1, "Don't call after initializing SMP");
 
-	retval = __change_page_attr_set_clr(&cpa, 1);
+	if (!(__supported_pte_mask & _PAGE_NX))
+		return -EINVAL;
+
+	if (!(page_flags & _PAGE_ENC))
+		cpa.mask_clr = pgprot_encrypted(cpa.mask_clr);
+
+	while (address < end && !ret) {
+		unsigned long next;
+		bool mapped;
+
+		next = cpa_pgd_run(pgd, address, end, &mapped);
+		cpa.vaddr = address;
+		cpa.pfn = pfn;
+		cpa.curpage = 0;
+
+		if (mapped) {
+			cpa.numpages = (next - address) >> PAGE_SHIFT;
+			ret = __change_page_attr_set_clr(&cpa, 1);
+		} else {
+			ret = cpa_pgd_populate(&cpa, address, next);
+		}
+
+		pfn += (next - address) >> PAGE_SHIFT;
+		address = next;
+	}
+
 	__flush_tlb_all();
 
-	return retval;
+	return ret;
+}
+
+/*
+ * Unmap the mapped pages in a page table other than init_mm, holes are
+ * skipped.
+ *
+ * See kernel_map_pages_in_pgd() about the flush.
+ */
+int __init kernel_unmap_pages_in_pgd(pgd_t *pgd, unsigned long address,
+				     unsigned long numpages)
+{
+	unsigned long end = address + (numpages << PAGE_SHIFT);
+	struct cpa_data cpa = {
+		.pgd = pgd,
+		.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY),
+		.flags = CPA_NO_CHECK_ALIAS,
+	};
+	int ret = 0;
+
+	WARN_ONCE(num_online_cpus() > 1, "Don't call after initializing SMP");
+
+	while (address < end && !ret) {
+		unsigned long next;
+		bool mapped;
+
+		next = cpa_pgd_run(pgd, address, end, &mapped);
+		if (mapped) {
+			cpa.vaddr = address;
+			cpa.numpages = (next - address) >> PAGE_SHIFT;
+			cpa.curpage = 0;
+			ret = __change_page_attr_set_clr(&cpa, 1);
+		}
+
+		address = next;
+	}
+
+	__flush_tlb_all();
+
+	return ret;
 }
 
 /*
