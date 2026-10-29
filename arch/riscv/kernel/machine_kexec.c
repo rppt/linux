@@ -11,7 +11,7 @@
 #include <asm/barrier.h>	/* For smp_wmb() */
 #include <asm/page.h>		/* For PAGE_MASK */
 #include <linux/libfdt.h>	/* For fdt_check_header() */
-#include <asm/set_memory.h>	/* For set_memory_x() */
+#include <linux/set_memory.h>	/* For set_memory_x() */
 #include <linux/compiler.h>	/* For unreachable() */
 #include <linux/cpu.h>		/* For cpu_down() */
 #include <linux/reboot.h>
