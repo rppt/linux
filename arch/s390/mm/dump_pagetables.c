@@ -247,9 +247,7 @@ static int ptdump_show(struct seq_file *m, void *v)
 		.marker = markers,
 	};
 
-	mutex_lock(&cpa_mutex);
 	ptdump_walk_pgd(&st.ptdump, &init_mm, NULL);
-	mutex_unlock(&cpa_mutex);
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(ptdump);

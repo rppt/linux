@@ -8,6 +8,7 @@
 #include <linux/proc_fs.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
+#include <linux/pageattr.h>
 #include <asm/cacheflush.h>
 #include <asm/facility.h>
 #include <asm/pgalloc.h>
@@ -76,335 +77,277 @@ static void pgt_set(unsigned long *old, unsigned long new, unsigned long addr,
 	}
 }
 
-static int walk_pte_level(pmd_t *pmdp, unsigned long addr, unsigned long end,
-			  unsigned long flags)
-{
-	pte_t *ptep, new;
+/*
+ * Segment and region third entries use the same protection bits, @rste is
+ * the counterpart of the PTE bit @pte in both of them.
+ */
+static const struct {
+	unsigned long pte;
+	unsigned long rste;
+} cpa_rste_bits[] = {
+	{ _PAGE_INVALID,	_SEGMENT_ENTRY_INVALID },
+	{ _PAGE_PROTECT,	_SEGMENT_ENTRY_PROTECT },
+	{ _PAGE_NOEXEC,		_SEGMENT_ENTRY_NOEXEC },
+	{ _PAGE_PRESENT,	_SEGMENT_ENTRY_PRESENT },
+	{ _PAGE_SOFT_DIRTY,	_SEGMENT_ENTRY_SOFT_DIRTY },
+	{ _PAGE_YOUNG,		_SEGMENT_ENTRY_YOUNG },
+	{ _PAGE_DIRTY,		_SEGMENT_ENTRY_DIRTY },
+	{ _PAGE_READ,		_SEGMENT_ENTRY_READ },
+	{ _PAGE_WRITE,		_SEGMENT_ENTRY_WRITE },
+};
 
-	if (flags == SET_MEMORY_4K)
-		return 0;
-	ptep = pte_offset_kernel(pmdp, addr);
-	do {
-		new = ptep_get(ptep);
-		if (pte_none(new))
-			return -EINVAL;
-		if (flags & SET_MEMORY_RO)
-			new = pte_wrprotect(new);
-		else if (flags & SET_MEMORY_RW)
-			new = pte_mkwrite_novma(pte_mkdirty(new));
-		if (flags & SET_MEMORY_NX)
-			new = set_pte_bit(new, __pgprot(_PAGE_NOEXEC));
-		else if (flags & SET_MEMORY_X)
-			new = clear_pte_bit(new, __pgprot(_PAGE_NOEXEC));
-		if (flags & SET_MEMORY_INV) {
-			new = set_pte_bit(new, __pgprot(_PAGE_INVALID));
-		} else if (flags & SET_MEMORY_DEF) {
-			new = __pte(pte_val(new) & PAGE_MASK);
-			new = set_pte_bit(new, PAGE_KERNEL);
-		}
-		pgt_set((unsigned long *)ptep, pte_val(new), addr, CRDTE_DTT_PAGE);
-		ptep++;
-		addr += PAGE_SIZE;
-	} while (addr < end);
-	return 0;
+static const struct cpa_level {
+	unsigned long leaf_mask;	/* bits that identify a leaf */
+	unsigned long leaf;
+	unsigned long origin;		/* address bits of a leaf */
+	unsigned long invalid;
+	unsigned long table;		/* bits of a pointer to a table */
+	unsigned long dtt;
+	unsigned int ptrs;		/* entries in a table of this level */
+	unsigned int pages;		/* pages mapped by a leaf */
+	int count;
+} cpa_levels[] = {
+	[PGTABLE_LEVEL_PTE] = {
+		.origin = PAGE_MASK,
+		.invalid = _PAGE_INVALID,
+		.dtt = CRDTE_DTT_PAGE,
+		.ptrs = PTRS_PER_PTE,
+		.pages = 1,
+		.count = PG_DIRECT_MAP_4K,
+	},
+	[PGTABLE_LEVEL_PMD] = {
+		.leaf_mask = _SEGMENT_ENTRY_LARGE,
+		.leaf = _SEGMENT_ENTRY_LARGE,
+		.origin = _SEGMENT_ENTRY_ORIGIN_LARGE,
+		.invalid = _SEGMENT_ENTRY_INVALID,
+		.table = _SEGMENT_ENTRY,
+		.dtt = CRDTE_DTT_SEGMENT,
+		.ptrs = PTRS_PER_PMD,
+		.pages = PMD_SIZE >> PAGE_SHIFT,
+		.count = PG_DIRECT_MAP_1M,
+	},
+	[PGTABLE_LEVEL_PUD] = {
+		.leaf_mask = _REGION_ENTRY_TYPE_MASK | _REGION3_ENTRY_LARGE,
+		.leaf = _REGION_ENTRY_TYPE_R3 | _REGION3_ENTRY_LARGE,
+		.origin = _REGION3_ENTRY_ORIGIN_LARGE,
+		.invalid = _REGION_ENTRY_INVALID,
+		.table = _REGION3_ENTRY,
+		.dtt = CRDTE_DTT_REGION3,
+		.ptrs = PTRS_PER_PUD,
+		.pages = PUD_SIZE >> PAGE_SHIFT,
+		.count = PG_DIRECT_MAP_2G,
+	},
+};
+
+struct cpa_prot_op arch_cpa_prot_ops[CPA_PROT_NR] __ro_after_init = {
+	[CPA_PROT_RO] = {
+		.set = __pgprot(_PAGE_PROTECT),
+		.clr = __pgprot(_PAGE_WRITE),
+		.alias = true,
+	},
+	[CPA_PROT_RW] = {
+		.set = __pgprot(_PAGE_WRITE | _PAGE_DIRTY),
+		.clr = __pgprot(_PAGE_PROTECT),
+		.alias = true,
+	},
+	[CPA_PROT_X]  = { .clr = __pgprot(_PAGE_NOEXEC) },
+	[CPA_PROT_NX] = { .set = __pgprot(_PAGE_NOEXEC) },
+	[CPA_PROT_NP] = { .set = __pgprot(_PAGE_INVALID) },
+	[CPA_PROT_P]  = { .clr = __pgprot(_PAGE_INVALID) },
+	[CPA_PROT_INVALID] = { .set = __pgprot(_PAGE_INVALID) },
+	[CPA_PROT_DEFAULT] = {
+		.set = __pgprot(__PAGE_KERNEL),
+		.clr = __pgprot(_PAGE_INVALID | _PAGE_PROTECT),
+	},
+};
+
+/* _PAGE_NOEXEC requires the instruction-execution-protection facility */
+void __init set_memory_init(void)
+{
+	int i;
+
+	for (i = 0; i < CPA_PROT_NR; i++) {
+		struct cpa_prot_op *p = &arch_cpa_prot_ops[i];
+
+		p->set = __pgprot(pgprot_val(p->set) & page_noexec_mask);
+		p->clr = __pgprot(pgprot_val(p->clr) & page_noexec_mask);
+	}
 }
 
-static int split_pmd_page(pmd_t *pmdp, unsigned long addr)
+static unsigned long cpa_rste_to_prot(unsigned long rste)
 {
-	unsigned long pte_addr, prot;
-	pte_t *pt_dir, *ptep;
-	pmd_t new, pmd;
-	int i, ro, nx;
+	unsigned long prot = 0;
+	int i;
 
-	pt_dir = vmem_pte_alloc();
-	if (!pt_dir)
+	for (i = 0; i < ARRAY_SIZE(cpa_rste_bits); i++) {
+		if (rste & cpa_rste_bits[i].rste)
+			prot |= cpa_rste_bits[i].pte;
+	}
+
+	return prot;
+}
+
+/* Replace the protection bits of @rste with @prot */
+static unsigned long cpa_prot_to_rste(unsigned long rste, unsigned long prot)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cpa_rste_bits); i++) {
+		rste &= ~cpa_rste_bits[i].rste;
+		if (prot & cpa_rste_bits[i].pte)
+			rste |= cpa_rste_bits[i].rste;
+	}
+
+	return rste;
+}
+
+static unsigned long cpa_mkleaf(enum pgtable_level level, unsigned long pfn,
+				unsigned long prot)
+{
+	unsigned long val = PFN_PHYS(pfn) | cpa_levels[level].leaf;
+
+	if (level == PGTABLE_LEVEL_PTE)
+		return val | prot;
+
+	return cpa_prot_to_rste(val, prot);
+}
+
+/*
+ * A valid entry may only be changed with an instruction that also purges
+ * the TLB, but an invalid entry may be made valid with a plain store.
+ */
+static void cpa_set_entry(enum pgtable_level level, unsigned long *entry,
+			  unsigned long new, unsigned long addr)
+{
+	const struct cpa_level *l = &cpa_levels[level];
+	unsigned long old = READ_ONCE(*entry);
+
+	if (old & l->invalid) {
+		WRITE_ONCE(*entry, new);
+		return;
+	}
+
+	pgt_set(entry, new, addr, l->dtt);
+}
+
+bool arch_cpa_read_leaf(struct cpa_leaf *leaf)
+{
+	const struct cpa_level *l;
+	unsigned long val;
+
+	if (leaf->level > PGTABLE_LEVEL_PUD)
+		return false;
+
+	l = &cpa_levels[leaf->level];
+	val = READ_ONCE(*(unsigned long *)leaf->entry);
+	if ((val & l->leaf_mask) != l->leaf)
+		return false;
+
+	leaf->pfn = PHYS_PFN(val & l->origin);
+	if (leaf->level == PGTABLE_LEVEL_PTE)
+		leaf->prot = __pgprot(val & ~l->origin);
+	else
+		leaf->prot = __pgprot(cpa_rste_to_prot(val));
+
+	return true;
+}
+
+void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
+			 pgprot_t prot)
+{
+	unsigned long *entry = leaf->entry;
+	unsigned long new;
+
+	if (leaf->level == PGTABLE_LEVEL_PTE)
+		new = cpa_mkleaf(leaf->level, leaf->pfn, pgprot_val(prot));
+	else
+		new = cpa_prot_to_rste(READ_ONCE(*entry), pgprot_val(prot));
+
+	cpa_set_entry(leaf->level, entry, new, leaf->start);
+}
+
+static void cpa_count_split(struct cpa_leaf *leaf)
+{
+	enum pgtable_level level = leaf->level - 1;
+
+	if (leaf->start - __identity_base >= ident_map_size)
+		return;
+
+	update_page_count(cpa_levels[level].count, cpa_levels[level].ptrs);
+	update_page_count(cpa_levels[leaf->level].count, -1);
+}
+
+/* CRDTE and CSPG replace a leaf with a table without an invalid window */
+static int cpa_split_leaf(struct cpa_leaf *leaf)
+{
+	enum pgtable_level level = leaf->level - 1;
+	const struct cpa_level *l = &cpa_levels[level];
+	unsigned long *table, pfn = leaf->pfn;
+	unsigned int i;
+
+	if (level == PGTABLE_LEVEL_PTE)
+		table = (unsigned long *)vmem_pte_alloc();
+	else
+		table = vmem_crst_alloc(_SEGMENT_ENTRY_EMPTY);
+	if (!table)
 		return -ENOMEM;
-	pmd = pmdp_get(pmdp);
-	pte_addr = pmd_pfn(pmd) << PAGE_SHIFT;
-	ro = !!(pmd_val(pmd) & _SEGMENT_ENTRY_PROTECT);
-	nx = !!(pmd_val(pmd) & _SEGMENT_ENTRY_NOEXEC);
-	prot = pgprot_val(ro ? PAGE_KERNEL_RO : PAGE_KERNEL);
-	if (!nx)
-		prot &= ~_PAGE_NOEXEC;
-	ptep = pt_dir;
-	for (i = 0; i < PTRS_PER_PTE; i++) {
-		set_pte(ptep, __pte(pte_addr | prot));
-		pte_addr += PAGE_SIZE;
-		ptep++;
-	}
-	new = __pmd(__pa(pt_dir) | _SEGMENT_ENTRY);
-	pgt_set((unsigned long *)pmdp, pmd_val(new), addr, CRDTE_DTT_SEGMENT);
-	update_page_count(PG_DIRECT_MAP_4K, PTRS_PER_PTE);
-	update_page_count(PG_DIRECT_MAP_1M, -1);
+
+	for (i = 0; i < l->ptrs; i++, pfn += l->pages)
+		table[i] = cpa_mkleaf(level, pfn, pgprot_val(leaf->prot));
+
+	cpa_set_entry(leaf->level, leaf->entry,
+		      __pa(table) | cpa_levels[leaf->level].table, leaf->start);
+	cpa_count_split(leaf);
+
 	return 0;
 }
 
-static void modify_pmd_page(pmd_t *pmdp, unsigned long addr,
-			    unsigned long flags)
+int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 {
-	pmd_t new = pmdp_get(pmdp);
+	/* the page table allocators may sleep */
+	if (req->flags & CPA_ATOMIC)
+		return -ENOMEM;
 
-	if (flags & SET_MEMORY_RO)
-		new = pmd_wrprotect(new);
-	else if (flags & SET_MEMORY_RW)
-		new = pmd_mkwrite_novma(pmd_mkdirty(new));
-	if (flags & SET_MEMORY_NX)
-		new = set_pmd_bit(new, __pgprot(_SEGMENT_ENTRY_NOEXEC));
-	else if (flags & SET_MEMORY_X)
-		new = clear_pmd_bit(new, __pgprot(_SEGMENT_ENTRY_NOEXEC));
-	if (flags & SET_MEMORY_INV) {
-		new = set_pmd_bit(new, __pgprot(_SEGMENT_ENTRY_INVALID));
-	} else if (flags & SET_MEMORY_DEF) {
-		new = __pmd(pmd_val(new) & PMD_MASK);
-		new = set_pmd_bit(new, SEGMENT_KERNEL);
-	}
-	pgt_set((unsigned long *)pmdp, pmd_val(new), addr, CRDTE_DTT_SEGMENT);
-}
-
-static int walk_pmd_level(pud_t *pudp, unsigned long addr, unsigned long end,
-			  unsigned long flags)
-{
-	unsigned long next;
-	pmd_t *pmdp, pmd;
-	int need_split;
-	int rc = 0;
-
-	pmdp = pmd_offset(pudp, addr);
-	do {
-		pmd = pmdp_get(pmdp);
-		if (pmd_none(pmd))
-			return -EINVAL;
-		next = pmd_addr_end(addr, end);
-		if (pmd_leaf(pmd)) {
-			need_split  = !!(flags & SET_MEMORY_4K);
-			need_split |= !!(addr & ~PMD_MASK);
-			need_split |= !!(addr + PMD_SIZE > next);
-			if (need_split) {
-				rc = split_pmd_page(pmdp, addr);
-				if (rc)
-					return rc;
-				continue;
-			}
-			modify_pmd_page(pmdp, addr, flags);
-		} else {
-			rc = walk_pte_level(pmdp, addr, next, flags);
-			if (rc)
-				return rc;
-		}
-		pmdp++;
-		addr = next;
-	} while (addr < end);
-	return rc;
+	return cpa_split_leaf(leaf);
 }
 
 int split_pud_page(pud_t *pudp, unsigned long addr)
 {
-	unsigned long pmd_addr, prot;
-	pmd_t *pm_dir, *pmdp;
-	pud_t new, pud;
-	int i, ro, nx;
+	struct cpa_leaf leaf = {
+		.level = PGTABLE_LEVEL_PUD,
+		.entry = pudp,
+		.start = addr,
+		.size = PUD_SIZE,
+		.nr = 1,
+	};
 
-	pm_dir = vmem_crst_alloc(_SEGMENT_ENTRY_EMPTY);
-	if (!pm_dir)
-		return -ENOMEM;
-	pud = pudp_get(pudp);
-	pmd_addr = pud_pfn(pud) << PAGE_SHIFT;
-	ro = !!(pud_val(pud) & _REGION_ENTRY_PROTECT);
-	nx = !!(pud_val(pud) & _REGION_ENTRY_NOEXEC);
-	prot = pgprot_val(ro ? SEGMENT_KERNEL_RO : SEGMENT_KERNEL);
-	if (!nx)
-		prot &= ~_SEGMENT_ENTRY_NOEXEC;
-	pmdp = pm_dir;
-	for (i = 0; i < PTRS_PER_PMD; i++) {
-		set_pmd(pmdp, __pmd(pmd_addr | prot));
-		pmd_addr += PMD_SIZE;
-		pmdp++;
-	}
-	new = __pud(__pa(pm_dir) | _REGION3_ENTRY);
-	pgt_set((unsigned long *)pudp, pud_val(new), addr, CRDTE_DTT_REGION3);
-	update_page_count(PG_DIRECT_MAP_1M, PTRS_PER_PMD);
-	update_page_count(PG_DIRECT_MAP_2G, -1);
-	return 0;
+	if (!arch_cpa_read_leaf(&leaf))
+		return 0;
+
+	return cpa_split_leaf(&leaf);
 }
 
-static void modify_pud_page(pud_t *pudp, unsigned long addr,
-			    unsigned long flags)
+/* Every change of a valid entry purges the TLB */
+void arch_cpa_flush(struct cpa_req *req)
 {
-	pud_t new = pudp_get(pudp);
+}
+
+int __set_memory(unsigned long addr, unsigned long numpages,
+		 unsigned long flags)
+{
+	struct cpa_req req = {
+		.addr = addr & PAGE_MASK,
+		.numpages = numpages,
+	};
 
 	if (flags & SET_MEMORY_RO)
-		new = pud_wrprotect(new);
-	else if (flags & SET_MEMORY_RW)
-		new = pud_mkwrite(pud_mkdirty(new));
-	if (flags & SET_MEMORY_NX)
-		new = set_pud_bit(new, __pgprot(_REGION_ENTRY_NOEXEC));
-	else if (flags & SET_MEMORY_X)
-		new = clear_pud_bit(new, __pgprot(_REGION_ENTRY_NOEXEC));
-	if (flags & SET_MEMORY_INV) {
-		new = set_pud_bit(new, __pgprot(_REGION_ENTRY_INVALID));
-	} else if (flags & SET_MEMORY_DEF) {
-		new = __pud(pud_val(new) & PUD_MASK);
-		new = set_pud_bit(new, REGION3_KERNEL);
-	}
-	pgt_set((unsigned long *)pudp, pud_val(new), addr, CRDTE_DTT_REGION3);
-}
+		cpa_req_add_op(&req, CPA_PROT_RO);
+	if (flags & SET_MEMORY_X)
+		cpa_req_add_op(&req, CPA_PROT_X);
+	if (flags & SET_MEMORY_4K)
+		req.flags |= CPA_SPLIT;
 
-static int walk_pud_level(p4d_t *p4d, unsigned long addr, unsigned long end,
-			  unsigned long flags)
-{
-	unsigned long next;
-	pud_t *pudp, pud;
-	int need_split;
-	int rc = 0;
-
-	pudp = pud_offset(p4d, addr);
-	do {
-		pud = pudp_get(pudp);
-		if (pud_none(pud))
-			return -EINVAL;
-		next = pud_addr_end(addr, end);
-		if (pud_leaf(pud)) {
-			need_split  = !!(flags & SET_MEMORY_4K);
-			need_split |= !!(addr & ~PUD_MASK);
-			need_split |= !!(addr + PUD_SIZE > next);
-			if (need_split) {
-				rc = split_pud_page(pudp, addr);
-				if (rc)
-					break;
-				continue;
-			}
-			modify_pud_page(pudp, addr, flags);
-		} else {
-			rc = walk_pmd_level(pudp, addr, next, flags);
-		}
-		pudp++;
-		addr = next;
-	} while (addr < end && !rc);
-	return rc;
-}
-
-static int walk_p4d_level(pgd_t *pgd, unsigned long addr, unsigned long end,
-			  unsigned long flags)
-{
-	unsigned long next;
-	p4d_t *p4dp;
-	int rc = 0;
-
-	p4dp = p4d_offset(pgd, addr);
-	do {
-		if (p4d_none(p4dp_get(p4dp)))
-			return -EINVAL;
-		next = p4d_addr_end(addr, end);
-		rc = walk_pud_level(p4dp, addr, next, flags);
-		p4dp++;
-		addr = next;
-	} while (addr < end && !rc);
-	return rc;
-}
-
-DEFINE_MUTEX(cpa_mutex);
-
-static int change_page_attr(unsigned long addr, unsigned long end,
-			    unsigned long flags)
-{
-	unsigned long next;
-	int rc = -EINVAL;
-	pgd_t *pgdp;
-
-	pgdp = pgd_offset_k(addr);
-	do {
-		if (pgd_none(pgdp_get(pgdp)))
-			break;
-		next = pgd_addr_end(addr, end);
-		rc = walk_p4d_level(pgdp, addr, next, flags);
-		if (rc)
-			break;
-	} while (pgdp++, addr = next, addr < end && !rc);
-	return rc;
-}
-
-static int change_page_attr_alias(unsigned long addr, unsigned long end,
-				  unsigned long flags)
-{
-	unsigned long alias, offset, va_start, va_end;
-	struct vm_struct *area;
-	int rc = 0;
-
-	/*
-	 * Changes to read-only permissions on kernel VA mappings are also
-	 * applied to the kernel direct mapping. Execute permissions are
-	 * intentionally not transferred to keep all allocated pages within
-	 * the direct mapping non-executable.
-	 */
-	flags &= SET_MEMORY_RO | SET_MEMORY_RW;
-	if (!flags)
-		return 0;
-	area = NULL;
-	while (addr < end) {
-		if (!area)
-			area = find_vm_area((void *)addr);
-		if (!area || !(area->flags & VM_ALLOC))
-			return 0;
-		va_start = (unsigned long)area->addr;
-		va_end = va_start + area->nr_pages * PAGE_SIZE;
-		offset = (addr - va_start) >> PAGE_SHIFT;
-		alias = (unsigned long)page_address(area->pages[offset]);
-		rc = change_page_attr(alias, alias + PAGE_SIZE, flags);
-		if (rc)
-			break;
-		addr += PAGE_SIZE;
-		if (addr >= va_end)
-			area = NULL;
-	}
-	return rc;
-}
-
-int __set_memory(unsigned long addr, unsigned long numpages, unsigned long flags)
-{
-	unsigned long end;
-	int rc;
-
-	if (!cpu_has_nx())
-		flags &= ~(SET_MEMORY_NX | SET_MEMORY_X);
-	if (!flags)
-		return 0;
-	if (!numpages)
-		return 0;
-	addr &= PAGE_MASK;
-	end = addr + numpages * PAGE_SIZE;
-	mutex_lock(&cpa_mutex);
-	rc = change_page_attr(addr, end, flags);
-	if (rc)
-		goto out;
-	rc = change_page_attr_alias(addr, end, flags);
-out:
-	mutex_unlock(&cpa_mutex);
-	return rc;
-}
-
-int set_direct_map_invalid_noflush(struct page *page, unsigned int nr)
-{
-	return __set_memory((unsigned long)page_to_virt(page), nr, SET_MEMORY_INV);
-}
-
-int set_direct_map_default_noflush(struct page *page, unsigned int nr)
-{
-	return __set_memory((unsigned long)page_to_virt(page), nr, SET_MEMORY_DEF);
-}
-
-bool kernel_page_present(struct page *page)
-{
-	unsigned long addr;
-	unsigned int cc;
-
-	addr = (unsigned long)page_address(page);
-	asm volatile(
-		"	lra	%[addr],0(%[addr])\n"
-		CC_IPM(cc)
-		: CC_OUT(cc, cc), [addr] "+a" (addr)
-		:
-		: CC_CLOBBER);
-	return CC_TRANSFORM(cc) == 0;
+	return cpa_change(&req);
 }
 
 #if defined(CONFIG_DEBUG_PAGEALLOC) || defined(CONFIG_KFENCE)
