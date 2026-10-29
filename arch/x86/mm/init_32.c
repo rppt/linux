@@ -748,12 +748,5 @@ void mark_rodata_ro(void)
 
 	kernel_set_to_readonly = 1;
 
-#ifdef CONFIG_CPA_DEBUG
-	pr_info("Testing CPA: Reverting %lx-%lx\n", start, start + size);
-	set_pages_rw(virt_to_page(start), size >> PAGE_SHIFT);
-
-	pr_info("Testing CPA: write protecting again\n");
-	set_pages_ro(virt_to_page(start), size >> PAGE_SHIFT);
-#endif
 	mark_nxdata_nx();
 }
