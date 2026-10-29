@@ -159,9 +159,44 @@ static void init_clear_pgtable(void *table)
 	dsb(ishst);
 }
 
-static void init_pte(pte_t *ptep, unsigned long addr, unsigned long end,
-		     phys_addr_t phys, pgprot_t prot)
+static atomic_long_t direct_map_cont_entries[PGTABLE_LEVEL_PMD + 1];
+
+unsigned long arch_direct_map_cont(enum pgtable_level level,
+				   unsigned long *size)
 {
+	static const unsigned long cont_size[] = {
+		[PGTABLE_LEVEL_PTE] = CONT_PTE_SIZE,
+		[PGTABLE_LEVEL_PMD] = CONT_PMD_SIZE,
+	};
+
+	if (level >= ARRAY_SIZE(cont_size)) {
+		*size = 0;
+		return 0;
+	}
+
+	*size = cont_size[level];
+	return atomic_long_read(&direct_map_cont_entries[level]);
+}
+
+/* @nr entries at @level were (un)mapped, @cont of them are contiguous */
+static void direct_map_account(unsigned long addr, enum pgtable_level level,
+			       long nr, long cont)
+{
+	if (!__is_lm_address(addr))
+		return;
+
+	if (nr)
+		direct_map_count(level, nr);
+	if (cont)
+		atomic_long_add(cont, &direct_map_cont_entries[level]);
+}
+
+/* returns the number of entries that were not mapped before */
+static unsigned int init_pte(pte_t *ptep, unsigned long addr,
+			     unsigned long end, phys_addr_t phys, pgprot_t prot)
+{
+	unsigned int nr = 0;
+
 	do {
 		pte_t old_pte = __ptep_get(ptep);
 
@@ -178,8 +213,12 @@ static void init_pte(pte_t *ptep, unsigned long addr, unsigned long end,
 		BUG_ON(!pgattr_change_is_safe(pte_val(old_pte),
 					      pte_val(__ptep_get(ptep))));
 
+		if (pte_none(old_pte))
+			nr++;
 		phys += PAGE_SIZE;
 	} while (ptep++, addr += PAGE_SIZE, addr != end);
+
+	return nr;
 }
 
 static bool pte_range_has_valid_noncont(pte_t *ptep)
@@ -199,8 +238,11 @@ static int alloc_init_cont_pte(pmd_t *pmdp, unsigned long addr,
 			       phys_addr_t (*pgtable_alloc)(enum pgtable_level),
 			       int flags)
 {
+	unsigned long start = addr;
 	unsigned long next;
 	pmd_t pmd = READ_ONCE(*pmdp);
+	long nr = 0, cont = 0;
+	unsigned int mapped;
 	pte_t *ptep;
 
 	BUG_ON(pmd_leaf(pmd));
@@ -234,7 +276,10 @@ static int alloc_init_cont_pte(pmd_t *pmdp, unsigned long addr,
 		    !pte_range_has_valid_noncont(ptep))
 			__prot = __pgprot(pgprot_val(prot) | PTE_CONT);
 
-		init_pte(ptep, addr, next, phys, __prot);
+		mapped = init_pte(ptep, addr, next, phys, __prot);
+		nr += mapped;
+		if (pgprot_val(__prot) & PTE_CONT)
+			cont += mapped;
 
 		ptep += pte_index(next) - pte_index(addr);
 		phys += next - addr;
@@ -246,6 +291,7 @@ static int alloc_init_cont_pte(pmd_t *pmdp, unsigned long addr,
 	 * walker.
 	 */
 	pte_clear_fixmap();
+	direct_map_account(start, PGTABLE_LEVEL_PTE, nr, cont);
 
 	return 0;
 }
@@ -273,6 +319,10 @@ static int init_pmd(pmd_t *pmdp, unsigned long addr, unsigned long end,
 			 */
 			BUG_ON(!pgattr_change_is_safe(pmd_val(old_pmd),
 						      READ_ONCE(pmd_val(*pmdp))));
+			if (pmd_none(old_pmd))
+				direct_map_account(addr, PGTABLE_LEVEL_PMD, 1,
+						   pgprot_val(prot) & PTE_CONT ?
+						   1 : 0);
 		} else {
 			int ret;
 
@@ -409,6 +459,9 @@ static int alloc_init_pud(p4d_t *p4dp, unsigned long addr, unsigned long end,
 			 */
 			BUG_ON(!pgattr_change_is_safe(pud_val(old_pud),
 						      READ_ONCE(pud_val(*pudp))));
+			if (pud_none(old_pud))
+				direct_map_account(addr, PGTABLE_LEVEL_PUD,
+						   1, 0);
 		} else {
 			ret = alloc_init_cont_pmd(pudp, addr, next, phys, prot,
 						  pgtable_alloc, flags);
@@ -727,26 +780,44 @@ static int cpa_split_allowed(void)
 	return 0;
 }
 
+/*
+ * The core accounts the entries of the direct map, only the contiguous
+ * entries are accounted here.
+ */
 static int cpa_split_leaf(struct cpa_leaf *leaf, gfp_t gfp, bool to_cont)
 {
+	unsigned long addr = leaf->start;
 	/* parts of vmalloc blocks may be made executable */
-	bool pxn = __is_lm_address(leaf->start);
+	bool pxn = __is_lm_address(addr);
+	int ret;
 
 	switch (leaf->level) {
 	case PGTABLE_LEVEL_PTE:
 		split_contpte(leaf->entry);
+		direct_map_account(addr, PGTABLE_LEVEL_PTE, 0, -CONT_PTES);
 		return 0;
 	case PGTABLE_LEVEL_PMD:
-		if (leaf->nr == 1)
-			return split_pmd(leaf->entry, pmdp_get(leaf->entry),
-					 gfp, to_cont, pxn);
-		split_contpmd(leaf->entry);
-		return 0;
+		if (leaf->nr > 1) {
+			split_contpmd(leaf->entry);
+			direct_map_account(addr, PGTABLE_LEVEL_PMD, 0,
+					   -CONT_PMDS);
+			return 0;
+		}
+		ret = split_pmd(leaf->entry, pmdp_get(leaf->entry), gfp,
+				to_cont, pxn);
+		if (!ret && to_cont)
+			direct_map_account(addr, PGTABLE_LEVEL_PTE, 0,
+					   PTRS_PER_PTE);
+		return ret;
 	case PGTABLE_LEVEL_PUD:
 		if (CONFIG_PGTABLE_LEVELS == 2)
 			return -EINVAL;
-		return split_pud(leaf->entry, pudp_get(leaf->entry), gfp,
-				 to_cont, pxn);
+		ret = split_pud(leaf->entry, pudp_get(leaf->entry), gfp,
+				to_cont, pxn);
+		if (!ret && to_cont)
+			direct_map_account(addr, PGTABLE_LEVEL_PMD, 0,
+					   PTRS_PER_PMD);
+		return ret;
 	default:
 		return -EINVAL;
 	}
@@ -1384,6 +1455,8 @@ static void unmap_hotplug_pte_range(pmd_t *pmdp, unsigned long addr,
 
 		WARN_ON(!pte_present(pte));
 		__pte_clear(&init_mm, addr, ptep);
+		direct_map_account(addr, PGTABLE_LEVEL_PTE, -1,
+				   pte_cont(pte) ? -1 : 0);
 		if (free_mapped) {
 			/* CONT blocks are not supported in the vmemmap */
 			WARN_ON(pte_cont(pte));
@@ -1412,6 +1485,8 @@ static void unmap_hotplug_pmd_range(pud_t *pudp, unsigned long addr,
 		WARN_ON(!pmd_present(pmd));
 		if (pmd_leaf(pmd)) {
 			pmd_clear(pmdp);
+			direct_map_account(addr, PGTABLE_LEVEL_PMD, -1,
+					   pmd_cont(pmd) ? -1 : 0);
 			if (free_mapped) {
 				/* CONT blocks are not supported in the vmemmap */
 				WARN_ON(pmd_cont(pmd));
@@ -1450,6 +1525,7 @@ static void unmap_hotplug_pud_range(p4d_t *p4dp, unsigned long addr,
 		WARN_ON(!pud_present(pud));
 		if (pud_leaf(pud)) {
 			pud_clear(pudp);
+			direct_map_account(addr, PGTABLE_LEVEL_PUD, -1, 0);
 			if (free_mapped) {
 				/* See comment in unmap_hotplug_pmd_range(). */
 				flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
