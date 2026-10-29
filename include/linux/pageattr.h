@@ -21,6 +21,7 @@
 #define CPA_CHANGED_PROT	BIT(0)	/* leaves in the range */
 #define CPA_CHANGED_SPLIT	BIT(1)	/* leaves were split */
 #define CPA_CHANGED_ALIAS	BIT(2)	/* leaves in the aliases */
+#define CPA_CHANGED_COLLAPSE	BIT(3)	/* tables were replaced with leaves */
 
 /**
  * enum cpa_prot - operations of the generic set_memory() APIs
@@ -185,7 +186,8 @@ void arch_cpa_write_leaf(struct cpa_req *req, struct cpa_leaf *leaf,
  * @req: the request
  *
  * Called once for every request with non-empty @req->changed, including
- * failed requests. CPA_NOFLUSH means that the caller will flush the TLB
+ * failed requests, and once more with only CPA_CHANGED_COLLAPSE set if
+ * tables were collapsed. CPA_NOFLUSH means that the caller will flush the TLB
  * for the range of @req, the architecture decides if that is enough.
  * cpa_flush_ranges() is a helper that flushes the changed ranges.
  */
@@ -252,6 +254,28 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
 static inline int arch_cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 {
 	return -EOPNOTSUPP;
+}
+#endif
+
+#ifndef arch_cpa_collapse
+/**
+ * arch_cpa_collapse - replace a table with a leaf
+ * @req: the request
+ * @leaf: the new leaf, @entry points to the entry that points to the table
+ *
+ * The core calls this after set_memory_rox() for the tables in huge vmalloc
+ * areas that map naturally aligned physically contiguous ranges with
+ * present leaves of the same protections, @leaf->pfn and @leaf->prot.
+ *
+ * Install the leaf without TLB maintenance, it is done by arch_cpa_flush()
+ * with CPA_CHANGED_COLLAPSE. The core frees the table after that.
+ *
+ * Return: true if the table was replaced.
+ */
+static inline bool arch_cpa_collapse(struct cpa_req *req,
+				     struct cpa_leaf *leaf)
+{
+	return false;
 }
 #endif
 

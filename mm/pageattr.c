@@ -27,6 +27,9 @@
 
 #include "internal.h"
 
+/* collapse tables after set_memory_rox(), internal */
+#define CPA_COLLAPSE	BIT(31)
+
 static DEFINE_MUTEX(cpa_mutex);
 
 static void cpa_lock(struct cpa_req *req)
@@ -149,6 +152,7 @@ enum cpa_stat {
 	CPA_STAT_SAMEPROT,	/* large leaves that keep their permissions */
 	CPA_STAT_PRESERVED,	/* large leaves changed without a split */
 	CPA_STAT_SPLIT,		/* leaves split */
+	CPA_STAT_COLLAPSED,	/* tables replaced with leaves */
 	CPA_STAT_NR,
 };
 
@@ -158,6 +162,7 @@ static const char * const cpa_stat_names[CPA_STAT_NR] = {
 	[CPA_STAT_SAMEPROT]	= "sameprot",
 	[CPA_STAT_PRESERVED]	= "preserved",
 	[CPA_STAT_SPLIT]	= "split",
+	[CPA_STAT_COLLAPSED]	= "collapsed",
 };
 
 static unsigned long cpa_stats[PGTABLE_LEVEL_PGD + 1][CPA_STAT_NR];
@@ -571,6 +576,178 @@ static void cpa_update(struct cpa_req *req)
 	lazy_mmu_mode_disable();
 }
 
+static bool cpa_prot_present(pgprot_t prot)
+{
+	const struct cpa_prot_op *p = &arch_cpa_prot_ops[CPA_PROT_P];
+
+	return ((pgprot_val(prot) & ~pgprot_val(p->clr)) |
+		pgprot_val(p->set)) == pgprot_val(prot);
+}
+
+/* The entry of a non-folded @level that maps @addr, if it points to a table */
+static void *cpa_table_entry(unsigned long addr, enum pgtable_level level,
+			     void **table)
+{
+	struct cpa_leaf leaf;
+	pgd_t *pgdp;
+	p4d_t *p4dp;
+	pud_t *pudp;
+	pmd_t *pmdp;
+
+	if (level == PGTABLE_LEVEL_PMD && PTRS_PER_PMD == 1)
+		return NULL;
+	if (level == PGTABLE_LEVEL_PUD && PTRS_PER_PUD == 1)
+		return NULL;
+
+	pgdp = pgd_offset_k(addr);
+	if (pgd_none(pgdp_get(pgdp)))
+		return NULL;
+
+	p4dp = p4d_offset(pgdp, addr);
+	leaf = (struct cpa_leaf) {
+		.level = PGTABLE_LEVEL_P4D, .entry = p4dp, .nr = 1
+	};
+	if (p4d_none(p4dp_get(p4dp)) || arch_cpa_read_leaf(&leaf))
+		return NULL;
+
+	pudp = pud_offset(p4dp, addr);
+	leaf = (struct cpa_leaf) {
+		.level = PGTABLE_LEVEL_PUD, .entry = pudp, .nr = 1
+	};
+	if (pud_none(pudp_get(pudp)) || arch_cpa_read_leaf(&leaf))
+		return NULL;
+
+	pmdp = pmd_offset(pudp, addr);
+	if (level == PGTABLE_LEVEL_PUD) {
+		*table = pmdp;
+		return pudp;
+	}
+
+	leaf = (struct cpa_leaf) {
+		.level = PGTABLE_LEVEL_PMD, .entry = pmdp, .nr = 1
+	};
+	if (pmd_none(pmdp_get(pmdp)) || arch_cpa_read_leaf(&leaf))
+		return NULL;
+
+	*table = pte_offset_kernel(pmdp, addr);
+	return pmdp;
+}
+
+/*
+ * Check that the table maps a naturally aligned physically contiguous range
+ * with present leaves of the same protections and fill @leaf with the leaf
+ * that can replace it.
+ */
+static bool cpa_table_is_uniform(void *table, struct cpa_leaf *leaf)
+{
+	unsigned long size = cpa_level_size(leaf->level - 1);
+	unsigned long n = leaf->size / size;
+	struct cpa_leaf child;
+	unsigned long i;
+
+	for (i = 0; i < n; i++) {
+		child = (struct cpa_leaf) {
+			.level = leaf->level - 1,
+			.entry = cpa_entry_offset(table, leaf->level - 1, i),
+			.nr = 1,
+		};
+		if (!arch_cpa_read_leaf(&child) ||
+		    !cpa_prot_present(child.prot))
+			return false;
+
+		if (!i) {
+			leaf->pfn = child.pfn;
+			leaf->prot = child.prot;
+		}
+
+		if (child.pfn != leaf->pfn + i * (size >> PAGE_SHIFT) ||
+		    pgprot_val(child.prot) != pgprot_val(leaf->prot))
+			return false;
+	}
+
+	return IS_ALIGNED(PFN_PHYS(leaf->pfn), leaf->size);
+}
+
+static void cpa_collapse_table(struct cpa_req *req, unsigned long addr,
+			       enum pgtable_level level,
+			       struct list_head *tables)
+{
+	struct cpa_leaf leaf = {
+		.level = level,
+		.start = addr,
+		.size = cpa_level_size(level),
+		.nr = 1,
+	};
+	void *table;
+
+	leaf.entry = cpa_table_entry(addr, level, &table);
+	if (!leaf.entry || !cpa_table_is_uniform(table, &leaf))
+		return;
+
+	if (!arch_cpa_collapse(req, &leaf))
+		return;
+
+	list_add(&virt_to_ptdesc(table)->pt_list, tables);
+	cpa_stat_inc(level, CPA_STAT_COLLAPSED);
+	req->changed |= CPA_CHANGED_COLLAPSE;
+}
+
+static void cpa_collapse_level(struct cpa_req *req, struct vm_struct *area,
+			       enum pgtable_level level,
+			       struct list_head *tables)
+{
+	unsigned long size = cpa_level_size(level);
+	unsigned long start = (unsigned long)area->addr;
+	unsigned long end = start + get_vm_area_size(area);
+	unsigned long addr = max(ALIGN_DOWN(req->addr, size),
+				 ALIGN(start, size));
+	unsigned long last = min(req->addr + req->numpages * PAGE_SIZE, end);
+
+	for (; addr < last && addr + size <= end; addr += size)
+		cpa_collapse_table(req, addr, level, tables);
+}
+
+static void cpa_free_tables(struct list_head *tables)
+{
+	struct ptdesc *ptdesc, *tmp;
+
+	list_for_each_entry_safe(ptdesc, tmp, tables, pt_list) {
+		list_del(&ptdesc->pt_list);
+		/* early page tables are not constructed as page tables */
+		if (PageTable(ptdesc_page(ptdesc)))
+			pagetable_dtor_free(ptdesc);
+		else
+			pagetable_free(ptdesc);
+	}
+}
+
+/*
+ * Replace the tables in the huge vmalloc area of the request with leaves
+ * where they map uniform ranges. The tables are freed only after the TLB
+ * maintenance, the write lock of init_mm keeps ptdump away from them.
+ */
+static void cpa_collapse(struct cpa_req *req)
+{
+	struct vm_struct *area = find_vm_area((void *)req->addr);
+	unsigned int changed = req->changed;
+	LIST_HEAD(tables);
+
+	if (!area || !(area->flags & VM_ALLOW_HUGE_VMAP))
+		return;
+
+	req->changed = 0;
+
+	scoped_guard(mmap_write_lock, &init_mm) {
+		cpa_collapse_level(req, area, PGTABLE_LEVEL_PMD, &tables);
+		cpa_collapse_level(req, area, PGTABLE_LEVEL_PUD, &tables);
+		if (req->changed)
+			arch_cpa_flush(req);
+		cpa_free_tables(&tables);
+	}
+
+	req->changed |= changed;
+}
+
 static bool cpa_req_valid(struct cpa_req *req)
 {
 	unsigned long end;
@@ -635,6 +812,10 @@ int cpa_change(struct cpa_req *req)
 
 	if (req->changed)
 		arch_cpa_flush(req);
+
+	/* the TLB must not have entries of both sizes with different prot */
+	if (!err && (req->flags & CPA_COLLAPSE))
+		cpa_collapse(req);
 
 	cpa_unlock(req);
 
@@ -807,6 +988,7 @@ int set_memory_rox(unsigned long addr, int numpages)
 
 	cpa_req_add_op(&req, CPA_PROT_RO);
 	cpa_req_add_op(&req, CPA_PROT_X);
+	req.flags |= CPA_COLLAPSE;
 	return cpa_set_memory(&req, numpages);
 }
 
@@ -848,15 +1030,13 @@ int set_direct_map_default_noflush(struct page *page, unsigned int nr)
  */
 bool kernel_page_present(struct page *page)
 {
-	const struct cpa_prot_op *p = &arch_cpa_prot_ops[CPA_PROT_P];
 	unsigned long addr = (unsigned long)page_address(page);
 	struct cpa_leaf leaf;
 
 	if (cpa_lookup(NULL, addr, &leaf))
 		return false;
 
-	return ((pgprot_val(leaf.prot) & ~pgprot_val(p->clr)) |
-		pgprot_val(p->set)) == pgprot_val(leaf.prot);
+	return cpa_prot_present(leaf.prot);
 }
 #endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
 
