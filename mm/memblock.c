@@ -904,6 +904,8 @@ static unsigned long __free_reserved_area(phys_addr_t start, phys_addr_t end,
 		return 0;
 	}
 
+	accept_memory(start, end - start);
+
 	for_each_valid_pfn(pfn, PFN_UP(start), PFN_DOWN(end)) {
 		struct page *page = pfn_to_page(pfn);
 		void *direct_map_addr;
