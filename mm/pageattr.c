@@ -447,7 +447,7 @@ static inline void direct_map_count_split(struct cpa_leaf *leaf) { }
 static bool cpa_split_should_fail(struct cpa_req *req)
 {
 #ifdef CONFIG_PAGEATTR_KUNIT_TEST
-	return req->fail_split && !--req->fail_split;
+	return req->fail_split && req->splits + 1 == req->fail_split;
 #else
 	return false;
 #endif
@@ -464,9 +464,14 @@ static int cpa_split(struct cpa_req *req, struct cpa_leaf *leaf)
 		return -ENOMEM;
 
 	err = arch_cpa_split(req, leaf);
+	if (err && req->table_needed)
+		return -EAGAIN;
 	if (err)
 		return err;
 
+#ifdef CONFIG_PAGEATTR_KUNIT_TEST
+	req->splits++;
+#endif
 	cpa_stat_inc(leaf->level, CPA_STAT_SPLIT);
 	if (!req->pgd)
 		direct_map_count_split(leaf);
@@ -767,6 +772,85 @@ static bool cpa_req_has_alias(struct cpa_req *req)
 	return pgprot_val(req->alias_set) || pgprot_val(req->alias_clr);
 }
 
+static void *__cpa_alloc_table(enum pgtable_level level, unsigned long addr)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		return pte_alloc_one_kernel(&init_mm);
+	case PGTABLE_LEVEL_PMD:
+		return pmd_alloc_one(&init_mm, addr);
+	case PGTABLE_LEVEL_PUD:
+		return pud_alloc_one(&init_mm, addr);
+	default:
+		return NULL;
+	}
+}
+
+/* Called without cpa_mutex: reclaim may run shrinkers that call into CPA */
+static int cpa_prealloc_table(struct cpa_req *req)
+{
+	req->table_needed = false;
+	req->table = __cpa_alloc_table(req->table_level, req->table_addr);
+
+	return req->table ? 0 : -ENOMEM;
+}
+
+/**
+ * cpa_alloc_table - get a page table to split a leaf
+ * @req: the request
+ * @level: level of the entries in the new table
+ * @addr: virtual address mapped by the new table
+ *
+ * The table is allocated with cpa_mutex dropped. If none is available, the
+ * caller must fail and the core retries the request after allocating it.
+ *
+ * Return: the new table or NULL. Always NULL for CPA_ATOMIC requests.
+ */
+void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
+		      unsigned long addr)
+{
+	void *table = req->table;
+
+	if (req->flags & CPA_ATOMIC)
+		return NULL;
+
+	if (table && req->table_level == level) {
+		req->table = NULL;
+		return table;
+	}
+
+	if (table)
+		cpa_free_table(req->table_level, table);
+
+	req->table = NULL;
+	req->table_level = level;
+	req->table_addr = addr;
+	req->table_needed = true;
+	return NULL;
+}
+
+/**
+ * cpa_free_table - free a page table allocated with cpa_alloc_table()
+ * @level: level of the entries in the table
+ * @table: the table
+ */
+void cpa_free_table(enum pgtable_level level, void *table)
+{
+	switch (level) {
+	case PGTABLE_LEVEL_PTE:
+		pte_free_kernel(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PMD:
+		pmd_free(&init_mm, table);
+		break;
+	case PGTABLE_LEVEL_PUD:
+		pud_free(&init_mm, table);
+		break;
+	default:
+		break;
+	}
+}
+
 /**
  * cpa_change - change permissions of a range of kernel mappings
  * @req: the request
@@ -804,9 +888,27 @@ int cpa_change(struct cpa_req *req)
 	    !(req->flags & (CPA_NOFLUSH | CPA_ATOMIC)))
 		vm_unmap_aliases();
 
+	req->table = NULL;
+	req->table_needed = false;
+
 	cpa_lock(req);
 
-	err = cpa_prepare(req);
+	/*
+	 * cpa_prepare() asks for a table it could not get under cpa_mutex and
+	 * starts over once it is allocated.
+	 */
+	for (;;) {
+		err = cpa_prepare(req);
+		if (err != -EAGAIN)
+			break;
+
+		cpa_unlock(req);
+		err = cpa_prealloc_table(req);
+		cpa_lock(req);
+		if (err)
+			break;
+	}
+
 	if (!err && !(req->flags & CPA_SPLIT))
 		cpa_update(req);
 
@@ -818,6 +920,9 @@ int cpa_change(struct cpa_req *req)
 		cpa_collapse(req);
 
 	cpa_unlock(req);
+
+	if (req->table)
+		cpa_free_table(req->table_level, req->table);
 
 	return err;
 }
@@ -840,54 +945,6 @@ void cpa_req_add_op(struct cpa_req *req, enum cpa_prot op)
 				  pgprot_val(p->set));
 	req->alias_clr = __pgprot(pgprot_val(req->alias_clr) |
 				  pgprot_val(p->clr));
-}
-
-/**
- * cpa_alloc_table - allocate a page table to split a leaf
- * @req: the request
- * @level: level of the entries in the new table
- * @addr: virtual address mapped by the new table
- *
- * Return: the new table or NULL. Always NULL for CPA_ATOMIC requests.
- */
-void *cpa_alloc_table(struct cpa_req *req, enum pgtable_level level,
-		      unsigned long addr)
-{
-	if (req->flags & CPA_ATOMIC)
-		return NULL;
-
-	switch (level) {
-	case PGTABLE_LEVEL_PTE:
-		return pte_alloc_one_kernel(&init_mm);
-	case PGTABLE_LEVEL_PMD:
-		return pmd_alloc_one(&init_mm, addr);
-	case PGTABLE_LEVEL_PUD:
-		return pud_alloc_one(&init_mm, addr);
-	default:
-		return NULL;
-	}
-}
-
-/**
- * cpa_free_table - free a page table allocated with cpa_alloc_table()
- * @level: level of the entries in the table
- * @table: the table
- */
-void cpa_free_table(enum pgtable_level level, void *table)
-{
-	switch (level) {
-	case PGTABLE_LEVEL_PTE:
-		pte_free_kernel(&init_mm, table);
-		break;
-	case PGTABLE_LEVEL_PMD:
-		pmd_free(&init_mm, table);
-		break;
-	case PGTABLE_LEVEL_PUD:
-		pud_free(&init_mm, table);
-		break;
-	default:
-		break;
-	}
 }
 
 /**

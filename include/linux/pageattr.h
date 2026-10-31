@@ -74,7 +74,12 @@ struct cpa_prot_op {
  * @flags: CPA_* request flags
  * @changed: CPA_CHANGED_* flags, set by the core
  * @pgd: page table to change, NULL for init_mm
+ * @table: page table allocated without cpa_mutex, see cpa_alloc_table()
+ * @table_level: level of the entries in @table
+ * @table_addr: virtual address mapped by @table
+ * @table_needed: cpa_alloc_table() had no @table of the requested level
  * @fail_split: fail the Nth split of the request, for the tests
+ * @splits: number of splits of the request, for the tests
  *
  * Aliases are the direct map addresses of the pages mapped by the range
  * and the kernel image mapping of the direct map, see arch_cpa_image().
@@ -91,8 +96,13 @@ struct cpa_req {
 	unsigned int flags;
 	unsigned int changed;
 	pgd_t *pgd;
+	void *table;
+	enum pgtable_level table_level;
+	unsigned long table_addr;
+	bool table_needed;
 #ifdef CONFIG_PAGEATTR_KUNIT_TEST
 	unsigned int fail_split;
+	unsigned int splits;
 #endif
 };
 
@@ -247,7 +257,8 @@ static inline bool arch_cpa_new_prot(struct cpa_req *req,
  * same level, or a single entry with a table of the next level, that map
  * the same pfns with the same attributes. Perform any TLB maintenance the
  * architecture requires to change the size of a mapping.
- * cpa_alloc_table() and cpa_free_table() allocate and free the tables.
+ * cpa_alloc_table() and cpa_free_table() allocate and free the tables. If
+ * cpa_alloc_table() returns NULL, fail without changing the page tables.
  *
  * Return: 0 on success or a negative error code.
  */
