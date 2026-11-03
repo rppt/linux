@@ -421,18 +421,12 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	guard(spinlock)(&cpa_lock);
 
-	if (cpa->req & CPA_REQ_PAGES_ARRAY) {
-		for (i = 0; i < cpa->numpages; i++)
-			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
-							  &pgtables);
-	} else {
-		addr = __cpa_addr(cpa, 0);
-		start = addr & PMD_MASK;
-		end = addr + PAGE_SIZE * cpa->numpages;
+	addr = __cpa_addr(cpa, 0);
+	start = addr & PMD_MASK;
+	end = addr + PAGE_SIZE * cpa->numpages;
 
-		for (addr = start; within(addr, start, end); addr += PMD_SIZE)
-			collapsed += collapse_large_pages(addr, &pgtables);
-	}
+	for (addr = start; within(addr, start, end); addr += PMD_SIZE)
+		collapsed += collapse_large_pages(addr, &pgtables);
 
 	if (!collapsed)
 		return;
