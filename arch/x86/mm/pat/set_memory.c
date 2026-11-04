@@ -1957,6 +1957,9 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	unsigned long vaddr;
 	int ret;
 
+	if (!(cpa->state & CPA_ST_ALIAS) && !(cpa->req & CPA_REQ_NO_ALIAS))
+		return 0;
+
 	if (!pfn_range_is_mapped(cpa->pfn, cpa->pfn + 1))
 		return 0;
 
@@ -2055,12 +2058,9 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa)
 		if (ret)
 			goto out;
 
-		if (!(cpa->state & CPA_ST_ALIAS) &&
-		    !(cpa->req & CPA_REQ_NO_ALIAS)) {
-			ret = cpa_process_alias(cpa);
-			if (ret)
-				goto out;
-		}
+		ret = cpa_process_alias(cpa);
+		if (ret)
+			goto out;
 
 		/*
 		 * Adjust the number of pages with the result of the
