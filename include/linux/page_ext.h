@@ -87,6 +87,7 @@ extern struct page_ext *page_ext_get(const struct page *page);
 extern struct page_ext *page_ext_from_phys(phys_addr_t phys);
 extern void page_ext_put(struct page_ext *page_ext);
 extern struct page_ext *page_ext_lookup(unsigned long pfn);
+struct page_ext *page_ext_lookup_raw(unsigned long pfn);
 
 static inline void *page_ext_data(struct page_ext *page_ext,
 				  struct page_ext_operations *ops)

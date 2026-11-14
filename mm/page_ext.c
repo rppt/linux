@@ -12,6 +12,7 @@
 #include <linux/rcupdate.h>
 #include <linux/pgalloc_tag.h>
 #include <linux/iommu-debug-pagealloc.h>
+#include <linux/kmsan.h>
 #include <linux/slab.h>
 
 /*
@@ -94,6 +95,9 @@ static struct page_ext_operations *page_ext_ops[] __initdata = {
 #ifdef CONFIG_IOMMU_DEBUG_PAGEALLOC
 	&page_iommu_debug_ops,
 #endif
+#ifdef CONFIG_KMSAN
+	&kmsan_ops,
+#endif
 };
 
 unsigned long page_ext_size;
@@ -170,13 +174,12 @@ void __init page_ext_init(void)
 	invoke_init_callbacks();
 }
 
-static struct page_ext *lookup_page_ext(const struct page *page)
+static struct page_ext *__lookup_page_ext(const struct page *page)
 {
 	unsigned long pfn = page_to_pfn(page);
 	unsigned long index;
 	struct page_ext *base;
 
-	WARN_ON_ONCE(!rcu_read_lock_held());
 	base = NODE_DATA(page_to_nid(page))->node_page_ext;
 	/*
 	 * The sanity checks the page allocator does upon freeing a
@@ -189,6 +192,12 @@ static struct page_ext *lookup_page_ext(const struct page *page)
 	index = pfn - round_down(node_start_pfn(page_to_nid(page)),
 					MAX_ORDER_NR_PAGES);
 	return get_entry(base, index);
+}
+
+static struct page_ext *lookup_page_ext(const struct page *page)
+{
+	WARN_ON_ONCE(!rcu_read_lock_held());
+	return __lookup_page_ext(page);
 }
 
 static int __init alloc_node_page_ext(int nid)
@@ -249,13 +258,12 @@ static bool page_ext_invalid(struct page_ext *page_ext)
 	return !page_ext || (((unsigned long)page_ext & PAGE_EXT_INVALID) == PAGE_EXT_INVALID);
 }
 
-static struct page_ext *lookup_page_ext(const struct page *page)
+static struct page_ext *__lookup_page_ext(const struct page *page)
 {
 	unsigned long pfn = page_to_pfn(page);
 	struct mem_section *section = __pfn_to_section(pfn);
 	struct page_ext *page_ext = READ_ONCE(section->page_ext);
 
-	WARN_ON_ONCE(!rcu_read_lock_held());
 	/*
 	 * The sanity checks the page allocator does upon freeing a
 	 * page can reach here before the page_ext arrays are
@@ -265,6 +273,12 @@ static struct page_ext *lookup_page_ext(const struct page *page)
 	if (page_ext_invalid(page_ext))
 		return NULL;
 	return get_entry(page_ext, pfn);
+}
+
+static struct page_ext *lookup_page_ext(const struct page *page)
+{
+	WARN_ON_ONCE(!rcu_read_lock_held());
+	return __lookup_page_ext(page);
 }
 
 static __ref void *alloc_page_ext(size_t size, int nid)
@@ -551,6 +565,21 @@ void __init page_ext_init(void)
 struct page_ext *page_ext_lookup(unsigned long pfn)
 {
 	return lookup_page_ext(pfn_to_page(pfn));
+}
+
+/**
+ * page_ext_lookup_raw() - Lookup a page extension without RCU checking.
+ * @pfn: PFN of the page we're interested in.
+ *
+ * The caller must prevent the page extension from being freed, for example by
+ * disabling preemption.  Unlike page_ext_lookup(), this function does not run
+ * lockdep checks and is safe to call from low-level sanitizer runtime code.
+ *
+ * Return: NULL if no page_ext exists for this page.
+ */
+struct page_ext *page_ext_lookup_raw(unsigned long pfn)
+{
+	return __lookup_page_ext(pfn_to_page(pfn));
 }
 
 /**

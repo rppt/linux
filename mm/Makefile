@@ -17,6 +17,14 @@ KCSAN_SANITIZE_page_alloc.o := n
 # But enable explicit instrumentation for memory barriers.
 KCSAN_INSTRUMENT_BARRIERS := y
 
+ifdef CONFIG_KMSAN
+KMSAN_SANITIZE_page_ext.o	:= n
+KCOV_INSTRUMENT_page_ext.o	:= n
+UBSAN_SANITIZE_page_ext.o	:= n
+CFLAGS_page_ext.o		+= -DDISABLE_BRANCH_PROFILING
+CFLAGS_REMOVE_page_ext.o	= $(CC_FLAGS_FTRACE)
+endif
+
 # These files are disabled because they produce non-interesting and/or
 # flaky coverage that is not a function of syscall inputs. E.g. slab is out of
 # free pages, or a task is migrated between nodes.
