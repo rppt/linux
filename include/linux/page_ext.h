@@ -16,6 +16,8 @@ struct pglist_data;
  * @size: The size of the client data within page_ext.
  * @need: Function that returns true if client requires page_ext.
  * @init: (optional) Called to initialize client once page_exts are allocated.
+ * @need_early: True if the client requires page_ext during early boot,
+ *              before normal memory allocation is available.
  * @need_shared_flags: True when client is using shared page_ext->flags
  *                     field.
  *
@@ -27,6 +29,7 @@ struct page_ext_operations {
 	size_t size;
 	bool (*need)(void);
 	void (*init)(void);
+	bool need_early;
 	bool need_shared_flags;
 };
 
@@ -61,15 +64,10 @@ static inline bool early_page_ext_enabled(void)
 	return early_page_ext;
 }
 
-#ifdef CONFIG_SPARSEMEM
-static inline void page_ext_init_flatmem(void)
-{
-}
-extern void page_ext_init(void);
-static inline void page_ext_init_flatmem_late(void)
-{
-}
+void page_ext_init_early(void);
+void page_ext_init(void);
 
+#ifdef CONFIG_SPARSEMEM
 static inline bool page_ext_iter_next_fast_possible(unsigned long next_pfn)
 {
 	/*
@@ -79,12 +77,6 @@ static inline bool page_ext_iter_next_fast_possible(unsigned long next_pfn)
 	return next_pfn % PAGES_PER_SECTION;
 }
 #else
-extern void page_ext_init_flatmem(void);
-extern void page_ext_init_flatmem_late(void);
-static inline void page_ext_init(void)
-{
-}
-
 static inline bool page_ext_iter_next_fast_possible(unsigned long next_pfn)
 {
 	return true;
@@ -205,11 +197,7 @@ static inline void page_ext_init(void)
 {
 }
 
-static inline void page_ext_init_flatmem_late(void)
-{
-}
-
-static inline void page_ext_init_flatmem(void)
+static inline void page_ext_init_early(void)
 {
 }
 

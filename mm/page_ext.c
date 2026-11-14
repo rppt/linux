@@ -12,6 +12,7 @@
 #include <linux/rcupdate.h>
 #include <linux/pgalloc_tag.h>
 #include <linux/iommu-debug-pagealloc.h>
+#include <linux/slab.h>
 
 /*
  * struct page extension
@@ -135,7 +136,12 @@ static bool __init invoke_need_callbacks(void)
 		if (page_ext_ops[i]->need()) {
 			page_ext_ops[i]->offset = page_ext_size;
 			page_ext_size += page_ext_ops[i]->size;
-			need = true;
+			/*
+			 * page_ext requires contiguous pages, bigger than
+			 * MAX_PAGE_ORDER unless SPARSEMEM.
+			 */
+			need |= !IS_ENABLED(CONFIG_SPARSEMEM) ||
+				page_ext_ops[i]->need_early;
 		}
 	}
 
@@ -159,7 +165,7 @@ static inline struct page_ext *get_entry(void *base, unsigned long index)
 }
 
 #ifndef CONFIG_SPARSEMEM
-void __init page_ext_init_flatmem_late(void)
+void __init page_ext_init(void)
 {
 	invoke_init_callbacks();
 }
@@ -217,9 +223,8 @@ static int __init alloc_node_page_ext(int nid)
 	return 0;
 }
 
-void __init page_ext_init_flatmem(void)
+void __init page_ext_init_early(void)
 {
-
 	int nid, fail;
 
 	if (!invoke_need_callbacks())
@@ -262,10 +267,18 @@ static struct page_ext *lookup_page_ext(const struct page *page)
 	return get_entry(page_ext, pfn);
 }
 
-static void *__meminit alloc_page_ext(size_t size, int nid)
+static __ref void *alloc_page_ext(size_t size, int nid)
 {
 	gfp_t flags = GFP_KERNEL | __GFP_ZERO | __GFP_NOWARN;
 	void *addr = NULL;
+
+	if (!slab_is_available()) {
+		addr = memblock_alloc_try_nid(size, PAGE_SIZE, 0,
+					      MEMBLOCK_ALLOC_ACCESSIBLE, nid);
+		if (addr)
+			memmap_boot_pages_add(size / PAGE_SIZE);
+		return addr;
+	}
 
 	addr = alloc_pages_exact_nid(nid, size, flags);
 	if (addr)
@@ -274,7 +287,7 @@ static void *__meminit alloc_page_ext(size_t size, int nid)
 		addr = vzalloc_node(size, nid);
 
 	if (addr)
-		memmap_pages_add(DIV_ROUND_UP(size, PAGE_SIZE));
+		memmap_pages_add(size / PAGE_SIZE);
 
 	return addr;
 }
@@ -290,7 +303,7 @@ static int __meminit init_section_page_ext(unsigned long pfn, int nid)
 	if (section->page_ext)
 		return 0;
 
-	table_size = page_ext_size * PAGES_PER_SECTION;
+	table_size = PAGE_ALIGN(page_ext_size * PAGES_PER_SECTION);
 	base = alloc_page_ext(table_size, nid);
 
 	/*
@@ -317,20 +330,27 @@ static int __meminit init_section_page_ext(unsigned long pfn, int nid)
 
 static void free_page_ext(void *addr)
 {
-	size_t table_size;
+	size_t table_size = PAGE_ALIGN(page_ext_size * PAGES_PER_SECTION);
+	long nr_pages = table_size / PAGE_SIZE;
 	struct page *page;
 
-	table_size = page_ext_size * PAGES_PER_SECTION;
-	memmap_pages_add(-1L * (DIV_ROUND_UP(table_size, PAGE_SIZE)));
-
 	if (is_vmalloc_addr(addr)) {
+		memmap_pages_add(-nr_pages);
 		vfree(addr);
-	} else {
-		page = virt_to_page(addr);
-		BUG_ON(PageReserved(page));
-		kmemleak_free(addr);
-		free_pages_exact(addr, table_size);
+		return;
 	}
+
+	page = virt_to_page(addr);
+	if (PageReserved(page)) {
+		memmap_boot_pages_add(-nr_pages);
+		kmemleak_free_part_phys(__pa(addr), table_size);
+		free_reserved_area(addr, addr + table_size, -1, "page_ext");
+		return;
+	}
+
+	memmap_pages_add(-nr_pages);
+	kmemleak_free(addr);
+	free_pages_exact(addr, table_size);
 }
 
 static void __free_page_ext(unsigned long pfn)
@@ -444,13 +464,27 @@ static int __meminit page_ext_callback(struct notifier_block *self,
 	return notifier_from_errno(ret);
 }
 
-void __init page_ext_init(void)
+static int __init page_ext_init_sections_early(void)
+{
+	unsigned long start, end, pfn;
+	int i, nid;
+
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start, &end, &nid) {
+		for (pfn = start; pfn < end; pfn = SECTION_ALIGN_UP(pfn + 1)) {
+			if (!pfn_valid(pfn))
+				continue;
+			if (init_section_page_ext(pfn, nid))
+				return -ENOMEM;
+		}
+	}
+
+	return 0;
+}
+
+static int __init page_ext_init_sections(void)
 {
 	unsigned long pfn;
 	int nid;
-
-	if (!invoke_need_callbacks())
-		return;
 
 	for_each_node_state(nid, N_MEMORY) {
 		unsigned long start_pfn, end_pfn;
@@ -476,17 +510,32 @@ void __init page_ext_init(void)
 			if (pfn_to_nid(pfn) != nid)
 				continue;
 			if (init_section_page_ext(pfn, nid))
-				goto oom;
+				return -ENOMEM;
 			cond_resched();
 		}
 	}
+
+	return 0;
+}
+
+void __init page_ext_init_early(void)
+{
+	if (!invoke_need_callbacks())
+		return;
+	if (page_ext_init_sections_early())
+		panic("Out of memory");
+}
+
+void __init page_ext_init(void)
+{
+	if (!page_ext_size)
+		return;
+	if (page_ext_init_sections())
+		panic("Out of memory");
+
 	hotplug_memory_notifier(page_ext_callback, DEFAULT_CALLBACK_PRI);
 	pr_info("allocated %ld bytes of page_ext\n", total_usage);
 	invoke_init_callbacks();
-	return;
-
-oom:
-	panic("Out of memory");
 }
 
 #endif
